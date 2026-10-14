@@ -1,4 +1,4 @@
-import { MathUtils, PerspectiveCamera } from 'three';
+import { PerspectiveCamera } from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export function createCameraControls(camera: PerspectiveCamera, canvas: HTMLElement): OrbitControls {
@@ -8,10 +8,6 @@ export function createCameraControls(camera: PerspectiveCamera, canvas: HTMLElem
   const controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
   controls.screenSpacePanning = true;
-  // At the poles, turning around Z becomes a rotation around the viewing axis.
-  // Keep a visible vertical reference instead of allowing that apparent roll.
-  controls.minPolarAngle = MathUtils.degToRad(5);
-  controls.maxPolarAngle = MathUtils.degToRad(175);
   controls.update();
   return controls;
 }

@@ -21,7 +21,7 @@ function expectUpright(camera: PerspectiveCamera) {
   const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
   const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
   expect(right.z).toBeCloseTo(0, 10);
-  expect(up.z).toBeGreaterThan(0.08);
+  expect(up.z).toBeGreaterThan(0);
 }
 
 describe('Z-up camera controls', () => {
@@ -43,20 +43,22 @@ describe('Z-up camera controls', () => {
     controls.dispose();
   });
 
-  it.each([-10000, 10000])('stops vertical drags before the pole (%s)', y => {
+  it.each([-10000, 10000])('allows a vertical view and heading rotation (%s)', y => {
     const canvas = new Canvas(), camera = new PerspectiveCamera();
     const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
     pointer(canvas, 'pointerdown', 400, 300);
     pointer(canvas, 'pointermove', 400, y);
     for (let frame = 0; frame < 200; frame++) controls.update();
     expectUpright(camera);
-    const angle = controls.getPolarAngle();
-    expect(angle).toBeGreaterThanOrEqual(Math.PI / 36 - 1e-10);
-    expect(angle).toBeLessThanOrEqual(Math.PI * 35 / 36 + 1e-10);
-    const position = camera.position.clone();
+    const direction = camera.getWorldDirection(new Vector3());
+    expect(direction.z).toBeCloseTo(y < 0 ? 1 : -1, 10);
+    const orientation = camera.quaternion.clone();
+    const distance = controls.getDistance();
     pointer(canvas, 'pointermove', 500, y);
-    controls.update();
-    expect(camera.position.distanceTo(position)).toBeGreaterThan(0);
+    for (let frame = 0; frame < 200; frame++) controls.update();
+    expect(camera.quaternion.angleTo(orientation)).toBeGreaterThan(0.1);
+    expect(camera.getWorldDirection(new Vector3()).z).toBeCloseTo(direction.z, 10);
+    expect(controls.getDistance()).toBeCloseTo(distance, 10);
     expectUpright(camera);
     pointer(canvas, 'pointerup', 500, y);
     controls.dispose();
