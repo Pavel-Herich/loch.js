@@ -39,7 +39,7 @@ export function parseLox(buffer: ArrayBuffer): Model {
         if (!(flags & (1 | 4 | 16))) shotIds.push([from, to]);
       }
     } else if (kind === 4) {
-      // id, surveyId, numPoints, pointDataPtr, numTriangles, triangleDataPtr = 32 bytes
+      // id, surveyId, numPoints, pointDataPtr, numTriangles, triangleDataPtr = 36 bytes
       if (recordBytes !== count * 32) throw new Error('Invalid scrap chunk');
       for (let i = 0; i < count; i++) {
         u(recordsEnd); u(recordsEnd); const nPoints = u(recordsEnd), [po, ps] = ptr(recordsEnd);

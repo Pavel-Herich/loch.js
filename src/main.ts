@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { createCameraControls } from './camera';
-import { createWallGeometry } from './walls';
 import { parseLox, type Model, type Point } from './lox';
 import './style.css';
 
@@ -42,13 +41,14 @@ function draw(model: Model, label: string) {
   const centered = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(), bounds.getSize(new THREE.Vector3()));
   activeBox = centered;
   for (const scrap of model.scraps) {
-    if (!scrap.triangles.length) continue;
-    const g = createWallGeometry(scrap, origin), positions = g.getAttribute('position');
-    const colors: number[] = [];
-    for (let i = 0; i < positions.count; i++) {
-      const col = altitudeColor(positions.getZ(i) + origin.z, model); colors.push(col.r, col.g, col.b);
+    const positions: number[] = [], colors: number[] = [], indices: number[] = [];
+    for (const p of scrap.points) {
+      positions.push(...offset(p, origin)); const col = altitudeColor(p[2], model); colors.push(col.r, col.g, col.b);
     }
-    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    for (const triangle of scrap.triangles) indices.push(...triangle);
+    if (!indices.length) continue;
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.setIndex(indices); g.computeVertexNormals();
     walls.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: .85, metalness: 0 })));
   }
   const vertices: number[] = [], colors: number[] = [];
