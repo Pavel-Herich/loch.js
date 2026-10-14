@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { createCameraControls } from './camera';
 import { parseLox, type Model, type Point } from './lox';
 import './style.css';
 
@@ -8,11 +8,9 @@ const status = document.querySelector<HTMLElement>('#status')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x09131c);
 const camera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
-// LOX elevation is Z; OrbitControls keeps this axis upright and prevents roll.
-camera.up.set(0, 0, 1);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.screenSpacePanning = true;
+const controls = createCameraControls(camera, canvas);
 scene.add(new THREE.HemisphereLight(0xcfe9ff, 0x213847, 2.1));
 const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(1, 2, 3); scene.add(light);
 const walls = new THREE.Group(), lines = new THREE.Group(); scene.add(walls, lines);
