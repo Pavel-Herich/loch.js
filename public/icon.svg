@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><rect width="128" height="128" rx="24" fill="#162531"/><path d="M10 90 35 36 55 78 76 22 118 90Z" fill="#46c9aa"/><path d="M10 100h108" stroke="#fff" stroke-width="7"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <title>loch.js cave entrance</title>
+  <rect width="128" height="128" rx="26" fill="#f7f5ef"/>
+  <path d="M20 102H48C48 90 29 84 29 63C29 38 49 22 69 22C91 22 104 39 102 60C100 79 90 90 80 99V102H109"
+        fill="none" stroke="#162531" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
