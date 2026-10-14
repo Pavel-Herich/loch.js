@@ -3,3 +3,6 @@ dist/
 src-tauri/target/
 *.log
 .DS_Store
+.codex
+.run
+package-lock.json
