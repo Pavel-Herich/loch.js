@@ -8,6 +8,8 @@ const status = document.querySelector<HTMLElement>('#status')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x09131c);
 const camera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
+// LOX elevation is Z; OrbitControls keeps this axis upright and prevents roll.
+camera.up.set(0, 0, 1);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const controls = new OrbitControls(camera, canvas); controls.enableDamping = true; controls.screenSpacePanning = true;
