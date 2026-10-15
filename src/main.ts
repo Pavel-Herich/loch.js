@@ -4,6 +4,8 @@ import { createCameraControls, setCameraView } from './camera';
 import { exceptionMessage, showLoadError } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import { initializeMenus } from './menus';
+import type { GeometryBatch, LargeModel, LoadProgress } from './large-lox';
+import { largeWallMaterial, LargeScene } from './large-scene';
 import './style.css';
 
 initializeAbout();
@@ -11,6 +13,7 @@ initializeAbout();
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const status = document.querySelector<HTMLElement>('#status')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
+const detail = document.querySelector<HTMLSelectElement>('#detail')!;
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x09131c);
 const camera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -23,19 +26,35 @@ const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
 boundingBox.visible = false;
 scene.add(boundingBox);
 let activeBox = new THREE.Box3();
+let loadId = 0;
+let largeWorker: Worker | undefined;
+let loadingLargeWalls = false;
+let largeScene: LargeScene | undefined;
+let largeModel: { name: string; model: LargeModel } | undefined;
+let sceneDirty = true;
+controls.addEventListener('change', () => { sceneDirty = true; });
+canvas.addEventListener('webglcontextrestored', () => { sceneDirty = true; });
 const menus = initializeMenus(view => setCameraView(camera, controls, activeBox, view), error => {
   status.textContent = `Cannot change full screen: ${exceptionMessage(error)}`;
 });
 const c = new THREE.Color();
-function altitudeColor(z: number, model: Model): THREE.Color {
+function altitudeColor(z: number, model: Pick<Model, 'minZ' | 'maxZ'>): THREE.Color {
   const t = model.maxZ === model.minZ ? .5 : (z - model.minZ) / (model.maxZ - model.minZ);
   return c.setHSL((1 - t) * .68, .82, .54).clone();
 }
 function offset(p: Point, origin: THREE.Vector3): [number, number, number] { return [p[0] - origin.x, p[1] - origin.y, p[2] - origin.z]; }
 function clear(g: THREE.Group) {
-  for (const object of [...g.children]) { g.remove(object); const mesh = object as THREE.Mesh; (mesh.geometry as THREE.BufferGeometry)?.dispose(); (mesh.material as THREE.Material)?.dispose(); }
+  const materials = new Set<THREE.Material>();
+  for (const object of [...g.children]) { g.remove(object); const mesh = object as THREE.Mesh; mesh.geometry?.dispose(); if (mesh.material) materials.add(mesh.material as THREE.Material); }
+  for (const material of materials) material.dispose();
+}
+function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
+  const low = altitudeColor(model.minZ, model).getStyle(), high = altitudeColor(model.maxZ, model).getStyle();
+  legend.innerHTML = `<span>${model.maxZ.toFixed(1)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.minZ.toFixed(1)} m</span>`;
 }
 function draw(model: Model, label: string) {
+  sceneDirty = true;
+  largeScene = undefined; largeModel = undefined;
   clear(walls); clear(lines);
   const bounds = new THREE.Box3();
   for (const p of model.stations.values()) bounds.expandByPoint(new THREE.Vector3(...p));
@@ -65,36 +84,128 @@ function draw(model: Model, label: string) {
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     lines.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true })));
   }
-  const low = altitudeColor(model.minZ, model).getStyle(), high = altitudeColor(model.maxZ, model).getStyle();
-  legend.innerHTML = `<span>${model.maxZ.toFixed(1)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.minZ.toFixed(1)} m</span>`;
+  updateLegend(model);
   status.textContent = `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`;
   setCameraView(camera, controls, activeBox, 'fit');
 }
 async function loadFile(file: File) {
+  const id = ++loadId;
+  largeWorker?.terminate(); largeWorker = undefined;
+  loadingLargeWalls = false;
+  sceneDirty = true;
   status.textContent = `Opening ${file.name}…`;
   let phase = 'Reading file';
   try {
+    if (file.size > 32 * 1024 * 1024) { loadLargeFile(file, id); return; }
     const buffer = await file.arrayBuffer();
+    if (id !== loadId) return;
     phase = 'Parsing LOX';
     const model = parseLox(buffer);
     phase = 'Rendering model';
     draw(model, file.name);
     menus.collapse();
   }
-  catch (e) { showLoadError(status, e, { phase, file }); }
+  catch (e) { if (id === loadId) showLoadError(status, e, { phase, file }); }
 }
+
+function loadLargeFile(file: File, id: number) {
+  const worker = new Worker(new URL('./large-lox.worker.ts', import.meta.url), { type: 'module' });
+  largeWorker = worker;
+  loadingLargeWalls = true;
+  let phase = 'Reading LOX directory';
+  let material: THREE.MeshStandardMaterial | undefined;
+  function stop(error?: unknown) {
+    worker.terminate();
+    if (largeWorker === worker) largeWorker = undefined;
+    loadingLargeWalls = false;
+    sceneDirty = true;
+    if (material && !walls.children.length) material.dispose();
+    if (error !== undefined && id === loadId) showLoadError(status, error, { phase, file });
+  }
+  worker.onerror = event => {
+    event.preventDefault();
+    if (id === loadId) stop(new Error(event.message || 'Large-file worker failed'));
+  };
+  worker.onmessage = (event: MessageEvent<{
+    type: string; model: LargeModel; batch: GeometryBatch;
+    error: { name: string; message: string; stack?: string; code?: number };
+  } & LoadProgress>) => {
+    if (id !== loadId) return;
+    const message = event.data;
+    try {
+      if (message.type === 'progress') {
+        phase = message.phase;
+        const percent = message.total ? Math.round(message.completed / message.total * 100) : 100;
+        status.textContent = `${file.name} · ${phase} · ${percent}%`;
+      } else if (message.type === 'ready') {
+        phase = 'Preparing full-detail scene';
+        const model = message.model;
+        largeScene = undefined; largeModel = undefined;
+        clear(walls); clear(lines);
+        loadingLargeWalls = true;
+        sceneDirty = true;
+        const origin = new THREE.Vector3(...model.origin);
+        activeBox = new THREE.Box3(new THREE.Vector3(...model.min).sub(origin), new THREE.Vector3(...model.max).sub(origin));
+        boundingBox.box.copy(activeBox);
+        boundingBox.visible = document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
+        material = largeWallMaterial(model);
+        largeScene = new LargeScene(walls, material, model);
+        const vertices = new Float32Array(model.shots.length * 6), colors = new Float32Array(vertices.length);
+        let p = 0;
+        for (const shot of model.shots) for (const point of shot) {
+          vertices.set(offset(point, origin), p);
+          colors.set(altitudeColor(point[2], model).toArray(), p); p += 3;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+        lines.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true })));
+        updateLegend(model); setCameraView(camera, controls, activeBox, 'fit'); menus.collapse();
+        worker.postMessage({ acknowledge: true });
+      } else if (message.type === 'batch') {
+        phase = 'Rendering full-detail walls';
+        largeScene!.add(message.batch);
+        worker.postMessage({ acknowledge: true });
+      } else if (message.type === 'done') {
+        largeModel = { name: file.name, model: message.model };
+        updateLargeStatus();
+        stop();
+      } else if (message.type === 'error') {
+        stop(Object.assign(new Error(message.error.message), message.error));
+      }
+    } catch (error) { stop(error); }
+  };
+  worker.postMessage({ file });
+}
+function updateLargeStatus() {
+  if (!largeModel) return;
+  const { name, model } = largeModel;
+  status.textContent = `${name} · ${model.scraps} scraps · ${model.triangles.toLocaleString()} triangles · ${detail.value === 'full' ? 'full detail' : 'automatic detail (nearby triangles, distant points)'}`;
+}
+detail.addEventListener('change', () => { sceneDirty = true; updateLargeStatus(); });
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
 chooser.addEventListener('change', () => { if (chooser.files?.[0]) void loadFile(chooser.files[0]); });
-document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; });
-document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; });
+document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; sceneDirty = true; });
+document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; sceneDirty = true; });
 document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('change', e => {
   boundingBox.visible = !activeBox.isEmpty() && (e.target as HTMLInputElement).checked;
+  sceneDirty = true;
 });
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file?.name.toLowerCase().endsWith('.lox')) void loadFile(file); });
-const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); sceneDirty = true; };
 new ResizeObserver(resize).observe(canvas); resize();
-function frame() { requestAnimationFrame(frame); controls.update(); renderer.render(scene, camera); } frame();
+function frame() {
+  requestAnimationFrame(frame); controls.update();
+  if (!sceneDirty) return;
+  const visible = walls.visible;
+  if (!loadingLargeWalls) largeScene?.update(camera, detail.value === 'full');
+  if (loadingLargeWalls) walls.visible = false;
+  renderer.render(scene, camera);
+  walls.visible = visible;
+  sceneDirty = false;
+}
+frame();
 async function loadSample() {
   const source = `${import.meta.env.BASE_URL}sample/demo.lox`;
   let phase = 'Fetching sample';
@@ -103,11 +214,12 @@ async function loadSample() {
     if (!response.ok) throw new Error(`Sample request failed: HTTP ${response.status} ${response.statusText}`);
     phase = 'Reading sample';
     const buffer = await response.arrayBuffer();
+    if (loadId !== 0) return;
     phase = 'Parsing LOX';
     const model = parseLox(buffer);
     phase = 'Rendering model';
     draw(model, 'Sample cave');
   }
-  catch (e) { showLoadError(status, e, { phase, source }); }
+  catch (e) { if (loadId === 0) showLoadError(status, e, { phase, source }); }
 }
 void loadSample();
