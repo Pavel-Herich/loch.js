@@ -13,7 +13,7 @@ export function createCameraControls(camera: PerspectiveCamera, canvas: HTMLElem
   return controls;
 }
 
-export type ModelView = 'plan' | 'profile' | 'fit';
+export type ModelView = 'perspective' | 'plan' | 'profile' | 'fit';
 
 export function setTiltLocked(controls: OrbitControls, locked: boolean) {
   const angle = controls.getPolarAngle();
@@ -32,7 +32,8 @@ export function setCameraView(camera: PerspectiveCamera, controls: OrbitControls
   controls.update();
   const radius = Math.max(box.getSize(new Vector3()).length() / 2, 1);
   const direction = (view === 'plan' ? new Vector3(0, -1e-6, 1)
-    : view === 'profile' ? new Vector3(0, -1, 0) : camera.getWorldDirection(new Vector3()).negate()).normalize();
+    : view === 'profile' ? new Vector3(0, -1, 0)
+    : view === 'perspective' ? new Vector3(1.25, -1.8, 1.1) : camera.getWorldDirection(new Vector3()).negate()).normalize();
   const right = new Vector3().crossVectors(camera.up, direction).normalize();
   const up = new Vector3().crossVectors(direction, right);
   const center = box.getCenter(new Vector3());
@@ -54,5 +55,5 @@ export function setCameraView(camera: PerspectiveCamera, controls: OrbitControls
   camera.updateProjectionMatrix();
   controls.update();
   controls.enableDamping = damping;
-  setTiltLocked(controls, tiltLocked || view === 'plan' || view === 'profile');
+  setTiltLocked(controls, view === 'fit' ? tiltLocked : view === 'plan' || view === 'profile');
 }

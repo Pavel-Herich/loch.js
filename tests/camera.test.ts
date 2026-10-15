@@ -116,7 +116,7 @@ describe('model views', () => {
     controls.dispose();
   });
 
-  it.each(['plan', 'profile', 'fit'] as const)('fits %s on wide and narrow screens without orbit drift', view => {
+  it.each(['perspective', 'plan', 'profile', 'fit'] as const)('fits %s on wide and narrow screens without orbit drift', view => {
     for (const aspect of [1.8, 0.5]) {
       const canvas = new Canvas(), camera = new PerspectiveCamera(45, aspect);
       const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
@@ -144,6 +144,19 @@ describe('model views', () => {
       }
       controls.dispose();
     }
+  });
+
+  it('restores the angled perspective view and unlocks tilt after Plan', () => {
+    const canvas = new Canvas(), camera = new PerspectiveCamera();
+    const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+    const box = new Box3(new Vector3(-10, -10, -10), new Vector3(10, 10, 10));
+    setCameraView(camera, controls, box, 'plan');
+    setCameraView(camera, controls, box, 'perspective');
+    const expected = new Vector3(-1.25, 1.8, -1.1).normalize();
+    expect(camera.getWorldDirection(new Vector3()).distanceTo(expected)).toBeLessThan(1e-8);
+    expect(controls.minPolarAngle).toBe(0);
+    expect(controls.maxPolarAngle).toBe(Math.PI);
+    controls.dispose();
   });
 
   it.each(['plan', 'profile'] as const)('preserves locked %s orientation when fitting after a pan', view => {
