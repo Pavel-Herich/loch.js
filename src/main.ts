@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import { initializeAbout } from './about';
 import { createCameraControls, setCameraView } from './camera';
-import { exceptionMessage, showLoadError } from './errors';
+import { exceptionMessage, showLoadError, type LoadContext } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import { initializeMenus } from './menus';
 import type { GeometryBatch, LargeModel, LoadProgress } from './large-lox';
 import { largeWallMaterial, LargeScene } from './large-scene';
+import { ProgressiveView } from './progressive-view';
+import { setStatusProgress, setStatusText } from './status';
 import './style.css';
 
 initializeAbout();
@@ -30,12 +32,26 @@ let loadId = 0;
 let largeWorker: Worker | undefined;
 let loadingLargeWalls = false;
 let largeScene: LargeScene | undefined;
-let largeModel: { name: string; model: LargeModel } | undefined;
+let largeModel: { name: string; model: LargeModel; file: File } | undefined;
 let sceneDirty = true;
-controls.addEventListener('change', () => { sceneDirty = true; });
-canvas.addEventListener('webglcontextrestored', () => { sceneDirty = true; });
+let viewRefined = false;
+let loadingError = false;
+let lastViewChange = performance.now();
+let progressiveView: ProgressiveView | undefined;
+function invalidateView() {
+  sceneDirty = true; viewRefined = false; lastViewChange = performance.now();
+  progressiveView?.dispose(); progressiveView = undefined;
+  if (!largeWorker) { setStatusProgress(status); updateLargeStatus(); }
+}
+function reportLoadError(error: unknown, context: LoadContext) {
+  loadingError = true;
+  showLoadError(status, error, context);
+}
+controls.addEventListener('change', invalidateView);
+canvas.addEventListener('webglcontextrestored', invalidateView);
 const menus = initializeMenus(view => setCameraView(camera, controls, activeBox, view), error => {
-  status.textContent = `Cannot change full screen: ${exceptionMessage(error)}`;
+  loadingError = true; setStatusProgress(status);
+  setStatusText(status, `Cannot change full screen: ${exceptionMessage(error)}`);
 });
 const c = new THREE.Color();
 function altitudeColor(z: number, model: Pick<Model, 'minZ' | 'maxZ'>): THREE.Color {
@@ -53,8 +69,8 @@ function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
   legend.innerHTML = `<span>${model.maxZ.toFixed(1)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.minZ.toFixed(1)} m</span>`;
 }
 function draw(model: Model, label: string) {
-  sceneDirty = true;
   largeScene = undefined; largeModel = undefined;
+  invalidateView();
   clear(walls); clear(lines);
   const bounds = new THREE.Box3();
   for (const p of model.stations.values()) bounds.expandByPoint(new THREE.Vector3(...p));
@@ -85,15 +101,15 @@ function draw(model: Model, label: string) {
     lines.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true })));
   }
   updateLegend(model);
-  status.textContent = `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`;
+  setStatusText(status, `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`);
   setCameraView(camera, controls, activeBox, 'fit');
 }
 async function loadFile(file: File) {
   const id = ++loadId;
   largeWorker?.terminate(); largeWorker = undefined;
-  loadingLargeWalls = false;
-  sceneDirty = true;
-  status.textContent = `Opening ${file.name}…`;
+  loadingLargeWalls = false; loadingError = false;
+  invalidateView();
+  setStatusText(status, `Opening ${file.name}…`); setStatusProgress(status, 0);
   let phase = 'Reading file';
   try {
     if (file.size > 32 * 1024 * 1024) { loadLargeFile(file, id); return; }
@@ -105,7 +121,7 @@ async function loadFile(file: File) {
     draw(model, file.name);
     menus.collapse();
   }
-  catch (e) { if (id === loadId) showLoadError(status, e, { phase, file }); }
+  catch (e) { if (id === loadId) reportLoadError(e, { phase, file }); }
 }
 
 function loadLargeFile(file: File, id: number) {
@@ -118,9 +134,9 @@ function loadLargeFile(file: File, id: number) {
     worker.terminate();
     if (largeWorker === worker) largeWorker = undefined;
     loadingLargeWalls = false;
-    sceneDirty = true;
+    invalidateView();
     if (material && !walls.children.length) material.dispose();
-    if (error !== undefined && id === loadId) showLoadError(status, error, { phase, file });
+    if (error !== undefined && id === loadId) reportLoadError(error, { phase, file });
   }
   worker.onerror = event => {
     event.preventDefault();
@@ -136,14 +152,15 @@ function loadLargeFile(file: File, id: number) {
       if (message.type === 'progress') {
         phase = message.phase;
         const percent = message.total ? Math.round(message.completed / message.total * 100) : 100;
-        status.textContent = `${file.name} · ${phase} · ${percent}%`;
+        setStatusText(status, `${file.name} · ${phase} · ${percent}%`);
+        setStatusProgress(status, percent / 100);
       } else if (message.type === 'ready') {
         phase = 'Preparing full-detail scene';
         const model = message.model;
         largeScene = undefined; largeModel = undefined;
         clear(walls); clear(lines);
         loadingLargeWalls = true;
-        sceneDirty = true;
+        invalidateView();
         const origin = new THREE.Vector3(...model.origin);
         activeBox = new THREE.Box3(new THREE.Vector3(...model.min).sub(origin), new THREE.Vector3(...model.max).sub(origin));
         boundingBox.box.copy(activeBox);
@@ -167,7 +184,7 @@ function loadLargeFile(file: File, id: number) {
         largeScene!.add(message.batch);
         worker.postMessage({ acknowledge: true });
       } else if (message.type === 'done') {
-        largeModel = { name: file.name, model: message.model };
+        largeModel = { name: file.name, model: message.model, file };
         updateLargeStatus();
         stop();
       } else if (message.type === 'error') {
@@ -178,32 +195,46 @@ function loadLargeFile(file: File, id: number) {
   worker.postMessage({ file });
 }
 function updateLargeStatus() {
-  if (!largeModel) return;
+  if (!largeModel || largeWorker || loadingError) return;
   const { name, model } = largeModel;
-  status.textContent = `${name} · ${model.scraps} scraps · ${model.triangles.toLocaleString()} triangles · ${detail.value === 'full' ? 'full detail' : 'automatic detail (nearby triangles, distant points)'}`;
+  setStatusText(status, `${name} · ${model.scraps} scraps · ${model.triangles.toLocaleString()} triangles · ${detail.value === 'full' ? 'full detail' : viewRefined ? 'automatic detail · stationary view complete' : 'automatic detail (moving preview)'}`);
 }
-detail.addEventListener('change', () => { sceneDirty = true; updateLargeStatus(); });
+detail.addEventListener('change', () => { loadingError = false; invalidateView(); });
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
 chooser.addEventListener('change', () => { if (chooser.files?.[0]) void loadFile(chooser.files[0]); });
-document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; sceneDirty = true; });
-document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; sceneDirty = true; });
+document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
+document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
 document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('change', e => {
   boundingBox.visible = !activeBox.isEmpty() && (e.target as HTMLInputElement).checked;
-  sceneDirty = true;
+  invalidateView();
 });
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file?.name.toLowerCase().endsWith('.lox')) void loadFile(file); });
-const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); sceneDirty = true; };
+const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); invalidateView(); };
 new ResizeObserver(resize).observe(canvas); resize();
 function frame() {
   requestAnimationFrame(frame); controls.update();
-  if (!sceneDirty) return;
-  const visible = walls.visible;
-  if (!loadingLargeWalls) largeScene?.update(camera, detail.value === 'full');
-  if (loadingLargeWalls) walls.visible = false;
-  renderer.render(scene, camera);
-  walls.visible = visible;
-  sceneDirty = false;
+  if (sceneDirty) {
+    const visible = walls.visible;
+    if (!loadingLargeWalls) largeScene?.update(camera, detail.value === 'full');
+    if (loadingLargeWalls) walls.visible = false;
+    renderer.render(scene, camera);
+    walls.visible = visible; sceneDirty = false;
+    return;
+  }
+  if (largeWorker || !largeScene || !largeModel || !walls.visible || detail.value === 'full' || loadingError
+    || viewRefined || performance.now() - lastViewChange < 500) return;
+  try {
+    progressiveView ??= new ProgressiveView(renderer, scene, camera, largeScene);
+    if (!progressiveView.complete) progressiveView.step();
+    const percent = Math.round(progressiveView.progress * 100);
+    setStatusText(status, `${largeModel.name} · Refining stationary view · ${percent}%`);
+    setStatusProgress(status, percent / 100);
+    if (progressiveView.complete) { viewRefined = true; setStatusProgress(status); updateLargeStatus(); }
+  } catch (error) {
+    progressiveView?.dispose(); progressiveView = undefined;
+    reportLoadError(error, { phase: 'Refining stationary view', file: largeModel.file });
+  }
 }
 frame();
 async function loadSample() {
@@ -220,6 +251,6 @@ async function loadSample() {
     phase = 'Rendering model';
     draw(model, 'Sample cave');
   }
-  catch (e) { if (loadId === 0) showLoadError(status, e, { phase, source }); }
+  catch (e) { if (loadId === 0) reportLoadError(e, { phase, source }); }
 }
 void loadSample();

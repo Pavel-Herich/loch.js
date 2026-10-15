@@ -79,4 +79,14 @@ export class LargeScene {
   }
 
   get renderedTriangles() { return this.entries.reduce((sum, entry) => sum + (entry.high ? entry.triangles : 0), 0); }
+
+  refinementBatches(camera: THREE.PerspectiveCamera) {
+    for (const entry of this.entries) {
+      entry.mesh.visible = false; entry.points.visible = false;
+      if (entry.high) entry.mesh.geometry.dispose();
+      entry.high = false;
+    }
+    return [...this.entries].sort((a, b) => camera.position.distanceToSquared(a.center) - camera.position.distanceToSquared(b.center))
+      .map(entry => entry.mesh);
+  }
 }

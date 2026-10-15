@@ -1,4 +1,5 @@
 import { buildInfo } from './build-info';
+import { setStatusProgress, setStatusText } from './status';
 
 export type LoadContext = {
   phase: string;
@@ -67,7 +68,8 @@ function openErrorLog(text: string) {
 
 export function showLoadError(status: HTMLElement, error: unknown, context: LoadContext) {
   const text = formatLoadError(error, context);
-  status.textContent = `Cannot read ${context.file?.name || context.source || 'sample'}: ${exceptionMessage(error)} `;
+  setStatusProgress(status);
+  setStatusText(status, `Cannot read ${context.file?.name || context.source || 'sample'}: ${exceptionMessage(error)} `);
   const more = document.createElement('a');
   more.href = '#error-details'; more.textContent = '[more...]';
   more.setAttribute('aria-label', 'Show exception log');

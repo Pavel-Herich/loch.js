@@ -23,6 +23,10 @@ describe('large-scene detail control', () => {
     expect(samples.every(sample => sample.visible && sample.geometry.getAttribute('position').count <= 512)).toBe(true);
     camera.position.set(0, 0, 1); scene.update(camera, false);
     expect(scene.renderedTriangles).toBe(LOD_TRIANGLE_BUDGET);
+    const queue = scene.refinementBatches(camera);
+    expect(queue).toHaveLength(6);
+    expect(group.children.every(child => !child.visible)).toBe(true);
+    expect(queue.every(mesh => meshes.includes(mesh))).toBe(true);
     scene.update(camera, true);
     expect(scene.renderedTriangles).toBe(BATCH_TRIANGLES * 6);
     let evicted = 0;
