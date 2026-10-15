@@ -23,7 +23,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const controls = createCameraControls(camera, canvas);
 scene.add(new THREE.HemisphereLight(0xcfe9ff, 0x213847, 2.1));
-const light = new THREE.DirectionalLight(0xffffff, 2); scene.add(light);
+const light = new THREE.DirectionalLight(0xffffff, 2); scene.add(light, light.target);
 const walls = new THREE.Group(), lines = new THREE.Group(); scene.add(walls, lines);
 const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
 boundingBox.visible = false;
@@ -48,7 +48,7 @@ function reportLoadError(error: unknown, context: LoadContext) {
   loadingError = true;
   showLoadError(status, error, context);
 }
-initializeLightControls(light, invalidateView);
+const lighting = initializeLightControls(light, () => camera, () => controls.target, invalidateView);
 controls.addEventListener('change', invalidateView);
 canvas.addEventListener('webglcontextrestored', invalidateView);
 const lockTilt = document.querySelector<HTMLInputElement>('#lock-tilt')!;
@@ -244,6 +244,7 @@ new ResizeObserver(resize).observe(canvas); resize();
 function frame() {
   requestAnimationFrame(frame); controls.update();
   if (sceneDirty) {
+    lighting.updateCamera();
     const visible = walls.visible;
     if (!loadingLargeWalls) largeScene?.update(camera, detail.value === 'full');
     if (loadingLargeWalls) walls.visible = false;
