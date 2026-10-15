@@ -50,6 +50,8 @@ function reportLoadError(error: unknown, context: LoadContext) {
 controls.addEventListener('change', invalidateView);
 canvas.addEventListener('webglcontextrestored', invalidateView);
 const lockTilt = document.querySelector<HTMLInputElement>('#lock-tilt')!;
+// Start unlocked even when the browser restores previous checkbox values.
+lockTilt.checked = false;
 lockTilt.addEventListener('change', () => setTiltLocked(controls, lockTilt.checked));
 const menus = initializeMenus(view => {
   setCameraView(camera, controls, activeBox, view);
