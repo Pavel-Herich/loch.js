@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createCameraControls } from './camera';
+import { showLoadError } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import './style.css';
 
@@ -67,8 +68,15 @@ function draw(model: Model, label: string) {
 }
 async function loadFile(file: File) {
   status.textContent = `Opening ${file.name}…`;
-  try { draw(parseLox(await file.arrayBuffer()), file.name); }
-  catch (e) { status.textContent = `Cannot read ${file.name}: ${e instanceof Error ? e.message : String(e)}`; }
+  let phase = 'Reading file';
+  try {
+    const buffer = await file.arrayBuffer();
+    phase = 'Parsing LOX';
+    const model = parseLox(buffer);
+    phase = 'Rendering model';
+    draw(model, file.name);
+  }
+  catch (e) { showLoadError(status, e, { phase, file }); }
 }
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
 chooser.addEventListener('change', () => { if (chooser.files?.[0]) void loadFile(chooser.files[0]); });
@@ -80,4 +88,19 @@ window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTr
 const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
 new ResizeObserver(resize).observe(canvas); resize();
 function frame() { requestAnimationFrame(frame); controls.update(); renderer.render(scene, camera); } frame();
-fetch(`${import.meta.env.BASE_URL}sample/demo.lox`).then(r => { if (!r.ok) throw Error('Sample missing'); return r.arrayBuffer(); }).then(b => draw(parseLox(b), 'Sample cave')).catch(e => status.textContent = String(e));
+async function loadSample() {
+  const source = `${import.meta.env.BASE_URL}sample/demo.lox`;
+  let phase = 'Fetching sample';
+  try {
+    const response = await fetch(source);
+    if (!response.ok) throw new Error(`Sample request failed: HTTP ${response.status} ${response.statusText}`);
+    phase = 'Reading sample';
+    const buffer = await response.arrayBuffer();
+    phase = 'Parsing LOX';
+    const model = parseLox(buffer);
+    phase = 'Rendering model';
+    draw(model, 'Sample cave');
+  }
+  catch (e) { showLoadError(status, e, { phase, source }); }
+}
+void loadSample();
