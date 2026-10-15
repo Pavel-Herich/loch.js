@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, PerspectiveCamera, Vector3 } from 'three';
-import { createCameraControls, setCameraView, setTiltLocked } from '../src/camera';
+import { createCameraControls, resizeCamera, setCameraView, setPerspective, setTiltLocked, type ViewCamera } from '../src/camera';
 
 class Canvas extends EventTarget {
   style = { touchAction: '' };
@@ -116,10 +116,12 @@ describe('model views', () => {
     controls.dispose();
   });
 
-  it.each(['perspective', 'plan', 'profile', 'fit'] as const)('fits %s on wide and narrow screens without orbit drift', view => {
+  it.each((['plan', 'profile', 'fit'] as const).flatMap(view => [false, true].map(orthographic => ({ view, orthographic }))))('fits $view (orthographic: $orthographic) on wide and narrow screens without orbit drift', ({ view, orthographic }) => {
     for (const aspect of [1.8, 0.5]) {
-      const canvas = new Canvas(), camera = new PerspectiveCamera(45, aspect);
+      const canvas = new Canvas();
+      let camera: ViewCamera = new PerspectiveCamera(45, aspect);
       const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+      camera = setPerspective(camera, controls, !orthographic);
       const box = new Box3(new Vector3(10, 20, -5), new Vector3(110, 40, 15));
       pointer(canvas, 'pointerdown', 400, 300);
       pointer(canvas, 'pointermove', 600, 400);
@@ -146,16 +148,41 @@ describe('model views', () => {
     }
   });
 
-  it('restores the angled perspective view and unlocks tilt after Plan', () => {
-    const canvas = new Canvas(), camera = new PerspectiveCamera();
+  it('toggles projection without changing position, orientation, target, tilt lock or target-plane scale', () => {
+    const canvas = new Canvas();
+    let camera: ViewCamera = new PerspectiveCamera(45, 1.8);
     const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
     const box = new Box3(new Vector3(-10, -10, -10), new Vector3(10, 10, 10));
-    setCameraView(camera, controls, box, 'plan');
-    setCameraView(camera, controls, box, 'perspective');
-    const expected = new Vector3(-1.25, 1.8, -1.1).normalize();
-    expect(camera.getWorldDirection(new Vector3()).distanceTo(expected)).toBeLessThan(1e-8);
-    expect(controls.minPolarAngle).toBe(0);
-    expect(controls.maxPolarAngle).toBe(Math.PI);
+    setCameraView(camera, controls, box, 'profile');
+    controls.target.add(new Vector3(4, 0, 3)); camera.position.add(new Vector3(4, 0, 3));
+    camera.zoom = 1.7; camera.updateProjectionMatrix(); controls.update();
+    const position = camera.position.clone(), orientation = camera.quaternion.clone(), target = controls.target.clone();
+    const angle = controls.getPolarAngle();
+    const point = target.clone().add(new Vector3(2, 0, 1));
+    const projected = point.clone().project(camera);
+    for (const enabled of [false, true, false, true]) {
+      camera = setPerspective(camera, controls, enabled);
+      camera.updateMatrixWorld();
+      expect(camera instanceof PerspectiveCamera).toBe(enabled);
+      expect(controls.object).toBe(camera);
+      expect(camera.position.distanceTo(position)).toBeLessThan(1e-8);
+      expect(camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
+      expect(controls.target.distanceTo(target)).toBeLessThan(1e-8);
+      expect(controls.minPolarAngle).toBeCloseTo(angle, 10);
+      expect(controls.maxPolarAngle).toBeCloseTo(angle, 10);
+      expect(point.clone().project(camera).x).toBeCloseTo(projected.x, 10);
+      expect(point.clone().project(camera).y).toBeCloseTo(projected.y, 10);
+    }
+    camera = setPerspective(camera, controls, false);
+    camera.zoom *= 2; camera.updateProjectionMatrix();
+    const zoomed = point.clone().project(camera);
+    camera = setPerspective(camera, controls, true);
+    expect(point.clone().project(camera).x).toBeCloseTo(zoomed.x, 10);
+    expect(point.clone().project(camera).y).toBeCloseTo(zoomed.y, 10);
+    camera = setPerspective(camera, controls, false);
+    resizeCamera(camera, .5);
+    expect(point.clone().project(camera).x / zoomed.x).toBeCloseTo(1.8 / .5, 10);
+    expect(point.clone().project(camera).y).toBeCloseTo(zoomed.y, 10);
     controls.dispose();
   });
 

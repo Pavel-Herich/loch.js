@@ -37,7 +37,8 @@ function previewPointMaterial(model: LargeModel) {
       .replace('#include <project_vertex>', `#include <project_vertex>
         vec3 pointNormal = normalize(normalMatrix * normal);
         // Match double-sided walls by lighting the side facing the camera.
-        if (dot(pointNormal, -mvPosition.xyz) < 0.0) pointNormal = -pointNormal;
+        vec3 viewDirection = isOrthographic ? vec3(0.0, 0.0, 1.0) : -mvPosition.xyz;
+        if (dot(pointNormal, viewDirection) < 0.0) pointNormal = -pointNormal;
         pointLighting = ambientLightColor;
         #if NUM_HEMI_LIGHTS > 0
         for (int i = 0; i < NUM_HEMI_LIGHTS; i++) {
@@ -97,7 +98,7 @@ export class LargeScene {
     this.entries.push({ mesh, points, center: sphere.center.clone(), radius: sphere.radius, triangles: batch.triangles, high: false });
   }
 
-  update(camera: THREE.PerspectiveCamera, full: boolean) {
+  update(camera: THREE.Camera, full: boolean) {
     const selected = new Set<THREE.Mesh>();
     if (!full) {
       const nearby = this.entries.map(entry => ({ entry, distance: camera.position.distanceTo(entry.center) }))
@@ -121,7 +122,7 @@ export class LargeScene {
 
   get renderedTriangles() { return this.entries.reduce((sum, entry) => sum + (entry.high ? entry.triangles : 0), 0); }
 
-  refinementBatches(camera: THREE.PerspectiveCamera) {
+  refinementBatches(camera: THREE.Camera) {
     for (const entry of this.entries) {
       entry.mesh.visible = false; entry.points.visible = false;
       if (entry.high) entry.mesh.geometry.dispose();

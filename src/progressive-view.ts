@@ -12,7 +12,7 @@ export class ProgressiveView {
   private next = 0;
 
   constructor(private renderer: THREE.WebGLRenderer, private scene: THREE.Scene,
-    private camera: THREE.PerspectiveCamera, largeScene: LargeScene) {
+    private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, largeScene: LargeScene) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     // Multisample render targets can discard their color attachment on resolve,
     // so use a persistent single-sample target for accumulation across frames.

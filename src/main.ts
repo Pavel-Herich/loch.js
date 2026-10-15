@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initializeAbout } from './about';
-import { createCameraControls, setCameraView, setTiltLocked } from './camera';
+import { createCameraControls, resizeCamera, setCameraView, setPerspective, setTiltLocked, type ViewCamera } from './camera';
 import { exceptionMessage, showLoadError, type LoadContext } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import { initializeMenus } from './menus';
@@ -17,7 +17,7 @@ const status = document.querySelector<HTMLElement>('#status')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
 const detail = document.querySelector<HTMLSelectElement>('#detail')!;
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x09131c);
-const camera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
+let camera: ViewCamera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const controls = createCameraControls(camera, canvas);
@@ -53,6 +53,12 @@ const lockTilt = document.querySelector<HTMLInputElement>('#lock-tilt')!;
 // Start unlocked even when the browser restores previous checkbox values.
 lockTilt.checked = false;
 lockTilt.addEventListener('change', () => setTiltLocked(controls, lockTilt.checked));
+const perspective = document.querySelector<HTMLInputElement>('#perspective')!;
+perspective.checked = true;
+perspective.addEventListener('change', () => {
+  camera = setPerspective(camera, controls, perspective.checked);
+  invalidateView();
+});
 const menus = initializeMenus(view => {
   setCameraView(camera, controls, activeBox, view);
   lockTilt.checked = controls.minPolarAngle === controls.maxPolarAngle;
@@ -217,7 +223,7 @@ document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('cha
 });
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file?.name.toLowerCase().endsWith('.lox')) void loadFile(file); });
-const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); invalidateView(); };
+const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); resizeCamera(camera, w / h); invalidateView(); };
 new ResizeObserver(resize).observe(canvas); resize();
 function frame() {
   requestAnimationFrame(frame); controls.update();
