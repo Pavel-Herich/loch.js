@@ -28,27 +28,68 @@ export function largeWallMesh(batch: GeometryBatch, material: THREE.Material) {
   return new THREE.Mesh(geometry, material);
 }
 
+function previewPointMaterial(model: LargeModel) {
+  const material = new THREE.ShaderMaterial({
+    lights: true,
+    uniforms: THREE.UniformsUtils.merge([THREE.ShaderLib.points.uniforms, THREE.UniformsLib.lights]),
+    vertexShader: THREE.ShaderLib.points.vertexShader
+      .replace('#include <common>', '#include <common>\n#include <lights_pars_begin>\nvarying vec3 pointLighting;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        vec3 pointNormal = normalize(normalMatrix * normal);
+        // Match double-sided walls by lighting the side facing the camera.
+        if (dot(pointNormal, -mvPosition.xyz) < 0.0) pointNormal = -pointNormal;
+        pointLighting = ambientLightColor;
+        #if NUM_HEMI_LIGHTS > 0
+        for (int i = 0; i < NUM_HEMI_LIGHTS; i++) {
+          pointLighting += getHemisphereLightIrradiance(hemisphereLights[i], pointNormal);
+        }
+        #endif
+        #if NUM_DIR_LIGHTS > 0
+        for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
+          pointLighting += max(dot(pointNormal, directionalLights[i].direction), 0.0) * directionalLights[i].color;
+        }
+        #endif
+        pointLighting *= RECIPROCAL_PI;
+      `),
+    fragmentShader: THREE.ShaderLib.points.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 pointLighting;')
+      .replace('outgoingLight = diffuseColor.rgb;', 'outgoingLight = diffuseColor.rgb * pointLighting;'),
+  });
+  material.onBeforeRender = renderer => { material.uniforms.size.value = 1.5 * renderer.getPixelRatio(); };
+  return altitudeMaterial(material, model);
+}
+
 export const LOD_TRIANGLE_BUDGET = 262_144;
 
 export class LargeScene {
   private entries: { mesh: THREE.Mesh; points: THREE.Points; center: THREE.Vector3; radius: number; triangles: number; high: boolean }[] = [];
-  private pointMaterial: THREE.PointsMaterial;
+  private pointMaterial: THREE.ShaderMaterial;
 
   constructor(private group: THREE.Group, private material: THREE.Material, model: LargeModel) {
-    this.pointMaterial = altitudeMaterial(new THREE.PointsMaterial({ size: 1.5, sizeAttenuation: false }), model);
+    this.pointMaterial = previewPointMaterial(model);
   }
 
   add(batch: GeometryBatch) {
     const mesh = largeWallMesh(batch, this.material);
     mesh.visible = false;
-    const count = batch.positions.length / 3, step = Math.max(1, Math.ceil(count / 512));
-    const positions = new Float32Array(Math.ceil(count / step) * 3);
-    for (let i = 0, p = 0; i < count; i += step, p += 3) {
-      const vertex = Math.min(count - 1, i + (p / 3) % 3);
-      positions.set(batch.positions.subarray(vertex * 3, vertex * 3 + 3), p);
+    // Only sampled faces need normals: at most 512 cross products per batch.
+    const count = Math.min(batch.triangles, 512);
+    const positions = new Float32Array(count * 3), normals = new Float32Array(count * 3);
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), normal = new THREE.Vector3();
+    for (let sample = 0; sample < count; sample++) {
+      const triangle = Math.floor(sample * batch.triangles / count) * 3;
+      const vertices = [0, 1, 2].map(offset => batch.indices ? batch.indices[triangle + offset] : triangle + offset);
+      positions.set(batch.positions.subarray(vertices[sample % 3] * 3, vertices[sample % 3] * 3 + 3), sample * 3);
+      a.fromArray(batch.positions, vertices[0] * 3);
+      b.fromArray(batch.positions, vertices[1] * 3).sub(a);
+      c.fromArray(batch.positions, vertices[2] * 3).sub(a);
+      normal.crossVectors(b, c);
+      if (normal.lengthSq() === 0) normal.set(0, 0, 1);
+      normal.normalize().toArray(normals, sample * 3);
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
     geometry.computeBoundingSphere();
     const sphere = geometry.boundingSphere!;
     const points = new THREE.Points(geometry, this.pointMaterial);
