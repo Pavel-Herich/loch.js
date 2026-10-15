@@ -7,13 +7,13 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   const toolbar = document.querySelector<HTMLElement>('#toolbar')!;
   const menus = document.querySelector<HTMLElement>('#menus')!;
   const toggle = document.querySelector<HTMLButtonElement>('#menu-toggle')!;
-  const groups = Array.from(menus.querySelectorAll<HTMLDetailsElement>('details'));
+  const groups = Array.from(menus.querySelectorAll<HTMLDetailsElement>(':scope > details'));
   const fullscreen = document.querySelector<HTMLButtonElement>('#fullscreen')!;
   const desktop = (window as Window & { __TAURI__?: DesktopAPI }).__TAURI__?.window.getCurrentWindow();
   let desktopFullscreen = false;
 
   function closeDropdowns() {
-    for (const group of groups) group.open = false;
+    menus.querySelectorAll<HTMLDetailsElement>('details').forEach(group => { group.open = false; });
   }
 
   function close() {

@@ -19,6 +19,12 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid #8e
 .menu-items input{margin:0;accent-color:#8ed9ff}
 .menu-items select{min-width:0;flex:1;padding:.25rem;border:1px solid #678599;border-radius:4px;background:#233b4b;color:inherit;font:inherit}
 .menu-items hr{border:0;border-top:1px solid #496170;margin:.35rem}
+.light-controls{min-width:220px}
+.light-sliders{padding:.15rem .25rem .35rem}
+.light-sliders label{display:grid;grid-template-columns:1fr auto;gap:.4rem}
+.light-sliders label:hover{background:transparent}
+.light-sliders input{grid-column:1/-1;width:100%;min-width:0;cursor:pointer}
+.light-sliders output{font-variant-numeric:tabular-nums}
 #menu-toggle{width:36px;height:34px;display:grid;place-items:center;padding:7px;margin-left:auto;flex-shrink:0}
 .hamburger,.hamburger::before,.hamburger::after{display:block;width:18px;height:2px;background:currentColor;border-radius:1px}
 .hamburger{position:relative}
