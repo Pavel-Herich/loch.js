@@ -12,8 +12,12 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   const desktop = (window as Window & { __TAURI__?: DesktopAPI }).__TAURI__?.window.getCurrentWindow();
   let desktopFullscreen = false;
 
-  function close() {
+  function closeDropdowns() {
     for (const group of groups) group.open = false;
+  }
+
+  function close() {
+    closeDropdowns();
     if (toolbar.classList.contains('compact')) {
       menus.hidden = true;
       toolbar.classList.add('collapsed');
@@ -49,14 +53,14 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
 
   const chooser = document.querySelector<HTMLInputElement>('#file')!;
   document.querySelector('#open')!.addEventListener('click', () => {
-    close();
+    closeDropdowns();
     chooser.value = '';
     chooser.click();
   });
   for (const button of Array.from(menus.querySelectorAll<HTMLButtonElement>('[data-view]'))) {
     button.addEventListener('click', () => {
       onView(button.dataset.view as ModelView);
-      close();
+      closeDropdowns();
     });
   }
 
@@ -67,7 +71,7 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   }
   fullscreen.disabled = !desktop && !document.fullscreenEnabled;
   fullscreen.addEventListener('click', () => {
-    close();
+    closeDropdowns();
     const change = desktop
       ? desktop.isFullscreen().then(value => setDesktopFullscreen(!value))
       : document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
