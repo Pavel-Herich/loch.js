@@ -28,11 +28,16 @@ export function initializeLightControls(light: DirectionalLight, getCamera: () =
   const followCamera = document.querySelector<HTMLInputElement>('#light-follow-camera')!;
   followCamera.checked = false;
   bearing.value = bearing.defaultValue; clino.value = clino.defaultValue;
+  const angles = {
+    fixed: { bearing: bearing.valueAsNumber, clino: clino.valueAsNumber },
+    follow: { bearing: 0, clino: 0 },
+  };
   function updateDirection() {
     setLightDirection(light, bearing.valueAsNumber, clino.valueAsNumber, followCamera.checked ? getCamera() : undefined, getTarget());
   }
   function update() {
     const azimuth = bearing.valueAsNumber, elevation = clino.valueAsNumber;
+    angles[followCamera.checked ? 'follow' : 'fixed'] = { bearing: azimuth, clino: elevation };
     bearingValue.value = `${azimuth}°`; clinoValue.value = `${elevation}°`;
     bearing.title = followCamera.checked
       ? 'Offset from camera: 0° toward camera, 90° right, 180° behind, 270° left'
@@ -42,7 +47,11 @@ export function initializeLightControls(light: DirectionalLight, getCamera: () =
     onChange();
   }
   bearing.addEventListener('input', update); clino.addEventListener('input', update);
-  followCamera.addEventListener('change', update);
+  followCamera.addEventListener('change', () => {
+    const saved = angles[followCamera.checked ? 'follow' : 'fixed'];
+    bearing.value = String(saved.bearing); clino.value = String(saved.clino);
+    update();
+  });
   update();
   return { updateCamera() { if (followCamera.checked) updateDirection(); } };
 }
