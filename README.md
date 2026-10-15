@@ -8,6 +8,8 @@ Requires Node.js 22+ and npm. `npm install && npm test && npm run dev`. Producti
 
 Desktop: install Rust, platform [Tauri 2 prerequisites](https://v2.tauri.app/start/prerequisites/), and `npm install`. Run `npm run tauri dev`; bundle with `npm run tauri build`. Linux AppImage/DEB requires WebKitGTK 4.1 etc. Windows packages need WebView2 (provided or installed by Windows/installer). macOS builds need Xcode command-line tools.
 
+Desktop builds use their bundled frontend without a PWA service worker. On launch, the native app removes any service workers and cached pages left by older desktop versions and reloads once if needed. Updating or reinstalling therefore recovers from the old desktop PWA cache automatically. Browser and Android PWA builds retain offline caching.
+
 ## CI and publishing
 
 `.github/workflows/ci.yml` tests/builds web and the three desktop systems on PRs and pushes. `main` pushes deploy GitHub Pages (enable **Settings → Pages → Source: GitHub Actions**); `v*` tags attach `.exe`, `.msi`, `.deb`, `.AppImage`, `.dmg` release assets. The macOS `.app` is delivered inside the DMG and stored as a workflow artifact. Unsigned desktop binaries may trigger operating-system security prompts. GitHub Pages path is inferred from `GITHUB_REPOSITORY`.

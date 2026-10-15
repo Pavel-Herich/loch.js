@@ -11,10 +11,11 @@ if (commit === 'unknown') {
   catch { /* Source archives may not contain Git metadata. */ }
 }
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+const desktop = Boolean(process.env.TAURI_ENV_PLATFORM);
 
 export default defineConfig(({ command }) => ({
   define: { __BUILD_INFO__: JSON.stringify({ version, commit, builtAt: new Date().toISOString() }) },
   base: process.env.GITHUB_PAGES === 'true' ? `/${process.env.GITHUB_REPOSITORY?.split('/')[1] ?? 'loch.js'}/` : '/',
-  plugins: [VitePWA({ registerType: 'autoUpdate', includeAssets: ['sample/demo.lox'], manifest: { name: 'loch.js', short_name: 'loch.js', start_url: '.', display: 'standalone', background_color: '#09131c', theme_color: '#162531', icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }] }, workbox: { globPatterns: ['**/*.{js,css,html,svg,lox}'] } })],
+  plugins: desktop ? [] : [VitePWA({ registerType: 'autoUpdate', includeAssets: ['sample/demo.lox'], manifest: { name: 'loch.js', short_name: 'loch.js', start_url: '.', display: 'standalone', background_color: '#09131c', theme_color: '#162531', icons: [{ src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }] }, workbox: { globPatterns: ['**/*.{js,css,html,svg,lox}'] } })],
   server: { port: 1420, strictPort: true }, clearScreen: false,
 }));
