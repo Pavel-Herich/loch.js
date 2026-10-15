@@ -14,7 +14,10 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
 
   function close() {
     for (const group of groups) group.open = false;
-    if (toolbar.classList.contains('compact')) menus.hidden = true;
+    if (toolbar.classList.contains('compact')) {
+      menus.hidden = true;
+      toolbar.classList.add('collapsed');
+    }
     toggle.setAttribute('aria-expanded', 'false');
     toggle.setAttribute('aria-label', 'Open menu');
   }
@@ -22,6 +25,7 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   toggle.addEventListener('click', () => {
     if (!menus.hidden) { close(); return; }
     menus.hidden = false;
+    toolbar.classList.remove('collapsed');
     toggle.setAttribute('aria-expanded', 'true');
     toggle.setAttribute('aria-label', 'Close menu');
   });

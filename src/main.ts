@@ -69,7 +69,6 @@ function draw(model: Model, label: string) {
   legend.innerHTML = `<span>${model.maxZ.toFixed(1)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.minZ.toFixed(1)} m</span>`;
   status.textContent = `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`;
   setCameraView(camera, controls, activeBox, 'fit');
-  menus.collapse();
 }
 async function loadFile(file: File) {
   status.textContent = `Opening ${file.name}…`;
@@ -80,6 +79,7 @@ async function loadFile(file: File) {
     const model = parseLox(buffer);
     phase = 'Rendering model';
     draw(model, file.name);
+    menus.collapse();
   }
   catch (e) { showLoadError(status, e, { phase, file }); }
 }
