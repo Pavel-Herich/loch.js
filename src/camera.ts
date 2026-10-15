@@ -6,7 +6,8 @@ export function createCameraControls(camera: PerspectiveCamera, canvas: HTMLElem
   // Start away from the target so the first lookAt has a defined orientation.
   camera.position.set(1.25, -1.8, 1.1);
   const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
+  // Stop at the last input position so inertia cannot postpone stationary refinement.
+  controls.enableDamping = false;
   controls.screenSpacePanning = true;
   controls.update();
   return controls;

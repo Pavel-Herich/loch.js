@@ -25,6 +25,26 @@ function expectUpright(camera: PerspectiveCamera) {
 }
 
 describe('Z-up camera controls', () => {
+  it.each([0, 2])('stops moving when an orbit or pan is released (button %s)', button => {
+    const canvas = new Canvas(), camera = new PerspectiveCamera();
+    const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+    const initial = camera.position.clone();
+    pointer(canvas, 'pointerdown', 400, 300, button);
+    pointer(canvas, 'pointermove', 520, 340, button);
+    pointer(canvas, 'pointerup', 520, 340, button);
+    expect(camera.position.distanceTo(initial)).toBeGreaterThan(0);
+    const position = camera.position.clone(), target = controls.target.clone();
+    const orientation = camera.quaternion.clone();
+    let changes = 0;
+    controls.addEventListener('change', () => changes++);
+    for (let frame = 0; frame < 300; frame++) controls.update();
+    expect(camera.position.distanceTo(position)).toBeLessThan(1e-10);
+    expect(controls.target.distanceTo(target)).toBeLessThan(1e-10);
+    expect(camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
+    expect(changes).toBe(0);
+    controls.dispose();
+  });
+
   it('keeps Z vertical during diagonal orbits and damping', () => {
     const canvas = new Canvas(), camera = new PerspectiveCamera();
     const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
