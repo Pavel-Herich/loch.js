@@ -2,8 +2,9 @@ import { MathUtils, Vector3 } from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // LOX coordinates are metres. These speeds do not depend on the orbit target.
-const DRAG_METRES_PER_PIXEL = .05;
-const WHEEL_METRES_PER_PIXEL = .01;
+const WALK_METRES_PER_PIXEL = .1;
+const PAN_METRES_PER_PIXEL = .05;
+const WHEEL_METRES_PER_PIXEL = .02;
 const LOOK_RADIANS_PER_PIXEL = .003;
 
 export class WalkerControls {
@@ -50,12 +51,12 @@ export class WalkerControls {
     if (!dx && !dy) return;
     event.preventDefault();
     if (pointer.button === 0) this.look(dx, dy);
-    else if (pointer.button === 1) this.walk(-dy * DRAG_METRES_PER_PIXEL);
+    else if (pointer.button === 1) this.walk(-dy * WALK_METRES_PER_PIXEL);
     else {
       const camera = this.orbit.object;
       const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
       const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-      this.translate(right.multiplyScalar(-dx * DRAG_METRES_PER_PIXEL).addScaledVector(up, dy * DRAG_METRES_PER_PIXEL));
+      this.translate(right.multiplyScalar(-dx * PAN_METRES_PER_PIXEL).addScaledVector(up, dy * PAN_METRES_PER_PIXEL));
     }
   };
 
@@ -72,8 +73,8 @@ export class WalkerControls {
 
   private look(dx: number, dy: number) {
     const camera = this.orbit.object, direction = camera.getWorldDirection(new Vector3());
-    const yaw = Math.atan2(direction.y, direction.x) - dx * LOOK_RADIANS_PER_PIXEL;
-    const elevation = MathUtils.clamp(Math.asin(MathUtils.clamp(direction.z, -1, 1)) - dy * LOOK_RADIANS_PER_PIXEL,
+    const yaw = Math.atan2(direction.y, direction.x) + dx * LOOK_RADIANS_PER_PIXEL;
+    const elevation = MathUtils.clamp(Math.asin(MathUtils.clamp(direction.z, -1, 1)) + dy * LOOK_RADIANS_PER_PIXEL,
       Math.max(-Math.PI / 2 + 1e-6, this.orbit.minPolarAngle - Math.PI / 2),
       Math.min(Math.PI / 2 - 1e-6, this.orbit.maxPolarAngle - Math.PI / 2));
     direction.set(Math.cos(yaw) * Math.cos(elevation), Math.sin(yaw) * Math.cos(elevation), Math.sin(elevation));

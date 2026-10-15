@@ -39,6 +39,9 @@ describe('Walker camera', () => {
     drag(s.canvas, 0, 80, -40);
     expect(s.camera.position.distanceTo(position)).toBeLessThan(1e-8);
     expect(s.camera.quaternion.angleTo(initial)).toBeGreaterThan(.1);
+    const direction = s.camera.getWorldDirection(new Vector3());
+    expect(direction.x).toBeLessThan(0); // Drag right looks left.
+    expect(direction.z).toBeLessThan(0); // Drag up looks down.
     expect(new Vector3(1, 0, 0).applyQuaternion(s.camera.quaternion).z).toBeCloseTo(0, 10);
     const orientation = s.camera.quaternion.clone();
     for (let i = 0; i < 100; i++) s.orbit.update();
@@ -50,14 +53,14 @@ describe('Walker camera', () => {
   it.each([1, 1000])('walks and pans at a fixed speed with target distance %s', distance => {
     const s = setup(distance), position = s.camera.position.clone(), orientation = s.camera.quaternion.clone();
     drag(s.canvas, 1, 0, -100);
-    expect(s.camera.position.distanceTo(position)).toBeCloseTo(5, 8);
+    expect(s.camera.position.distanceTo(position)).toBeCloseTo(10, 8);
     expect(s.orbit.getDistance()).toBeCloseTo(distance, 8);
     expect(s.camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
     drag(s.canvas, 1, 0, 100);
     expect(s.camera.position.distanceTo(position)).toBeLessThan(1e-8);
     const wheel = new Event('wheel', { cancelable: true });
     Object.assign(wheel, { deltaY: -100, deltaMode: 0 }); s.canvas.dispatchEvent(wheel);
-    expect(s.camera.position.clone().sub(position).distanceTo(new Vector3(0, 1, 0))).toBeLessThan(1e-8);
+    expect(s.camera.position.clone().sub(position).distanceTo(new Vector3(0, 2, 0))).toBeLessThan(1e-8);
     const beforePan = s.camera.position.clone();
     drag(s.canvas, 2, 40, 20);
     expect(s.camera.position.clone().sub(beforePan).distanceTo(new Vector3(-2, 0, 1))).toBeLessThan(1e-8);
@@ -73,7 +76,7 @@ describe('Walker camera', () => {
     const camera = setPerspective(s.camera, s.orbit, false);
     const position = camera.position.clone(), zoom = camera.zoom;
     drag(s.canvas, 1, 0, -20);
-    expect(camera.position.distanceTo(position)).toBeCloseTo(1, 8);
+    expect(camera.position.distanceTo(position)).toBeCloseTo(2, 8);
     expect(camera.zoom).toBe(zoom);
     const before = camera.position.clone(), orientation = camera.quaternion.clone();
     s.walker.enabled = false;
