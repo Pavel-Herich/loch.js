@@ -18,6 +18,9 @@ const controls = createCameraControls(camera, canvas);
 scene.add(new THREE.HemisphereLight(0xcfe9ff, 0x213847, 2.1));
 const light = new THREE.DirectionalLight(0xffffff, 2); light.position.set(1, 2, 3); scene.add(light);
 const walls = new THREE.Group(), lines = new THREE.Group(); scene.add(walls, lines);
+const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
+boundingBox.visible = false;
+scene.add(boundingBox);
 let activeBox = new THREE.Box3();
 const c = new THREE.Color();
 function altitudeColor(z: number, model: Model): THREE.Color {
@@ -44,6 +47,8 @@ function draw(model: Model, label: string) {
   const origin = bounds.getCenter(new THREE.Vector3());
   const centered = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(), bounds.getSize(new THREE.Vector3()));
   activeBox = centered;
+  boundingBox.box.copy(centered);
+  boundingBox.visible = !bounds.isEmpty();
   for (const scrap of model.scraps) {
     const positions: number[] = [], colors: number[] = [], indices: number[] = [];
     for (const p of scrap.points) {
