@@ -16,6 +16,7 @@
     </div></details>
     <details class="menu"><summary>View</summary><div class="menu-items">
       <label><input id="perspective" type="checkbox" checked/> Perspective</label>
+      <label><input id="walker" type="checkbox"/> Walker</label>
       <button id="plan" type="button" data-view="plan">Plan</button>
       <button id="profile" type="button" data-view="profile">Profile</button>
       <button id="fit" type="button" data-view="fit">Fit</button>
@@ -25,5 +26,6 @@
     </div></details>
   </nav>
   <button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menus" hidden><span class="hamburger" aria-hidden="true"></span></button>
+  <button id="walker-toggle" type="button" aria-label="Walker mode" aria-pressed="false" title="Enable Walker mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M11 1h5v3h2v1H9V4h2z"/><circle cx="13.5" cy="7" r="2" fill="currentColor"/><path d="m12 10-3 5 4 3-4 4m3-12 4 4 4-1m-8-3 1 8 5 4m-8-11-4 1-3-2m17 3-1 9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
   <input id="file" type="file" accept=".lox" aria-label="Open LOX file" hidden/>
 </header><main><canvas id="view" aria-label="3D cave model"></canvas><aside class="overlay"><div id="legend"></div></aside></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

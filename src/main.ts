@@ -5,6 +5,7 @@ import { exceptionMessage, showLoadError, type LoadContext } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import { initializeMenus } from './menus';
 import { initializeLightControls } from './lighting';
+import { WalkerControls } from './walker';
 import type { GeometryBatch, LargeModel, LoadProgress } from './large-lox';
 import { largeWallMaterial, LargeScene } from './large-scene';
 import { ProgressiveView } from './progressive-view';
@@ -49,6 +50,17 @@ function reportLoadError(error: unknown, context: LoadContext) {
   showLoadError(status, error, context);
 }
 const lighting = initializeLightControls(light, () => camera, () => controls.target, invalidateView);
+const walker = new WalkerControls(controls, canvas);
+const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
+const walkerButton = document.querySelector<HTMLButtonElement>('#walker-toggle')!;
+walkerCheckbox.checked = false;
+function setWalker(enabled: boolean) {
+  walker.enabled = enabled; walkerCheckbox.checked = enabled;
+  walkerButton.setAttribute('aria-pressed', String(enabled));
+  walkerButton.title = enabled ? 'Disable Walker mode' : 'Enable Walker mode';
+}
+walkerCheckbox.addEventListener('change', () => setWalker(walkerCheckbox.checked));
+walkerButton.addEventListener('click', () => setWalker(!walker.enabled));
 controls.addEventListener('change', invalidateView);
 canvas.addEventListener('webglcontextrestored', invalidateView);
 const lockTilt = document.querySelector<HTMLInputElement>('#lock-tilt')!;
