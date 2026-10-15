@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, PerspectiveCamera, Vector3 } from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { createCameraControls, resizeCamera, setCameraView, setPerspective, setTiltLocked, type ViewCamera } from '../src/camera';
 
 class Canvas extends EventTarget {
@@ -25,6 +26,32 @@ function expectUpright(camera: PerspectiveCamera) {
 }
 
 describe('Z-up camera controls', () => {
+  it.each([false, true])('zooms 10× faster on middle drag while keeping wheel zoom unchanged (orthographic: %s)', orthographic => {
+    const canvas = new Canvas();
+    let camera: ViewCamera = new PerspectiveCamera();
+    const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+    camera = setPerspective(camera, controls, !orthographic);
+    const baselineCanvas = new Canvas(), baselineCamera = camera.clone();
+    const baseline = new OrbitControls(baselineCamera, baselineCanvas as unknown as HTMLElement);
+    baseline.target.copy(controls.target); baseline.update();
+    pointer(canvas, 'pointerdown', 400, 300, 1);
+    pointer(canvas, 'pointermove', 400, 320, 1);
+    pointer(canvas, 'pointerup', 400, 320, 1);
+    pointer(baselineCanvas, 'pointerdown', 400, 300, 1);
+    pointer(baselineCanvas, 'pointermove', 400, 500, 1);
+    pointer(baselineCanvas, 'pointerup', 400, 500, 1);
+    expect(camera.position.distanceTo(baselineCamera.position)).toBeLessThan(1e-8);
+    expect(camera.zoom).toBeCloseTo(baselineCamera.zoom, 10);
+    for (const element of [canvas, baselineCanvas]) {
+      const event = new Event('wheel', { cancelable: true });
+      Object.assign(event, { deltaY: 100, deltaMode: 0, clientX: 400, clientY: 300, ctrlKey: false });
+      element.dispatchEvent(event);
+    }
+    expect(camera.position.distanceTo(baselineCamera.position)).toBeLessThan(1e-8);
+    expect(camera.zoom).toBeCloseTo(baselineCamera.zoom, 10);
+    controls.dispose(); baseline.dispose();
+  });
+
   it.each([0, 2])('stops moving when an orbit or pan is released (button %s)', button => {
     const canvas = new Canvas(), camera = new PerspectiveCamera();
     const controls = createCameraControls(camera, canvas as unknown as HTMLElement);

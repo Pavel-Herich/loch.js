@@ -11,6 +11,11 @@ export function createCameraControls(camera: ViewCamera, canvas: HTMLElement): O
   // Stop at the last input position so inertia cannot postpone stationary refinement.
   controls.enableDamping = false;
   controls.screenSpacePanning = true;
+  const zoomSpeed = controls.zoomSpeed;
+  canvas.addEventListener('pointerdown', event => {
+    controls.zoomSpeed = event.pointerType !== 'touch' && event.button === 1 ? zoomSpeed * 10 : zoomSpeed;
+  });
+  controls.addEventListener('end', () => { controls.zoomSpeed = zoomSpeed; });
   controls.update();
   return controls;
 }
