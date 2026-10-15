@@ -25,8 +25,6 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid #8e
 .light-sliders label:hover{background:transparent}
 .light-sliders input{grid-column:1/-1;width:100%;min-width:0;cursor:pointer}
 .light-sliders output{font-variant-numeric:tabular-nums}
-.light-sliders .light-follow{display:flex}
-.light-sliders .light-follow input{width:auto}
 #menu-toggle{width:36px;height:34px;display:grid;place-items:center;padding:7px;margin-left:auto;flex-shrink:0}
 .hamburger,.hamburger::before,.hamburger::after{display:block;width:18px;height:2px;background:currentColor;border-radius:1px}
 .hamburger{position:relative}
