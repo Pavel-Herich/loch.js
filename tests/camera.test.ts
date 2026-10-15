@@ -124,7 +124,9 @@ describe('model views', () => {
       pointer(canvas, 'pointerdown', 400, 300);
       pointer(canvas, 'pointermove', 600, 400);
       pointer(canvas, 'pointerup', 600, 400);
+      const previousOrientation = camera.quaternion.clone();
       setCameraView(camera, controls, box, view);
+      if (view === 'fit') expect(camera.quaternion.angleTo(previousOrientation)).toBeLessThan(1e-7);
       const position = camera.position.clone(), orientation = camera.quaternion.clone();
       for (let frame = 0; frame < 100; frame++) controls.update();
       expect(camera.position.distanceTo(position)).toBeLessThan(1e-8);
@@ -142,5 +144,33 @@ describe('model views', () => {
       }
       controls.dispose();
     }
+  });
+
+  it.each(['plan', 'profile'] as const)('preserves locked %s orientation when fitting after a pan', view => {
+    const canvas = new Canvas(), camera = new PerspectiveCamera(45, .5);
+    const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+    const box = new Box3(new Vector3(-50, -20, -10), new Vector3(50, 20, 10));
+    setCameraView(camera, controls, box, view);
+    pointer(canvas, 'pointerdown', 400, 300);
+    pointer(canvas, 'pointermove', 500, 300);
+    pointer(canvas, 'pointerup', 500, 300);
+    pointer(canvas, 'pointerdown', 400, 300, 2);
+    pointer(canvas, 'pointermove', 500, 350, 2);
+    pointer(canvas, 'pointerup', 500, 350, 2);
+    const orientation = camera.quaternion.clone(), angle = controls.getPolarAngle();
+    expect(controls.target.length()).toBeGreaterThan(1);
+    setCameraView(camera, controls, box, 'fit');
+    expect(camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
+    expect(controls.getPolarAngle()).toBeCloseTo(angle, 10);
+    expect(controls.minPolarAngle).toBe(controls.maxPolarAngle);
+    expect(controls.target.length()).toBeLessThan(1e-8);
+    camera.updateMatrixWorld();
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+      const projected = new Vector3(x, y, z).project(camera);
+      expect(Math.abs(projected.x)).toBeLessThan(1);
+      expect(Math.abs(projected.y)).toBeLessThan(1);
+      expect(Math.abs(projected.z)).toBeLessThan(1);
+    }
+    controls.dispose();
   });
 });
