@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, PerspectiveCamera, Vector3 } from 'three';
-import { createCameraControls, setCameraView } from '../src/camera';
+import { createCameraControls, setCameraView, setTiltLocked } from '../src/camera';
 
 class Canvas extends EventTarget {
   style = { touchAction: '' };
@@ -86,6 +86,36 @@ describe('Z-up camera controls', () => {
 });
 
 describe('model views', () => {
+  it.each(['plan', 'profile'] as const)('locks tilt in %s while allowing heading changes, then unlocks', view => {
+    const canvas = new Canvas(), camera = new PerspectiveCamera();
+    const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+    const box = new Box3(new Vector3(-10, -10, -10), new Vector3(10, 10, 10));
+    setCameraView(camera, controls, box, view);
+    const angle = controls.getPolarAngle(), orientation = camera.quaternion.clone();
+    expect(controls.minPolarAngle).toBe(controls.maxPolarAngle);
+    pointer(canvas, 'pointerdown', 400, 300);
+    pointer(canvas, 'pointermove', 500, 400);
+    pointer(canvas, 'pointerup', 500, 400);
+    expect(controls.getPolarAngle()).toBeCloseTo(angle, 10);
+    expect(camera.quaternion.angleTo(orientation)).toBeGreaterThan(.1);
+    setTiltLocked(controls, false);
+    pointer(canvas, 'pointerdown', 400, 300);
+    pointer(canvas, 'pointermove', 400, 200);
+    pointer(canvas, 'pointerup', 400, 200);
+    expect(Math.abs(controls.getPolarAngle() - angle)).toBeGreaterThan(.1);
+    setTiltLocked(controls, true);
+    const arbitraryAngle = controls.getPolarAngle();
+    pointer(canvas, 'pointerdown', 400, 300);
+    pointer(canvas, 'pointermove', 400, 200);
+    pointer(canvas, 'pointerup', 400, 200);
+    expect(controls.getPolarAngle()).toBeCloseTo(arbitraryAngle, 10);
+    // A locked preset must not constrain the next preset's new tilt.
+    setCameraView(camera, controls, box, view === 'plan' ? 'profile' : 'plan');
+    expect(controls.getPolarAngle()).toBeCloseTo(view === 'plan' ? Math.PI / 2 : 1e-6, 5);
+    expect(controls.minPolarAngle).toBe(controls.maxPolarAngle);
+    controls.dispose();
+  });
+
   it.each(['plan', 'profile', 'fit'] as const)('fits %s on wide and narrow screens without orbit drift', view => {
     for (const aspect of [1.8, 0.5]) {
       const canvas = new Canvas(), camera = new PerspectiveCamera(45, aspect);

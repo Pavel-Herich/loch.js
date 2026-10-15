@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initializeAbout } from './about';
-import { createCameraControls, setCameraView } from './camera';
+import { createCameraControls, setCameraView, setTiltLocked } from './camera';
 import { exceptionMessage, showLoadError, type LoadContext } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import { initializeMenus } from './menus';
@@ -49,7 +49,12 @@ function reportLoadError(error: unknown, context: LoadContext) {
 }
 controls.addEventListener('change', invalidateView);
 canvas.addEventListener('webglcontextrestored', invalidateView);
-const menus = initializeMenus(view => setCameraView(camera, controls, activeBox, view), error => {
+const lockTilt = document.querySelector<HTMLInputElement>('#lock-tilt')!;
+lockTilt.addEventListener('change', () => setTiltLocked(controls, lockTilt.checked));
+const menus = initializeMenus(view => {
+  setCameraView(camera, controls, activeBox, view);
+  lockTilt.checked = controls.minPolarAngle === controls.maxPolarAngle;
+}, error => {
   loadingError = true; setStatusProgress(status);
   setStatusText(status, `Cannot change full screen: ${exceptionMessage(error)}`);
 });

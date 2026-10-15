@@ -15,8 +15,17 @@ export function createCameraControls(camera: PerspectiveCamera, canvas: HTMLElem
 
 export type ModelView = 'plan' | 'profile' | 'fit';
 
+export function setTiltLocked(controls: OrbitControls, locked: boolean) {
+  const angle = controls.getPolarAngle();
+  controls.minPolarAngle = locked ? angle : 0;
+  controls.maxPolarAngle = locked ? angle : Math.PI;
+  controls.update();
+}
+
 export function setCameraView(camera: PerspectiveCamera, controls: OrbitControls, box: Box3, view: ModelView) {
   if (box.isEmpty()) return;
+  const tiltLocked = controls.minPolarAngle === controls.maxPolarAngle;
+  setTiltLocked(controls, false);
   const radius = Math.max(box.getSize(new Vector3()).length() / 2, 1);
   const halfFov = camera.fov * Math.PI / 360;
   const limitingFov = Math.min(halfFov, Math.atan(Math.tan(halfFov) * camera.aspect));
@@ -34,4 +43,5 @@ export function setCameraView(camera: PerspectiveCamera, controls: OrbitControls
   camera.updateProjectionMatrix();
   controls.update();
   controls.enableDamping = damping;
+  setTiltLocked(controls, tiltLocked || view === 'plan' || view === 'profile');
 }
