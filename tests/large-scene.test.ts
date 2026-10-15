@@ -6,7 +6,7 @@ import { BATCH_TRIANGLES, type LargeModel } from '../src/large-lox';
 const model: LargeModel = { min: [0, 0, 0], max: [1, 1, 1], origin: [0, 0, 0], minZ: 0, maxZ: 1, scraps: 1, triangles: 0, points: 0, shots: [] };
 
 describe('large-scene detail control', () => {
-  it('applies front-face culling to walls and sampled points, including newly loaded batches', () => {
+  it('applies back-face culling to walls and sampled points, including newly loaded batches', () => {
     const group = new THREE.Group(), material = largeWallMaterial(model);
     const scene = new LargeScene(group, material, model);
     scene.setCulling(true);
@@ -14,11 +14,11 @@ describe('large-scene detail control', () => {
     scene.add({ positions, triangles: 1 });
     const mesh = group.children.find(child => child instanceof THREE.Mesh) as THREE.Mesh;
     const points = group.children.find(child => child instanceof THREE.Points) as THREE.Points;
-    expect(material.side).toBe(THREE.BackSide);
-    expect((points.material as THREE.ShaderMaterial).uniforms.cullFrontFaces.value).toBe(true);
+    expect(material.side).toBe(THREE.FrontSide);
+    expect((points.material as THREE.ShaderMaterial).uniforms.cullBackFaces.value).toBe(true);
     scene.setCulling(false);
     expect(material.side).toBe(THREE.DoubleSide);
-    expect((points.material as THREE.ShaderMaterial).uniforms.cullFrontFaces.value).toBe(false);
+    expect((points.material as THREE.ShaderMaterial).uniforms.cullBackFaces.value).toBe(false);
     expect(mesh.geometry.getAttribute('position').array).toBe(positions);
   });
 

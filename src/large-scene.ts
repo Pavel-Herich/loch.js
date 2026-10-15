@@ -31,7 +31,7 @@ export function largeWallMesh(batch: GeometryBatch, material: THREE.Material) {
 function previewPointMaterial(model: LargeModel) {
   const material = new THREE.ShaderMaterial({
     lights: true,
-    uniforms: THREE.UniformsUtils.merge([THREE.ShaderLib.points.uniforms, THREE.UniformsLib.lights, { cullFrontFaces: { value: false } }]),
+    uniforms: THREE.UniformsUtils.merge([THREE.ShaderLib.points.uniforms, THREE.UniformsLib.lights, { cullBackFaces: { value: false } }]),
     vertexShader: THREE.ShaderLib.points.vertexShader
       .replace('#include <common>', '#include <common>\n#include <lights_pars_begin>\nvarying vec3 pointLighting;\nvarying float pointFacing;')
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -54,8 +54,8 @@ function previewPointMaterial(model: LargeModel) {
         pointLighting *= RECIPROCAL_PI;
       `),
     fragmentShader: THREE.ShaderLib.points.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 pointLighting;\nvarying float pointFacing;\nuniform bool cullFrontFaces;')
-      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (cullFrontFaces && pointFacing > 0.0) discard;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 pointLighting;\nvarying float pointFacing;\nuniform bool cullBackFaces;')
+      .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (cullBackFaces && pointFacing < 0.0) discard;')
       .replace('outgoingLight = diffuseColor.rgb;', 'outgoingLight = diffuseColor.rgb * pointLighting;'),
   });
   material.onBeforeRender = renderer => { material.uniforms.size.value = 1.5 * renderer.getPixelRatio(); };
@@ -73,9 +73,9 @@ export class LargeScene {
   }
 
   setCulling(enabled: boolean) {
-    const side = enabled ? THREE.BackSide : THREE.DoubleSide;
+    const side = enabled ? THREE.FrontSide : THREE.DoubleSide;
     if (this.material.side !== side) { this.material.side = side; this.material.needsUpdate = true; }
-    this.pointMaterial.uniforms.cullFrontFaces.value = enabled;
+    this.pointMaterial.uniforms.cullBackFaces.value = enabled;
   }
 
   add(batch: GeometryBatch) {

@@ -62,7 +62,7 @@ perspective.addEventListener('change', () => {
 const wallsCulling = document.querySelector<HTMLInputElement>('#walls-culling')!;
 wallsCulling.checked = false;
 function applyWallCulling() {
-  const side = wallsCulling.checked ? THREE.BackSide : THREE.DoubleSide;
+  const side = wallsCulling.checked ? THREE.FrontSide : THREE.DoubleSide;
   const materials = new Set<THREE.Material>();
   for (const child of walls.children) if (child instanceof THREE.Mesh) {
     for (const material of Array.isArray(child.material) ? child.material : [child.material]) materials.add(material);
