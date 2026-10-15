@@ -59,6 +59,18 @@ perspective.addEventListener('change', () => {
   camera = setPerspective(camera, controls, perspective.checked);
   invalidateView();
 });
+const wallsCulling = document.querySelector<HTMLInputElement>('#walls-culling')!;
+wallsCulling.checked = false;
+function applyWallCulling() {
+  const side = wallsCulling.checked ? THREE.BackSide : THREE.DoubleSide;
+  const materials = new Set<THREE.Material>();
+  for (const child of walls.children) if (child instanceof THREE.Mesh) {
+    for (const material of Array.isArray(child.material) ? child.material : [child.material]) materials.add(material);
+  }
+  for (const material of materials) if (material.side !== side) { material.side = side; material.needsUpdate = true; }
+  largeScene?.setCulling(wallsCulling.checked);
+}
+wallsCulling.addEventListener('change', () => { applyWallCulling(); invalidateView(); });
 const menus = initializeMenus(view => {
   setCameraView(camera, controls, activeBox, view);
   lockTilt.checked = controls.minPolarAngle === controls.maxPolarAngle;
@@ -114,6 +126,7 @@ function draw(model: Model, label: string) {
     lines.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true })));
   }
   updateLegend(model);
+  applyWallCulling();
   setStatusText(status, `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`);
   setCameraView(camera, controls, activeBox, 'fit');
 }
@@ -180,6 +193,7 @@ function loadLargeFile(file: File, id: number) {
         boundingBox.visible = document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
         material = largeWallMaterial(model);
         largeScene = new LargeScene(walls, material, model);
+        applyWallCulling();
         const vertices = new Float32Array(model.shots.length * 6), colors = new Float32Array(vertices.length);
         let p = 0;
         for (const shot of model.shots) for (const point of shot) {

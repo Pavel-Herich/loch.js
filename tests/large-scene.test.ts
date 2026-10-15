@@ -6,6 +6,22 @@ import { BATCH_TRIANGLES, type LargeModel } from '../src/large-lox';
 const model: LargeModel = { min: [0, 0, 0], max: [1, 1, 1], origin: [0, 0, 0], minZ: 0, maxZ: 1, scraps: 1, triangles: 0, points: 0, shots: [] };
 
 describe('large-scene detail control', () => {
+  it('applies front-face culling to walls and sampled points, including newly loaded batches', () => {
+    const group = new THREE.Group(), material = largeWallMaterial(model);
+    const scene = new LargeScene(group, material, model);
+    scene.setCulling(true);
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]);
+    scene.add({ positions, triangles: 1 });
+    const mesh = group.children.find(child => child instanceof THREE.Mesh) as THREE.Mesh;
+    const points = group.children.find(child => child instanceof THREE.Points) as THREE.Points;
+    expect(material.side).toBe(THREE.BackSide);
+    expect((points.material as THREE.ShaderMaterial).uniforms.cullFrontFaces.value).toBe(true);
+    scene.setCulling(false);
+    expect(material.side).toBe(THREE.DoubleSide);
+    expect((points.material as THREE.ShaderMaterial).uniforms.cullFrontFaces.value).toBe(false);
+    expect(mesh.geometry.getAttribute('position').array).toBe(positions);
+  });
+
   it.each([false, true])('samples face normals for point lighting, including indexed geometry (%s)', indexed => {
     const group = new THREE.Group();
     const scene = new LargeScene(group, largeWallMaterial(model), model);
