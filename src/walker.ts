@@ -10,6 +10,8 @@ const LOOK_RADIANS_PER_PIXEL = .003;
 export class WalkerControls {
   private active = false;
   private pointer?: { id: number; button: number; x: number; y: number };
+  private touches = new Map<number, { x: number; y: number }>();
+  private touchPair?: { x: number; y: number; spread: number };
   private abort = new AbortController();
 
   constructor(private orbit: OrbitControls, private canvas: HTMLElement) {
@@ -29,14 +31,31 @@ export class WalkerControls {
   }
 
   private endDrag() {
-    if (!this.pointer) return;
-    const id = this.pointer.id; this.pointer = undefined;
-    this.canvas.releasePointerCapture(id);
+    const ids = [...this.touches.keys()];
+    if (this.pointer) ids.push(this.pointer.id);
+    if (!ids.length) return;
+    this.pointer = undefined; this.touches.clear(); this.touchPair = undefined;
+    for (const id of ids) this.canvas.releasePointerCapture(id);
     this.orbit.dispatchEvent({ type: 'end' });
   }
 
+  private pair() {
+    const [a, b] = [...this.touches.values()];
+    return b ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, spread: Math.hypot(a.x - b.x, a.y - b.y) } : undefined;
+  }
+
   private down = (event: PointerEvent) => {
-    if (!this.active || this.pointer || event.button < 0 || event.button > 2) return;
+    if (!this.active || this.pointer) return;
+    if (event.pointerType === 'touch') {
+      if (this.touches.size >= 2) return;
+      event.preventDefault();
+      this.touches.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      this.touchPair = this.pair();
+      this.canvas.setPointerCapture(event.pointerId);
+      if (this.touches.size === 1) this.orbit.dispatchEvent({ type: 'start' });
+      return;
+    }
+    if (this.touches.size || event.button < 0 || event.button > 2) return;
     event.preventDefault();
     this.pointer = { id: event.pointerId, button: event.button, x: event.clientX, y: event.clientY };
     this.canvas.setPointerCapture(event.pointerId);
@@ -44,23 +63,39 @@ export class WalkerControls {
   };
 
   private move = (event: PointerEvent) => {
+    if (!this.active) return;
+    const touch = this.touches.get(event.pointerId);
+    if (touch) {
+      event.preventDefault();
+      const dx = event.clientX - touch.x, dy = event.clientY - touch.y;
+      touch.x = event.clientX; touch.y = event.clientY;
+      const pair = this.pair();
+      if (pair && this.touchPair) {
+        this.pan(pair.x - this.touchPair.x, pair.y - this.touchPair.y);
+        this.walk((pair.spread - this.touchPair.spread) * WALK_METRES_PER_PIXEL);
+      } else if (!pair && (dx || dy)) this.look(dx, dy);
+      this.touchPair = pair;
+      return;
+    }
     const pointer = this.pointer;
-    if (!this.active || !pointer || pointer.id !== event.pointerId) return;
+    if (!pointer || pointer.id !== event.pointerId) return;
     const dx = event.clientX - pointer.x, dy = event.clientY - pointer.y;
     pointer.x = event.clientX; pointer.y = event.clientY;
     if (!dx && !dy) return;
     event.preventDefault();
     if (pointer.button === 0) this.look(dx, dy);
     else if (pointer.button === 1) this.walk(-dy * WALK_METRES_PER_PIXEL);
-    else {
-      const camera = this.orbit.object;
-      const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-      const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-      this.translate(right.multiplyScalar(-dx * PAN_METRES_PER_PIXEL).addScaledVector(up, dy * PAN_METRES_PER_PIXEL));
-    }
+    else this.pan(dx, dy);
   };
 
   private up = (event: PointerEvent) => {
+    if (this.touches.has(event.pointerId)) {
+      if (event.type === 'pointercancel') { this.endDrag(); return; }
+      this.touches.delete(event.pointerId); this.touchPair = this.pair();
+      this.canvas.releasePointerCapture(event.pointerId);
+      if (!this.touches.size) this.orbit.dispatchEvent({ type: 'end' });
+      return;
+    }
     if (this.pointer?.id === event.pointerId) this.endDrag();
   };
 
@@ -85,6 +120,13 @@ export class WalkerControls {
 
   private walk(distance: number) {
     this.translate(this.orbit.object.getWorldDirection(new Vector3()).multiplyScalar(distance));
+  }
+
+  private pan(dx: number, dy: number) {
+    const camera = this.orbit.object;
+    const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+    const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+    this.translate(right.multiplyScalar(-dx * PAN_METRES_PER_PIXEL).addScaledVector(up, dy * PAN_METRES_PER_PIXEL));
   }
 
   private translate(offset: Vector3) {

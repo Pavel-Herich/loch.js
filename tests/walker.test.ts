@@ -18,6 +18,12 @@ function pointer(canvas: Canvas, type: string, x: number, y: number, button = 0)
   canvas.dispatchEvent(event);
 }
 
+function touch(canvas: Canvas, type: string, id: number, x: number, y: number) {
+  const event = new Event(type, { cancelable: true });
+  Object.assign(event, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, pageX: x, pageY: y, button: 0 });
+  canvas.dispatchEvent(event);
+}
+
 function setup(distance = 10) {
   const canvas = new Canvas(), camera = new PerspectiveCamera();
   const orbit = createCameraControls(camera, canvas as unknown as HTMLElement);
@@ -34,6 +40,50 @@ function drag(canvas: Canvas, button: number, dx: number, dy: number) {
 }
 
 describe('Walker camera', () => {
+  it.each([1, 1000])('pans and pinches with two fingers without rotating, independent of target distance %s', distance => {
+    const s = setup(distance), position = s.camera.position.clone(), orientation = s.camera.quaternion.clone();
+    touch(s.canvas, 'pointerdown', 1, 300, 300);
+    touch(s.canvas, 'pointerdown', 2, 500, 300);
+    touch(s.canvas, 'pointermove', 1, 340, 320);
+    touch(s.canvas, 'pointermove', 2, 540, 320);
+    expect(s.camera.position.clone().sub(position).distanceTo(new Vector3(-2, 0, 1))).toBeLessThan(1e-8);
+    const beforePinch = s.camera.position.clone();
+    touch(s.canvas, 'pointermove', 1, 290, 320);
+    touch(s.canvas, 'pointermove', 2, 590, 320);
+    expect(s.camera.position.clone().sub(beforePinch).distanceTo(new Vector3(0, 10, 0))).toBeLessThan(1e-8);
+    expect(s.camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
+    expect(s.orbit.getDistance()).toBeCloseTo(distance, 8);
+    // Pinching back returns to the previous position.
+    touch(s.canvas, 'pointermove', 1, 340, 320);
+    touch(s.canvas, 'pointermove', 2, 540, 320);
+    expect(s.camera.position.distanceTo(beforePinch)).toBeLessThan(1e-8);
+    touch(s.canvas, 'pointerup', 2, 540, 320);
+    expect(s.camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
+    // The remaining finger resumes looking from its current location, without a jump.
+    touch(s.canvas, 'pointermove', 1, 340, 340);
+    expect(s.camera.position.distanceTo(beforePinch)).toBeLessThan(1e-8);
+    expect(s.camera.getWorldDirection(new Vector3()).z).toBeGreaterThan(0);
+    touch(s.canvas, 'pointerup', 1, 340, 340);
+    s.dispose();
+  });
+
+  it('cancels all touch movement and supports pinch walking after changing projection', () => {
+    const s = setup();
+    const camera = setPerspective(s.camera, s.orbit, false), zoom = camera.zoom;
+    touch(s.canvas, 'pointerdown', 1, 300, 300);
+    touch(s.canvas, 'pointerdown', 2, 500, 300);
+    const position = camera.position.clone();
+    touch(s.canvas, 'pointermove', 1, 280, 300);
+    touch(s.canvas, 'pointermove', 2, 520, 300);
+    expect(camera.position.distanceTo(position)).toBeCloseTo(4, 8);
+    expect(camera.zoom).toBe(zoom);
+    touch(s.canvas, 'pointercancel', 1, 280, 300);
+    const cancelled = camera.position.clone();
+    touch(s.canvas, 'pointermove', 2, 600, 300);
+    expect(camera.position.distanceTo(cancelled)).toBe(0);
+    s.dispose();
+  });
+
   it('looks around from a fixed position, keeps Z up, and stops immediately', () => {
     const s = setup(), position = s.camera.position.clone(), initial = s.camera.quaternion.clone();
     drag(s.canvas, 0, 80, -40);
