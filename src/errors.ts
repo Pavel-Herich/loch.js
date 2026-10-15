@@ -1,3 +1,5 @@
+import { buildInfo } from './build-info';
+
 export type LoadContext = {
   phase: string;
   file?: Pick<File, 'name' | 'size' | 'type' | 'lastModified'>;
@@ -10,7 +12,8 @@ export function exceptionMessage(error: unknown): string {
 }
 
 export function formatLoadError(error: unknown, context: LoadContext): string {
-  const lines = ['loch.js file-loading exception', `Time: ${new Date().toISOString()}`, `Phase: ${context.phase}`];
+  const lines = ['loch.js file-loading exception', `Version: ${buildInfo.version}`, `Commit: ${buildInfo.commit}`,
+    `Built: ${buildInfo.builtAt}`, `Time: ${new Date().toISOString()}`, `Phase: ${context.phase}`];
   if (context.file) {
     const file = context.file;
     lines.push(`File: ${file.name}`, `Size: ${file.size} bytes`, `Type: ${file.type || '(unspecified)'}`);

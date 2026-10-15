@@ -1,8 +1,11 @@
 import * as THREE from 'three';
+import { initializeAbout } from './about';
 import { createCameraControls } from './camera';
 import { showLoadError } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import './style.css';
+
+initializeAbout();
 
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const status = document.querySelector<HTMLElement>('#status')!;
