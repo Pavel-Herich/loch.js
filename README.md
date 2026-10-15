@@ -12,6 +12,8 @@ Desktop: install Rust, platform [Tauri 2 prerequisites](https://v2.tauri.app/sta
 
 `.github/workflows/ci.yml` tests/builds web and the three desktop systems on PRs and pushes. `main` pushes deploy GitHub Pages (enable **Settings → Pages → Source: GitHub Actions**); `v*` tags attach `.exe`, `.msi`, `.deb`, `.AppImage`, `.dmg` release assets. The macOS `.app` is delivered inside the DMG and stored as a workflow artifact. Unsigned desktop binaries may trigger operating-system security prompts. GitHub Pages path is inferred from `GITHUB_REPOSITORY`.
 
+CI appends the full build commit SHA to every installer filename before uploading artifacts or publishing releases, for example `loch.js_0.1.0_x64-setup_<commit>.exe`. Desktop artifact archives are named `desktop-<platform>-<commit>`. Compare that commit with the About dialog opened by clicking `loch.js`.
+
 ## LOX notes and limitations
 
 Parser follows Therion [`loch/lxFile.h`](https://github.com/therion/therion/blob/master/loch/lxFile.h) and [`loch/lxFile.cxx`](https://github.com/therion/therion/blob/master/loch/lxFile.cxx): little-endian 16-byte chunk headers `(type, recordsBytes, count, blobBytes)`; stations (2) with 64-bit XYZ, shots (3), scraps (4) containing indexed 3D points and triangles. Surveys (1), surface terrain (5), and surface imagery (6) are safely skipped; this POC does **not** display surface data, stations/labels or LRUD-generated walls. Centerline excludes surface, hidden and splay shots. Source coordinates are locally recentered for floating-point precision. Smooth shading is calculated from shared indexed vertex normals within each scrap; separate scraps do not share normals, and surfaces with duplicated/non-welded vertices may show seams.

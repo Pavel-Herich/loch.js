@@ -67,10 +67,12 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         with:
           args: ${{ matrix.args }}
+      - name: Add build commit to installer filenames
+        run: node scripts/name-installers.mjs
       - name: Upload desktop bundles
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ matrix.label }}
+          name: desktop-${{ matrix.label }}-${{ github.sha }}
           path: |
             src-tauri/target/release/bundle/**
           if-no-files-found: error
