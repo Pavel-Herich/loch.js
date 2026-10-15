@@ -1,4 +1,38 @@
-*{box-sizing:border-box}html,body,#app{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sans-serif;color:#eaf3ff;background:#09131c}#app{display:flex;flex-direction:column}header{display:flex;gap:1rem;align-items:center;padding:.7rem 1rem;background:#162531;flex-wrap:wrap;z-index:1}h1{font-size:1rem;margin:0 1rem 0 0}label,button{font-size:.9rem;cursor:pointer}input[type=file]{max-width:220px}button{border:1px solid #678599;background:#233b4b;border-radius:8px;color:inherit;padding:.4rem .75rem}main{flex:1;min-height:0;position:relative}canvas{width:100%;height:100%;display:block;touch-action:none}.overlay{position:absolute;right:16px;bottom:16px;background:#152634d9;border-radius:10px;padding:10px;display:flex;gap:8px;align-items:center;font-size:12px}.ramp{height:110px;width:14px;background:linear-gradient(to top,var(--low),#56c96a,#ebd454,var(--high));border-radius:3px}#legend{display:flex;align-items:center;flex-direction:column;gap:5px}footer{padding:8px 14px;background:#162531;font-size:12px;min-height:31px}@media(max-width:650px){header{gap:.6rem}h1{width:100%}input[type=file]{max-width:175px}.overlay{right:8px;bottom:8px}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body,#app{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,sans-serif;color:#eaf3ff;background:#09131c}
+#app{display:flex;flex-direction:column}
+header{display:flex;gap:1rem;align-items:center;padding:.7rem 1rem;background:#162531;position:relative;z-index:1}
+h1{font-size:1rem;margin:0 1rem 0 0}
+label,button,summary{font-size:.9rem;cursor:pointer}
+button{border:1px solid #678599;background:#233b4b;border-radius:8px;color:inherit;padding:.4rem .75rem}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid #8ed9ff;outline-offset:3px}
+#menus{display:flex;gap:.25rem}
+.menu{position:relative}
+.menu summary{list-style:none;padding:.45rem .75rem;border-radius:6px;user-select:none}
+.menu summary::-webkit-details-marker{display:none}
+.menu summary:hover,.menu[open]>summary{background:#294251}
+.menu-items{position:absolute;top:calc(100% + .4rem);left:0;min-width:190px;padding:.35rem;border:1px solid #678599;border-radius:8px;background:#162531;box-shadow:0 8px 24px #0006}
+.menu-items button,.menu-items label{display:flex;align-items:center;gap:.6rem;width:100%;padding:.55rem .7rem;text-align:left;white-space:nowrap;border:0;border-radius:4px;background:transparent;color:inherit}
+.menu-items button:hover,.menu-items label:hover{background:#294251}
+.menu-items input{margin:0;accent-color:#8ed9ff}
+.menu-items hr{border:0;border-top:1px solid #496170;margin:.35rem}
+#menu-toggle{width:36px;height:34px;display:grid;place-items:center;padding:7px}
+.hamburger,.hamburger::before,.hamburger::after{display:block;width:18px;height:2px;background:currentColor;border-radius:1px}
+.hamburger{position:relative}
+.hamburger::before,.hamburger::after{content:"";position:absolute;left:0}
+.hamburger::before{top:-6px}.hamburger::after{top:6px}
+header.compact{justify-content:space-between}
+header.compact #menus{position:absolute;right:1rem;top:calc(100% - .1rem);width:min(260px,calc(100vw - 32px));display:block;padding:.4rem;border:1px solid #678599;border-radius:8px;background:#162531;box-shadow:0 8px 24px #0006;max-height:calc(100dvh - 110px);overflow:auto}
+header.compact .menu-items{position:static;border:0;box-shadow:none;padding-left:.6rem}
+main{flex:1;min-height:0;position:relative}
+canvas{width:100%;height:100%;display:block;touch-action:none}
+.overlay{position:absolute;right:16px;bottom:16px;background:#152634d9;border-radius:10px;padding:10px;display:flex;gap:8px;align-items:center;font-size:12px}
+.ramp{height:110px;width:14px;background:linear-gradient(to top,var(--low),#56c96a,#ebd454,var(--high));border-radius:3px}
+#legend{display:flex;align-items:center;flex-direction:column;gap:5px}
+footer{padding:8px 14px;background:#162531;font-size:12px;min-height:31px}
+@media(max-width:650px){header{gap:.4rem;padding:.6rem .75rem}h1{margin-right:.25rem}.menu summary{padding:.45rem .5rem}.menu:last-child .menu-items{left:auto;right:0}.overlay{right:8px;bottom:8px}}
 footer a{color:#8ed9ff;white-space:nowrap}
 #error-details{width:min(850px,calc(100% - 32px));max-height:90vh;padding:20px;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
 #error-details::backdrop{background:#0009}

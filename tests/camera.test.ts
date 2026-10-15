@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PerspectiveCamera, Vector3 } from 'three';
-import { createCameraControls } from '../src/camera';
+import { Box3, PerspectiveCamera, Vector3 } from 'three';
+import { createCameraControls, setCameraView } from '../src/camera';
 
 class Canvas extends EventTarget {
   style = { touchAction: '' };
@@ -62,5 +62,35 @@ describe('Z-up camera controls', () => {
     expectUpright(camera);
     pointer(canvas, 'pointerup', 500, y);
     controls.dispose();
+  });
+});
+
+describe('model views', () => {
+  it.each(['plan', 'profile', 'fit'] as const)('fits %s on wide and narrow screens without orbit drift', view => {
+    for (const aspect of [1.8, 0.5]) {
+      const canvas = new Canvas(), camera = new PerspectiveCamera(45, aspect);
+      const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+      const box = new Box3(new Vector3(10, 20, -5), new Vector3(110, 40, 15));
+      pointer(canvas, 'pointerdown', 400, 300);
+      pointer(canvas, 'pointermove', 600, 400);
+      pointer(canvas, 'pointerup', 600, 400);
+      setCameraView(camera, controls, box, view);
+      const position = camera.position.clone(), orientation = camera.quaternion.clone();
+      for (let frame = 0; frame < 100; frame++) controls.update();
+      expect(camera.position.distanceTo(position)).toBeLessThan(1e-8);
+      expect(camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
+      expect(controls.target.distanceTo(box.getCenter(new Vector3()))).toBeLessThan(1e-8);
+      const direction = camera.getWorldDirection(new Vector3());
+      if (view === 'plan') expect(direction.z).toBeCloseTo(-1, 10);
+      if (view === 'profile') expect(direction.y).toBeCloseTo(1, 10);
+      camera.updateMatrixWorld();
+      for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+        const projected = new Vector3(x, y, z).project(camera);
+        expect(Math.abs(projected.x)).toBeLessThan(1);
+        expect(Math.abs(projected.y)).toBeLessThan(1);
+        expect(Math.abs(projected.z)).toBeLessThan(1);
+      }
+      controls.dispose();
+    }
   });
 });

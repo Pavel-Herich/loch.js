@@ -1,1 +1,20 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><header><h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1><label>Open .lox <input id="file" type="file" accept=".lox"/></label><label><input id="walls" type="checkbox" checked/> Walls</label><label><input id="lines" type="checkbox" checked/> Centerlines</label><button id="fit">Fit view</button></header><main><canvas id="view" aria-label="3D cave model"></canvas><aside class="overlay"><div id="legend"></div></aside></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><header id="toolbar">
+  <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
+  <button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menus" hidden><span class="hamburger" aria-hidden="true"></span></button>
+  <nav id="menus" aria-label="Main menu">
+    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button></div></details>
+    <details class="menu"><summary>Scene</summary><div class="menu-items">
+      <label><input id="lines" type="checkbox" checked/> Centreline</label>
+      <label><input id="walls" type="checkbox" checked/> Walls</label>
+      <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
+    </div></details>
+    <details class="menu"><summary>View</summary><div class="menu-items">
+      <button id="plan" type="button" data-view="plan">Plan</button>
+      <button id="profile" type="button" data-view="profile">Profile</button>
+      <button id="fit" type="button" data-view="fit">Fit</button>
+      <hr/>
+      <button id="fullscreen" type="button">Full screen</button>
+    </div></details>
+  </nav>
+  <input id="file" type="file" accept=".lox" aria-label="Open LOX file" hidden/>
+</header><main><canvas id="view" aria-label="3D cave model"></canvas><aside class="overlay"><div id="legend"></div></aside></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

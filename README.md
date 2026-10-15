@@ -2,6 +2,8 @@
 
 One TypeScript / Three.js frontend, built as an offline PWA with Vite and packaged for Windows, Linux and macOS with Tauri 2. LOX files are parsed locally in the browser; no upload or backend. Drag/drop or open a `.lox` file; orbit with left drag / one finger, pan with right drag / two fingers, zoom with wheel / pinch. Use the toggles, Fit view and altitude legend. Includes a generated native-format demo cave.
 
+After a model loads, open the three-bar menu for **File → Open…**, **Scene → Centreline / Walls / Bounding box**, and **View → Plan / Profile / Fit / Full screen**. Plan looks down the Z axis; Profile is a side view with Z vertical. Scene visibility choices carry over when opening another file. Click `loch.js` for build information.
+
 ## Development
 
 Requires Node.js 22+ and npm. `npm install && npm test && npm run dev`. Production site: `npm run build && npm run preview`. Serve the `dist` directory over HTTPS for PWA installation (localhost is also accepted). After first successful load, install the app via your browser and reopen offline.

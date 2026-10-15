@@ -1,0 +1,83 @@
+import type { ModelView } from './camera';
+
+type DesktopWindow = { isFullscreen(): Promise<boolean>; setFullscreen(value: boolean): Promise<void> };
+type DesktopAPI = { window: { getCurrentWindow(): DesktopWindow } };
+
+export function initializeMenus(onView: (view: ModelView) => void, onError: (error: unknown) => void) {
+  const toolbar = document.querySelector<HTMLElement>('#toolbar')!;
+  const menus = document.querySelector<HTMLElement>('#menus')!;
+  const toggle = document.querySelector<HTMLButtonElement>('#menu-toggle')!;
+  const groups = Array.from(menus.querySelectorAll<HTMLDetailsElement>('details'));
+  const fullscreen = document.querySelector<HTMLButtonElement>('#fullscreen')!;
+  const desktop = (window as Window & { __TAURI__?: DesktopAPI }).__TAURI__?.window.getCurrentWindow();
+  let desktopFullscreen = false;
+
+  function close() {
+    for (const group of groups) group.open = false;
+    if (toolbar.classList.contains('compact')) menus.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-label', 'Open menu');
+  }
+
+  toggle.addEventListener('click', () => {
+    if (!menus.hidden) { close(); return; }
+    menus.hidden = false;
+    toggle.setAttribute('aria-expanded', 'true');
+    toggle.setAttribute('aria-label', 'Close menu');
+  });
+  for (const group of groups) {
+    group.addEventListener('toggle', () => {
+      if (group.open) for (const other of groups) if (other !== group) other.open = false;
+    });
+  }
+  document.addEventListener('pointerdown', event => {
+    if (!toolbar.contains(event.target as Node)) close();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (groups.some(group => group.open) || (!toggle.hidden && !menus.hidden)) {
+      close();
+      if (!toggle.hidden) toggle.focus();
+    } else if (desktopFullscreen) {
+      void setDesktopFullscreen(false).catch(onError);
+    }
+  });
+
+  const chooser = document.querySelector<HTMLInputElement>('#file')!;
+  document.querySelector('#open')!.addEventListener('click', () => {
+    close();
+    chooser.value = '';
+    chooser.click();
+  });
+  for (const button of Array.from(menus.querySelectorAll<HTMLButtonElement>('[data-view]'))) {
+    button.addEventListener('click', () => {
+      onView(button.dataset.view as ModelView);
+      close();
+    });
+  }
+
+  async function setDesktopFullscreen(value: boolean) {
+    await desktop!.setFullscreen(value);
+    desktopFullscreen = value;
+    fullscreen.textContent = value ? 'Exit full screen' : 'Full screen';
+  }
+  fullscreen.disabled = !desktop && !document.fullscreenEnabled;
+  fullscreen.addEventListener('click', () => {
+    close();
+    const change = desktop
+      ? desktop.isFullscreen().then(value => setDesktopFullscreen(!value))
+      : document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    void change.catch(onError);
+  });
+  document.addEventListener('fullscreenchange', () => {
+    fullscreen.textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen';
+  });
+
+  return {
+    collapse() {
+      toolbar.classList.add('compact');
+      toggle.hidden = false;
+      close();
+    },
+  };
+}

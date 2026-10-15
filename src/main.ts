@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { initializeAbout } from './about';
-import { createCameraControls } from './camera';
-import { showLoadError } from './errors';
+import { createCameraControls, setCameraView } from './camera';
+import { exceptionMessage, showLoadError } from './errors';
 import { parseLox, type Model, type Point } from './lox';
+import { initializeMenus } from './menus';
 import './style.css';
 
 initializeAbout();
@@ -22,6 +23,9 @@ const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
 boundingBox.visible = false;
 scene.add(boundingBox);
 let activeBox = new THREE.Box3();
+const menus = initializeMenus(view => setCameraView(camera, controls, activeBox, view), error => {
+  status.textContent = `Cannot change full screen: ${exceptionMessage(error)}`;
+});
 const c = new THREE.Color();
 function altitudeColor(z: number, model: Model): THREE.Color {
   const t = model.maxZ === model.minZ ? .5 : (z - model.minZ) / (model.maxZ - model.minZ);
@@ -31,14 +35,6 @@ function offset(p: Point, origin: THREE.Vector3): [number, number, number] { ret
 function clear(g: THREE.Group) {
   for (const object of [...g.children]) { g.remove(object); const mesh = object as THREE.Mesh; (mesh.geometry as THREE.BufferGeometry)?.dispose(); (mesh.material as THREE.Material)?.dispose(); }
 }
-function fit(box: THREE.Box3) {
-  if (box.isEmpty()) return;
-  const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
-  const radius = Math.max(size.length() / 2, 1);
-  controls.target.copy(center);
-  camera.position.copy(center).add(new THREE.Vector3(radius * 1.25, -radius * 1.8, radius * 1.1));
-  camera.near = Math.max(radius / 10000, .001); camera.far = radius * 100; camera.updateProjectionMatrix(); controls.update();
-}
 function draw(model: Model, label: string) {
   clear(walls); clear(lines);
   const bounds = new THREE.Box3();
@@ -46,9 +42,9 @@ function draw(model: Model, label: string) {
   for (const scrap of model.scraps) for (const p of scrap.points) bounds.expandByPoint(new THREE.Vector3(...p));
   const origin = bounds.getCenter(new THREE.Vector3());
   const centered = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(), bounds.getSize(new THREE.Vector3()));
-  activeBox = centered;
+  activeBox = bounds.isEmpty() ? new THREE.Box3() : centered;
   boundingBox.box.copy(centered);
-  boundingBox.visible = !bounds.isEmpty();
+  boundingBox.visible = !bounds.isEmpty() && document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
   for (const scrap of model.scraps) {
     const positions: number[] = [], colors: number[] = [], indices: number[] = [];
     for (const p of scrap.points) {
@@ -72,7 +68,8 @@ function draw(model: Model, label: string) {
   const low = altitudeColor(model.minZ, model).getStyle(), high = altitudeColor(model.maxZ, model).getStyle();
   legend.innerHTML = `<span>${model.maxZ.toFixed(1)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.minZ.toFixed(1)} m</span>`;
   status.textContent = `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`;
-  fit(activeBox);
+  setCameraView(camera, controls, activeBox, 'fit');
+  menus.collapse();
 }
 async function loadFile(file: File) {
   status.textContent = `Opening ${file.name}…`;
@@ -90,7 +87,9 @@ const chooser = document.querySelector<HTMLInputElement>('#file')!;
 chooser.addEventListener('change', () => { if (chooser.files?.[0]) void loadFile(chooser.files[0]); });
 document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; });
 document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; });
-document.querySelector('#fit')!.addEventListener('click', () => fit(activeBox));
+document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('change', e => {
+  boundingBox.visible = !activeBox.isEmpty() && (e.target as HTMLInputElement).checked;
+});
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file?.name.toLowerCase().endsWith('.lox')) void loadFile(file); });
 const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
