@@ -14,7 +14,7 @@ Desktop builds use their bundled frontend without a PWA service worker. On launc
 
 `.github/workflows/ci.yml` tests/builds web and the three desktop systems on PRs and pushes. `main` pushes deploy GitHub Pages (enable **Settings → Pages → Source: GitHub Actions**); `v*` tags attach `.exe`, `.msi`, `.deb`, `.AppImage`, `.dmg` release assets. The macOS `.app` is delivered inside the DMG and stored as a workflow artifact. Unsigned desktop binaries may trigger operating-system security prompts. GitHub Pages path is inferred from `GITHUB_REPOSITORY`.
 
-CI appends the full build commit SHA to every installer filename before uploading artifacts or publishing releases, for example `loch.js_0.1.0_x64-setup_<commit>.exe`. Desktop artifact archives are named `desktop-<platform>-<commit>`. Compare that commit with the About dialog opened by clicking `loch.js`.
+CI identifies builds as `<last-version>-<short-commit>`, using the latest reachable `v*` version tag without its `v` prefix and seven commit characters (for example `0.1-abcdef1`). Before the first version tag, the package version is used. Installer filenames end in that build ID, for example `loch.js_0.1.0_x64-setup_0.1-abcdef1.exe`. Artifact archives are named `desktop-<platform>-<build-id>` and `web-pwa-<build-id>`. Compare the short commit with the About dialog opened by clicking `loch.js`.
 
 ## LOX notes and limitations
 
