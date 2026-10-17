@@ -1,4 +1,5 @@
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { AnimationWakeLock } from './screen-wake-lock';
 
 export const AUTOROTATE_PERIOD_SECONDS = 15;
 export const AUTOROTATE_DIRECTION_KEY = 'loch.js.autorotate-direction';
@@ -53,11 +54,13 @@ export function initializeAutorotateControls(controls: OrbitControls) {
   let direction: 1 | -1 = 1;
   try { if (localStorage.getItem(AUTOROTATE_DIRECTION_KEY) === '-1') direction = -1; } catch { /* Storage may be disabled. */ }
   const rotation = new AutoRotation(controls, direction);
+  const wakeLock = new AnimationWakeLock();
   const checkbox = document.querySelector<HTMLInputElement>('#autorotate')!;
   const button = document.querySelector<HTMLButtonElement>('#autorotate-toggle')!;
   const symbol = document.querySelector<SVGPathElement>('#autorotate-symbol')!;
   function setEnabled(enabled: boolean) {
     rotation.enabled = enabled; checkbox.checked = enabled;
+    wakeLock.enabled = enabled;
     try { localStorage.setItem(AUTOROTATE_DIRECTION_KEY, String(rotation.direction)); } catch { /* Keep the session preference. */ }
     button.setAttribute('aria-pressed', String(enabled));
     button.title = enabled ? 'Pause autorotation' : 'Start autorotation';
@@ -67,6 +70,8 @@ export function initializeAutorotateControls(controls: OrbitControls) {
   checkbox.addEventListener('change', () => setEnabled(checkbox.checked));
   button.addEventListener('click', () => setEnabled(!rotation.enabled));
   document.addEventListener('visibilitychange', () => rotation.resetTime());
+  window.addEventListener('pagehide', () => { wakeLock.enabled = false; });
+  window.addEventListener('pageshow', () => { wakeLock.enabled = rotation.enabled; });
   setEnabled(false);
   return rotation;
 }
