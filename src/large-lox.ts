@@ -1,3 +1,4 @@
+import { resolveShots, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, surfacePoint, type Surface, type SurfaceRecord, type BitmapRecord } from './lox-surface';
 import type { Point } from './lox';
 
@@ -7,7 +8,7 @@ type Source = Pick<Blob, 'size' | 'slice'>;
 type Scrap = { points: number; triangles: number; pointOffset: number; triangleOffset: number };
 export type LargeModel = {
   min: Point; max: Point; origin: Point; minZ: number; maxZ: number;
-  scraps: number; triangles: number; points: number; shots: [Point, Point][];
+  scraps: number; triangles: number; points: number; shots: Shot[];
 };
 export type GeometryBatch = { positions: Float32Array; indices?: Uint32Array; triangles: number };
 export type LoadProgress = { phase: string; completed: number; total: number };
@@ -28,7 +29,7 @@ async function read(source: Source, offset: number, length: number): Promise<Dat
 
 export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbacks): Promise<LargeModel> {
   const surfaces: SurfaceRecord[] = [], bitmaps = new Map<number, BitmapRecord>();
-  const scraps: Scrap[] = [], stations = new Map<number, Point>(), shotIds: [number, number][] = [];
+  const scraps: Scrap[] = [], stations = new Map<number, Point>(), shotIds: ShotReference[] = [];
   const min: Point = [Infinity, Infinity, Infinity], max: Point = [-Infinity, -Infinity, -Infinity];
   function bounds(x: number, y: number, z: number) {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) throw new Error('Invalid geometry coordinate');
@@ -57,7 +58,8 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
             const point: Point = [records.getFloat64(p + 28, true), records.getFloat64(p + 36, true), records.getFloat64(p + 44, true)];
             bounds(...point); stations.set(records.getUint32(p, true), point);
           } else if (kind === 3) {
-            if (!(records.getUint32(p + 72, true) & (1 | 4 | 16))) shotIds.push([records.getUint32(p, true), records.getUint32(p + 4, true)]);
+            const flags = records.getUint32(p + 72, true);
+            if (!(flags & SHOT_NOT_VISIBLE)) shotIds.push({ from: records.getUint32(p, true), to: records.getUint32(p + 4, true), flags });
           } else if (kind === 4) {
             const points = records.getUint32(p + 8, true), po = records.getUint32(p + 12, true), ps = records.getUint32(p + 16, true);
             const triangles = records.getUint32(p + 20, true), to = records.getUint32(p + 24, true), ts = records.getUint32(p + 28, true);
@@ -106,11 +108,7 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
   }
   if (!Number.isFinite(min[0])) throw new Error('No cave geometry in LOX file');
   const origin = min.map((value, axis) => value + (max[axis] - value) / 2) as Point;
-  const shots: [Point, Point][] = [];
-  for (const [a, b] of shotIds) {
-    const from = stations.get(a), to = stations.get(b);
-    if (from && to) shots.push([from, to]);
-  }
+  const shots = resolveShots(shotIds, stations);
   const model: LargeModel = { min, max, origin, minZ: Number.isFinite(caveMinZ) ? caveMinZ : min[2], maxZ: Number.isFinite(caveMaxZ) ? caveMaxZ : max[2], scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
   await callbacks.ready(model);
   for (const surface of surfaces) {

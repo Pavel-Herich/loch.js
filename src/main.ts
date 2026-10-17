@@ -14,6 +14,7 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
+import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import './style.css';
 
 initializeAbout();
@@ -74,6 +75,8 @@ const surfaceScene = new SurfaceScene(surfaceGroup, invalidateView, error => rep
   phase: 'Loading surface image', ...(largeModel ? { file: largeModel.file } : { source: 'LOX surface image' }),
 }));
 initializeSurfaceControls(surfaceScene);
+const centreline = new CentrelineScene(lines, invalidateView);
+initializeCentrelineControls(centreline);
 const walker = new WalkerControls(controls, canvas);
 const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
 const walkerButton = document.querySelector<HTMLButtonElement>('#walker-toggle')!;
@@ -143,7 +146,7 @@ function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
 function draw(model: Model, label: string) {
   largeScene = undefined; largeModel = undefined; preparationPending = false;
   invalidateView();
-  clear(walls); clear(lines); surfaceScene.clear();
+  clear(walls); centreline.clear(); surfaceScene.clear();
   const bounds = new THREE.Box3();
   for (const p of model.stations.values()) bounds.expandByPoint(new THREE.Vector3(...p));
   for (const scrap of model.scraps) for (const p of scrap.points) bounds.expandByPoint(new THREE.Vector3(...p));
@@ -166,15 +169,7 @@ function draw(model: Model, label: string) {
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.setIndex(indices); g.computeVertexNormals();
     walls.add(new THREE.Mesh(g, wallMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: .85, metalness: 0 }))));
   }
-  const vertices: number[] = [], colors: number[] = [];
-  for (const [a, b] of model.shots) for (const p of [a, b]) {
-    vertices.push(...offset(p, origin)); const col = altitudeColor(p[2], model); colors.push(col.r, col.g, col.b);
-  }
-  if (vertices.length) {
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    lines.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true })));
-  }
+  centreline.setModel(model, origin);
   for (const surface of model.surfaces) surfaceScene.add(surface, origin);
   updateLegend(model);
   applyWallCulling();
@@ -237,7 +232,7 @@ function loadLargeFile(file: File, id: number) {
         phase = 'Preparing full-detail scene';
         const model = message.model;
         largeScene = undefined; largeModel = undefined;
-        clear(walls); clear(lines); surfaceScene.clear();
+        clear(walls); centreline.clear(); surfaceScene.clear();
         loadingLargeWalls = true;
         invalidateView();
         const origin = new THREE.Vector3(...model.origin); modelOrigin = origin;
@@ -247,16 +242,7 @@ function loadLargeFile(file: File, id: number) {
         material = largeWallMaterial(model);
         largeScene = new LargeScene(walls, material, model);
         applyWallCulling();
-        const vertices = new Float32Array(model.shots.length * 6), colors = new Float32Array(vertices.length);
-        let p = 0;
-        for (const shot of model.shots) for (const point of shot) {
-          vertices.set(offset(point, origin), p);
-          colors.set(altitudeColor(point[2], model).toArray(), p); p += 3;
-        }
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-        lines.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true })));
+        centreline.setModel(model, origin);
         updateLegend(model); setCameraView(camera, controls, activeBox, 'fit'); menus.collapse();
         worker.postMessage({ acknowledge: true });
       } else if (message.type === 'surface') {
