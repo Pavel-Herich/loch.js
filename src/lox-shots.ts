@@ -7,6 +7,15 @@ export const SHOT_SPLAY = 16;
 export type Shot = { from: Point; to: Point; flags: number };
 export type ShotReference = { from: number; to: number; flags: number };
 
+export function undergroundShotRange(shots: Shot[]) {
+  let minZ = Infinity, maxZ = -Infinity;
+  for (const shot of shots) if (!(shot.flags & (SHOT_SURFACE | SHOT_NOT_VISIBLE))) {
+    minZ = Math.min(minZ, shot.from[2], shot.to[2]);
+    maxZ = Math.max(maxZ, shot.from[2], shot.to[2]);
+  }
+  return { minZ, maxZ };
+}
+
 export function resolveShots(references: ShotReference[], stations: Map<number, Point>): Shot[] {
   const shots: Shot[] = [];
   for (const reference of references) {

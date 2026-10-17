@@ -1,5 +1,5 @@
 import { decodeSurveyText, surveyTextReferences, SURVEY_TEXT_BYTES } from './lox-title';
-import { resolveShots, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
+import { resolveShots, undergroundShotRange, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, type Surface, type SurfaceBitmap } from './lox-surface';
 import { resolveStationSurveys, stationNameReference, type Station, type Survey } from './lox-stations';
 /** Therion lxFile chunks, matching loch/lxFile.{h,cxx} (little endian). */
@@ -100,14 +100,12 @@ export function parseLox(buffer: ArrayBuffer): Model {
     p = dataStart + dataSize;
   }
   const shots = resolveShots(shotIds, stations);
-  let minZ = Infinity, maxZ = -Infinity;
+  let { minZ, maxZ } = undergroundShotRange(shots);
   const addHeight = (z: number) => { if (!Number.isFinite(z)) throw new Error('Invalid geometry coordinate'); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); };
-  for (const point of stations.values()) addHeight(point[2]);
   for (const s of scraps) for (const point of s.points) addHeight(point[2]);
   for (const surface of surfaces) surface.bitmap = bitmaps.get(surface.id);
-  if (!Number.isFinite(minZ)) for (const surface of surfaces) for (let i = 0; i < surface.heights.length; i++) {
-    addHeight(surface.heights[i]);
-  }
-  if (!Number.isFinite(minZ)) throw new Error('No cave geometry in LOX file');
+  if (!stations.size && !scraps.some(scrap => scrap.points.length) && !surfaces.length) throw new Error('No cave geometry in LOX file');
+  // Surface-only files still load, without surface elevations defining cave colors.
+  if (!Number.isFinite(minZ)) { minZ = 0; maxZ = 0; }
   return { title: projectTitle || projectName || undefined, scraps, stations, stationDetails: resolveStationSurveys(stationDetails, surveys), shots, minZ, maxZ, surfaces };
 }

@@ -1,5 +1,5 @@
 import { decodeSurveyText, surveyTextReferences, SURVEY_TEXT_BYTES } from './lox-title';
-import { resolveShots, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
+import { resolveShots, undergroundShotRange, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, surfacePoint, type Surface, type SurfaceRecord, type BitmapRecord } from './lox-surface';
 import type { Point } from './lox';
 import { resolveStationSurveys, stationNameReference, type Station, type Survey } from './lox-stations';
@@ -119,18 +119,23 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
 
   // Scan coordinates without keeping the 64-bit source arrays. Recentering before
   // conversion to Float32 preserves detail at large survey coordinate offsets.
+  const shots = resolveShots(shotIds, stations);
+  let { minZ, maxZ } = undergroundShotRange(shots);
   const pointsPerRead = Math.floor(READ_BYTES / 24);
   let scanned = 0;
   for (const scrap of scraps) {
     for (let first = 0; first < scrap.points; first += pointsPerRead) {
       const count = Math.min(pointsPerRead, scrap.points - first);
       const data = await read(source, scrap.pointOffset + first * 24, count * 24);
-      for (let i = 0; i < count; i++) bounds(data.getFloat64(i * 24, true), data.getFloat64(i * 24 + 8, true), data.getFloat64(i * 24 + 16, true));
+      for (let i = 0; i < count; i++) {
+        const z = data.getFloat64(i * 24 + 16, true);
+        bounds(data.getFloat64(i * 24, true), data.getFloat64(i * 24 + 8, true), z);
+        minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+      }
       scanned += count;
       callbacks.progress({ phase: 'Scanning model bounds', completed: scanned, total: totalPoints });
     }
   }
-  const caveMinZ = min[2], caveMaxZ = max[2];
   let scannedSurface = 0;
   const surfacePoints = surfaces.reduce((sum, surface) => sum + surface.width * surface.height, 0);
   for (const surface of surfaces) {
@@ -144,8 +149,8 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
   }
   if (!Number.isFinite(min[0])) throw new Error('No cave geometry in LOX file');
   const origin = min.map((value, axis) => value + (max[axis] - value) / 2) as Point;
-  const shots = resolveShots(shotIds, stations);
-  const model: LargeModel = { title: projectTitle || projectName || undefined, min, max, origin, minZ: Number.isFinite(caveMinZ) ? caveMinZ : min[2], maxZ: Number.isFinite(caveMaxZ) ? caveMaxZ : max[2], scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
+  if (!Number.isFinite(minZ)) { minZ = 0; maxZ = 0; }
+  const model: LargeModel = { title: projectTitle || projectName || undefined, min, max, origin, minZ, maxZ, scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
   model.stationDetails = resolveStationSurveys(stationDetails, surveys);
   await callbacks.ready(model);
   for (const surface of surfaces) {

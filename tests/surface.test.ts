@@ -35,7 +35,7 @@ describe('LOX terrain surfaces', () => {
     expect(Array.from(surface.heights)).toEqual([10, 11, 12, 13]);
     expect(surface.bitmap?.mime).toBe('image/png');
     expect(Array.from(surface.bitmap!.data)).toEqual([137, 80, 78, 71]);
-    expect([model.minZ, model.maxZ]).toEqual([10, 13]);
+    expect([model.minZ, model.maxZ]).toEqual([0, 0]);
   });
 
   it('maps rotated grid coordinates, recenters before Float32 conversion, and triangulates each cell', () => {
