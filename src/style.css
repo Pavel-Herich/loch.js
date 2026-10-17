@@ -19,7 +19,8 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid #8e
 .menu-items input{margin:0;accent-color:#8ed9ff}
 .menu-items select{min-width:0;flex:1;padding:.25rem;border:1px solid #678599;border-radius:4px;background:#233b4b;color:inherit;font:inherit}
 .menu-items hr{border:0;border-top:1px solid #496170;margin:.35rem}
-.light-controls{min-width:220px}
+.control-group{min-width:220px}
+.group-items{padding:.15rem .25rem .35rem}
 .light-sliders{padding:.15rem .25rem .35rem}
 .light-sliders label{display:grid;grid-template-columns:1fr auto;gap:.4rem}
 .light-sliders label:hover{background:transparent}
@@ -67,3 +68,5 @@ footer a{color:#8ed9ff;white-space:nowrap;flex-shrink:0}
 #about-dialog dt{color:#b8ccd9}
 #about-dialog dd{margin:0;overflow-wrap:anywhere}
 #about-dialog form{display:flex;justify-content:flex-end;margin-top:24px}
+
+@media(max-width:450px){header{gap:.25rem}h1{margin-right:0}.menu>summary{padding:.45rem .3rem;font-size:.85rem}}

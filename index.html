@@ -2,26 +2,32 @@
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
     <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button></div></details>
-    <details class="menu"><summary>Scene</summary><div class="menu-items">
-      <label><input id="lines" type="checkbox" checked/> Centreline</label>
-      <label><input id="walls" type="checkbox" checked/> Walls</label>
-      <label><input id="textured-walls" type="checkbox"/> Textured walls</label>
-      <label><input id="walls-culling" type="checkbox"/> Walls culling</label>
-      <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
-      <label>Detail <select id="detail" aria-label="Wall detail"><option value="auto">Automatic</option><option value="full" selected>Full detail</option></select></label>
-      <details class="light-controls"><summary>Light</summary><div class="light-sliders">
+    <details class="menu"><summary>Camera</summary><div class="menu-items">
+      <details class="control-group"><summary>Visibility</summary><div class="group-items">
+        <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
+        <label><input id="lines" type="checkbox" checked/> Centreline</label>
+        <label><input id="walls" type="checkbox" checked/> Walls</label>
+      </div></details>
+      <details class="control-group"><summary>Walls</summary><div class="group-items">
+        <label><input id="walls-culling" type="checkbox"/> Culling</label>
+        <label><input id="textured-walls" type="checkbox"/> Texture walls</label>
+      </div></details>
+    </div></details>
+    <details class="menu"><summary>View</summary><div class="menu-items">
+      <label><input id="walker" type="checkbox"/> Walker</label>
+      <label><input id="perspective" type="checkbox" checked/> Perspective</label>
+      <label><input id="lock-tilt" type="checkbox"/> Lock tilt</label>
+      <hr/>
+      <button id="plan" type="button" data-view="plan">Plan</button>
+      <button id="profile" type="button" data-view="profile">Profile</button>
+    </div></details>
+    <details class="menu"><summary>Rendering</summary><div class="menu-items">
+      <details class="control-group light-controls"><summary>Light</summary><div class="light-sliders">
         <label class="light-mode" for="light-mode">Mode <select id="light-mode"><option value="static" selected>Static</option><option value="follow">Follow camera</option><hr/><option value="headlight">Headlight</option></select></label>
         <label for="light-bearing">Bearing <output id="light-bearing-value" for="light-bearing">27°</output><input id="light-bearing" type="range" min="0" max="360" step="1" value="27" title="Light from: 0° north, 90° east, 180° south, 270° west"/></label>
         <label for="light-clino">Clino <output id="light-clino-value" for="light-clino">53°</output><input id="light-clino" type="range" min="-90" max="90" step="1" value="53" title="Light from: −90° below, 0° horizontal, +90° above"/></label>
       </div></details>
-    </div></details>
-    <details class="menu"><summary>View</summary><div class="menu-items">
-      <label><input id="perspective" type="checkbox" checked/> Perspective</label>
-      <label><input id="walker" type="checkbox"/> Walker</label>
-      <button id="plan" type="button" data-view="plan">Plan</button>
-      <button id="profile" type="button" data-view="profile">Profile</button>
-      <button id="fit" type="button" data-view="fit">Fit</button>
-      <label><input id="lock-tilt" type="checkbox"/> Lock tilt</label>
+      <label>Detail <select id="detail" aria-label="Wall detail"><option value="auto">Automatic</option><option value="full" selected>Full detail</option></select></label>
       <hr/>
       <button id="fullscreen" type="button">Full screen</button>
     </div></details>
