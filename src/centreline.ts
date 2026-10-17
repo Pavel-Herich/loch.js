@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { SHOT_DUPLICATE, SHOT_SPLAY, SHOT_SURFACE, type Shot } from './lox-shots';
+import { StationScene, type StationOptions } from './stations';
+import type { Station, StationLabel } from './lox-stations';
 
 type AltitudeRange = { minZ: number; maxZ: number };
-export type CentrelineOptions = { surface: boolean; underground: boolean; color: 'altitude' | 'default'; splay: boolean; duplicate: boolean };
-export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true };
+export type CentrelineOptions = StationOptions & { color: 'altitude' | 'default'; duplicate: boolean };
+export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true, stations: true, label: 'none' };
 
 export function centrelineVisible(flags: number, options: CentrelineOptions) {
   return Boolean((flags & SHOT_SURFACE ? options.surface : options.underground)
@@ -26,9 +28,14 @@ export class CentrelineScene {
   private entries: Entry[] = [];
   private range: AltitudeRange = { minZ: 0, maxZ: 0 };
   private originZ = 0;
-  constructor(readonly group: THREE.Group, private onChange: () => void) {}
+  private stations: StationScene;
+  constructor(readonly group: THREE.Group, private onChange: () => void, labels?: HTMLCanvasElement) {
+    this.stations = new StationScene(group, labels);
+  }
 
-  setModel(model: AltitudeRange & { shots: Shot[] }, origin: THREE.Vector3) {
+  updateLabels(camera: THREE.Camera, width: number, height: number) { this.stations.updateLabels(camera, width, height); }
+
+  setModel(model: AltitudeRange & { shots: Shot[]; stationDetails?: Station[] }, origin: THREE.Vector3) {
     this.clear(); this.range = { minZ: model.minZ, maxZ: model.maxZ }; this.originZ = origin.z;
     const buckets = new Map<number, Shot[]>();
     for (const shot of model.shots) {
@@ -53,6 +60,7 @@ export class CentrelineScene {
       this.group.add(lines); this.entries.push({ flags, lines });
     }
     if (!this.entries.length) material.dispose();
+    this.stations.setModel(model.stationDetails ?? [], origin);
     this.updateColors(); this.updateVisibility();
   }
 
@@ -64,6 +72,7 @@ export class CentrelineScene {
   }
   private updateVisibility() {
     for (const entry of this.entries) entry.lines.visible = centrelineVisible(entry.flags, this.options);
+    this.stations.setOptions(this.options);
   }
   private updateColors() {
     const color = new THREE.Color();
@@ -77,6 +86,7 @@ export class CentrelineScene {
     }
   }
   clear() {
+    this.stations.clear();
     const materials = new Set<THREE.Material>();
     for (const { lines } of this.entries) { this.group.remove(lines); lines.geometry.dispose(); materials.add(lines.material); }
     for (const material of materials) material.dispose();
@@ -90,14 +100,18 @@ export function initializeCentrelineControls(centreline: CentrelineScene) {
     underground: document.querySelector<HTMLInputElement>('#centreline-underground')!,
     splay: document.querySelector<HTMLInputElement>('#centreline-splay')!,
     duplicate: document.querySelector<HTMLInputElement>('#centreline-duplicate')!,
+    stations: document.querySelector<HTMLInputElement>('#centreline-stations')!,
   };
   const color = document.querySelector<HTMLSelectElement>('#centreline-color')!;
+  const label = document.querySelector<HTMLSelectElement>('#station-label')!;
+  label.value = 'none';
   color.value = 'altitude';
   for (const control of Object.values(controls)) control.checked = true;
   const update = () => centreline.setOptions({
     surface: controls.surface.checked, underground: controls.underground.checked,
     color: color.value === 'default' ? 'default' : 'altitude', splay: controls.splay.checked, duplicate: controls.duplicate.checked,
+    stations: controls.stations.checked, label: label.value as StationLabel,
   });
-  for (const control of [...Object.values(controls), color]) control.addEventListener('change', update);
+  for (const control of [...Object.values(controls), color, label]) control.addEventListener('change', update);
   update();
 }

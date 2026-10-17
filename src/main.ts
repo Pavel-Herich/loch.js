@@ -81,7 +81,7 @@ const surfaceScene = new SurfaceScene(surfaceGroup, invalidateView, error => rep
   phase: 'Loading surface image', ...(largeModel ? { file: largeModel.file } : { source: 'LOX surface image' }),
 }));
 initializeSurfaceControls(surfaceScene);
-const centreline = new CentrelineScene(lines, invalidateView);
+const centreline = new CentrelineScene(lines, invalidateView, document.querySelector<HTMLCanvasElement>('#station-labels')!);
 initializeCentrelineControls(centreline);
 const indicators = initializeIndicators(canvas, () => camera, () => controls.target);
 const autorotate = initializeAutorotateControls(controls);
@@ -307,7 +307,10 @@ new ResizeObserver(resize).observe(canvas); resize();
 function frame(time = performance.now()) {
   requestAnimationFrame(frame);
   autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
-  if (sceneDirty) indicators.update();
+  if (sceneDirty) {
+    indicators.update();
+    centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
+  }
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
     try {
       if (!preparation) {

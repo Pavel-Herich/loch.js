@@ -2,6 +2,7 @@ import { decodeSurveyText, surveyTextReferences, SURVEY_TEXT_BYTES } from './lox
 import { resolveShots, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, surfacePoint, type Surface, type SurfaceRecord, type BitmapRecord } from './lox-surface';
 import type { Point } from './lox';
+import { resolveStationSurveys, stationNameReference, type Station, type Survey } from './lox-stations';
 
 export const READ_BYTES = 8 * 1024 * 1024;
 export const BATCH_TRIANGLES = 65_536;
@@ -11,6 +12,7 @@ export type LargeModel = {
   title?: string;
   min: Point; max: Point; origin: Point; minZ: number; maxZ: number;
   scraps: number; triangles: number; points: number; shots: Shot[];
+  stationDetails?: Station[];
 };
 export type GeometryBatch = { positions: Float32Array; indices?: Uint32Array; triangles: number };
 export type LoadProgress = { phase: string; completed: number; total: number };
@@ -32,6 +34,20 @@ async function read(source: Source, offset: number, length: number): Promise<Dat
 export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbacks): Promise<LargeModel> {
   const surfaces: SurfaceRecord[] = [], bitmaps = new Map<number, BitmapRecord>();
   const scraps: Scrap[] = [], stations = new Map<number, Point>(), shotIds: ShotReference[] = [];
+  const stationDetails: Station[] = [], surveys = new Map<number, Survey>();
+  let textStart = -1;
+  let textBytes: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+  async function readText(offset: number, size: number) {
+    if (!size) return '';
+    const length = Math.min(size, SURVEY_TEXT_BYTES);
+    if (offset < textStart || offset + length > textStart + textBytes.length) {
+      // Cache adjacent station names, without reading a potentially huge data blob.
+      textStart = offset;
+      const data = await read(source, offset, Math.min(source.size - offset, SURVEY_TEXT_BYTES));
+      textBytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    }
+    return decodeSurveyText(textBytes.subarray(offset - textStart, offset - textStart + length));
+  }
   const min: Point = [Infinity, Infinity, Infinity], max: Point = [-Infinity, -Infinity, -Infinity];
   function bounds(x: number, y: number, z: number) {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) throw new Error('Invalid geometry coordinate');
@@ -59,6 +75,9 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
           const p = i * width;
           if (kind === 1) {
             const refs = surveyTextReferences(records, p, dataBytes);
+            const name = await readText(dataStart + refs.name.offset, refs.name.size);
+            const id = records.getUint32(p, true);
+            surveys.set(id, { id, parent: records.getUint32(p + 12, true), name });
             if (!projectTitle && refs.title.size) {
               const text = await read(source, dataStart + refs.title.offset, Math.min(refs.title.size, SURVEY_TEXT_BYTES));
               projectTitle = decodeSurveyText(new Uint8Array(text.buffer, text.byteOffset, text.byteLength));
@@ -70,6 +89,10 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
           } else if (kind === 2) {
             const point: Point = [records.getFloat64(p + 28, true), records.getFloat64(p + 36, true), records.getFloat64(p + 44, true)];
             bounds(...point); stations.set(records.getUint32(p, true), point);
+            const ref = stationNameReference(records, p, dataBytes);
+            stationDetails.push({ id: records.getUint32(p, true), surveyId: records.getUint32(p + 4, true),
+              flags: records.getUint32(p + 24, true), position: point,
+              name: await readText(dataStart + ref.offset, ref.size), survey: '', fullSurvey: '' });
           } else if (kind === 3) {
             const flags = records.getUint32(p + 72, true);
             if (!(flags & SHOT_NOT_VISIBLE)) shotIds.push({ from: records.getUint32(p, true), to: records.getUint32(p + 4, true), flags });
@@ -123,6 +146,7 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
   const origin = min.map((value, axis) => value + (max[axis] - value) / 2) as Point;
   const shots = resolveShots(shotIds, stations);
   const model: LargeModel = { title: projectTitle || projectName || undefined, min, max, origin, minZ: Number.isFinite(caveMinZ) ? caveMinZ : min[2], maxZ: Number.isFinite(caveMaxZ) ? caveMaxZ : max[2], scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
+  model.stationDetails = resolveStationSurveys(stationDetails, surveys);
   await callbacks.ready(model);
   for (const surface of surfaces) {
     if (!callbacks.surface) break;
