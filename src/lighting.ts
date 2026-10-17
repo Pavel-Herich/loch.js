@@ -5,7 +5,7 @@ export type SceneLights = { directional: DirectionalLight; fill: HemisphereLight
 
 export function createHeadlight() {
   // A fully soft cone, with stable brightness regardless of model scale/distance.
-  const light = new SpotLight(0xffffff, 2, 0, Math.PI / 4, 1, 0);
+  const light = new SpotLight(0xffffff, 4, 0, Math.PI / 4, 1, 0);
   light.visible = false;
   return light;
 }
