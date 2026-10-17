@@ -46,6 +46,10 @@ canvas{width:100%;height:100%;display:block;touch-action:none}
 #legend{display:flex;align-items:center;flex-direction:column;gap:5px}
 footer{display:flex;align-items:center;gap:.25rem;padding:8px 14px;background:#162531;font-size:12px;height:31px;flex-shrink:0;white-space:nowrap;overflow:hidden}
 footer.loading{background-image:linear-gradient(#215a75,#215a75);background-repeat:no-repeat;background-size:var(--progress,0%) 100%}
+footer.indeterminate{position:relative;isolation:isolate;background-image:none}
+footer.indeterminate::before{content:"";position:absolute;inset:0 auto 0 0;width:35%;background:#215a75;z-index:-1;will-change:transform;animation:status-progress 1.3s linear infinite}
+@keyframes status-progress{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
+@media(prefers-reduced-motion:reduce){footer.indeterminate::before{animation:none;transform:translateX(100%)}}
 .status-message{min-width:0;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:650px){header{gap:.4rem;padding:.6rem .75rem}h1{margin-right:.25rem}.menu summary{padding:.45rem .5rem}.menu:last-child .menu-items{left:auto;right:0}.overlay{right:8px;bottom:8px}}
 footer a{color:#8ed9ff;white-space:nowrap;flex-shrink:0}

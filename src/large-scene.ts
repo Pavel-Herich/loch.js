@@ -123,6 +123,19 @@ export class LargeScene {
 
   get renderedTriangles() { return this.entries.reduce((sum, entry) => sum + (entry.high ? entry.triangles : 0), 0); }
 
+  geometryBatches() { return this.entries.map(entry => entry.mesh); }
+
+  hide() {
+    for (const entry of this.entries) { entry.mesh.visible = false; entry.points.visible = false; }
+  }
+
+  uploadObjects(camera: THREE.Camera, full: boolean) {
+    this.update(camera, full);
+    const objects = this.entries.map(entry => entry.high ? entry.mesh : entry.points);
+    this.hide();
+    return objects;
+  }
+
   refinementBatches(camera: THREE.Camera) {
     for (const entry of this.entries) {
       entry.mesh.visible = false; entry.points.visible = false;

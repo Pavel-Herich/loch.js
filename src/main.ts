@@ -10,6 +10,7 @@ import { loadWallTexture, setTexturedWalls, wallMaterial } from './wall-material
 import type { GeometryBatch, LargeModel, LoadProgress } from './large-lox';
 import { largeWallMaterial, LargeScene } from './large-scene';
 import { ProgressiveView } from './progressive-view';
+import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import './style.css';
 
@@ -42,13 +43,27 @@ let viewRefined = false;
 let loadingError = false;
 let lastViewChange = performance.now();
 let progressiveView: ProgressiveView | undefined;
+let preparationPending = false;
+let preparation: WallPreparation | undefined;
+function reportPreparation() {
+  if (!largeModel) return;
+  const phase = preparation?.phase ?? 'Preparing geometry';
+  const progress = preparation ? preparation.progress : 0;
+  setStatusText(status, `${largeModel.name} · ${phase}${progress === null ? '…' : ` · ${Math.round(progress * 100)}%`}`);
+  setStatusProgress(status, progress);
+}
 function invalidateView() {
   sceneDirty = true; viewRefined = false; lastViewChange = performance.now();
   progressiveView?.dispose(); progressiveView = undefined;
-  if (!largeWorker) { setStatusProgress(status); updateLargeStatus(); }
+  preparation?.dispose(); preparation = undefined;
+  if (!largeWorker && !loadingError) {
+    if (preparationPending && largeModel && walls.visible) reportPreparation();
+    else { setStatusProgress(status); updateLargeStatus(); }
+  }
 }
 function reportLoadError(error: unknown, context: LoadContext) {
-  loadingError = true;
+  loadingError = true; preparationPending = false;
+  preparation?.dispose(); preparation = undefined;
   showLoadError(status, error, context);
 }
 const lighting = initializeLightControls({ directional: light, fill: fillLight, headlight }, () => camera, () => controls.target, invalidateView);
@@ -119,7 +134,7 @@ function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
   legend.innerHTML = `<span>${model.maxZ.toFixed(1)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.minZ.toFixed(1)} m</span>`;
 }
 function draw(model: Model, label: string) {
-  largeScene = undefined; largeModel = undefined;
+  largeScene = undefined; largeModel = undefined; preparationPending = false;
   invalidateView();
   clear(walls); clear(lines);
   const bounds = new THREE.Box3();
@@ -158,7 +173,7 @@ function draw(model: Model, label: string) {
 async function loadFile(file: File) {
   const id = ++loadId;
   largeWorker?.terminate(); largeWorker = undefined;
-  loadingLargeWalls = false; loadingError = false;
+  loadingLargeWalls = false; loadingError = false; preparationPending = false;
   invalidateView();
   setStatusText(status, `Opening ${file.name}…`); setStatusProgress(status, 0);
   let phase = 'Reading file';
@@ -237,7 +252,7 @@ function loadLargeFile(file: File, id: number) {
         worker.postMessage({ acknowledge: true });
       } else if (message.type === 'done') {
         largeModel = { name: file.name, model: message.model, file };
-        updateLargeStatus();
+        preparationPending = true;
         stop();
       } else if (message.type === 'error') {
         stop(Object.assign(new Error(message.error.message), message.error));
@@ -247,7 +262,7 @@ function loadLargeFile(file: File, id: number) {
   worker.postMessage({ file });
 }
 function updateLargeStatus() {
-  if (!largeModel || largeWorker || loadingError) return;
+  if (!largeModel || largeWorker || loadingError || (preparationPending && walls.visible)) return;
   const { name, model } = largeModel;
   setStatusText(status, `${name} · ${model.scraps} scraps · ${model.triangles.toLocaleString()} triangles · ${detail.value === 'full' ? 'full detail' : viewRefined ? 'automatic detail · stationary view complete' : 'automatic detail (moving preview)'}`);
 }
@@ -266,6 +281,27 @@ const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if
 new ResizeObserver(resize).observe(canvas); resize();
 function frame() {
   requestAnimationFrame(frame); controls.update();
+  if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
+    try {
+      if (!preparation) {
+        lighting.updateCamera();
+        preparation = new WallPreparation(renderer, scene, camera, largeScene, detail.value === 'full');
+        // Paint the stage label before starting the expensive work next frame.
+        renderer.render(scene, camera);
+      } else {
+        preparation.step();
+        reportPreparation();
+        if (preparation.complete) {
+          preparation.dispose(); preparation = undefined; preparationPending = false;
+          setStatusProgress(status); updateLargeStatus();
+        }
+      }
+      sceneDirty = false;
+    } catch (error) {
+      reportLoadError(error, { phase: preparation?.phase ?? 'Preparing geometry', file: largeModel.file });
+    }
+    return;
+  }
   if (sceneDirty) {
     lighting.updateCamera();
     const visible = walls.visible;
