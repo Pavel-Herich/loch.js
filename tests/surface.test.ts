@@ -100,6 +100,49 @@ describe('LOX terrain surfaces', () => {
     } finally { loader.mockRestore(); }
   });
 
+  it('switches to lit 80% white terrain without changing geometry, visibility, or opacity choices', () => {
+    const group = new THREE.Group(), scene = new SurfaceScene(group, vi.fn(), vi.fn());
+    scene.add(parseLox(fixture()).surfaces[0], new THREE.Vector3());
+    const mesh = group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial | THREE.MeshStandardMaterial>;
+    const imageMaterial = mesh.material, geometry = mesh.geometry;
+    expect(scene.imageOverlay).toBe(true); expect(imageMaterial).toBeInstanceOf(THREE.MeshBasicMaterial);
+    group.visible = false; scene.setImageOverlay(false);
+    const lit = mesh.material as THREE.MeshStandardMaterial;
+    expect(lit).toBeInstanceOf(THREE.MeshStandardMaterial); expect(lit.color.getHex()).toBe(0xcccccc);
+    expect(lit.flatShading).toBe(true); expect(mesh.geometry).toBe(geometry);
+    expect(geometry.getAttribute('normal')).toBeUndefined();
+    expect(lit.opacity).toBe(.5); expect(lit.transparent).toBe(true); expect(lit.depthWrite).toBe(false);
+    scene.setAppearance(false, .3); scene.setImageOverlay(true);
+    expect(mesh.material).toBe(imageMaterial); expect(mesh.material.opacity).toBe(1); expect(mesh.material.transparent).toBe(false);
+    scene.setImageOverlay(false); scene.setAppearance(true, .3);
+    expect(mesh.material.opacity).toBe(.3); expect(group.visible).toBe(false);
+    const disposed = vi.fn(); lit.addEventListener('dispose', disposed); imageMaterial.addEventListener('dispose', disposed);
+    scene.clear(); expect(disposed).toHaveBeenCalledTimes(2);
+    scene.add(parseLox(fixture()).surfaces[0], new THREE.Vector3());
+    expect((group.children[0] as THREE.Mesh).material).toBeInstanceOf(THREE.MeshStandardMaterial);
+    scene.clear();
+  });
+
+  it('keeps a late image load hidden when overlay is off and restores it without another load', () => {
+    const texture = new THREE.Texture(); texture.image = { width: 2, height: 2 };
+    let complete: ((texture: THREE.Texture) => void) | undefined;
+    const loader = vi.spyOn(THREE.TextureLoader.prototype, 'load').mockImplementation((_url, onLoad) => {
+      complete = onLoad; return texture;
+    });
+    try {
+      const group = new THREE.Group(), scene = new SurfaceScene(group, vi.fn(), vi.fn());
+      scene.setImageOverlay(false);
+      scene.add(parseLox(combine(fixture(), bitmap())).surfaces[0], new THREE.Vector3());
+      complete!(texture);
+      const mesh = group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial | THREE.MeshStandardMaterial>;
+      expect(mesh.material).toBeInstanceOf(THREE.MeshStandardMaterial); expect(mesh.material.map).toBeNull();
+      scene.setImageOverlay(true); expect(mesh.material).toBeInstanceOf(THREE.MeshBasicMaterial);
+      expect(mesh.material.map).toBe(texture); expect(texture.flipY).toBe(false);
+      scene.setImageOverlay(false); scene.setImageOverlay(true); expect(loader).toHaveBeenCalledOnce();
+      scene.clear();
+    } finally { loader.mockRestore(); }
+  });
+
   it('discards late texture loads after another model replaces the surface', () => {
     const texture = new THREE.Texture();
     let complete: ((texture: THREE.Texture) => void) | undefined;

@@ -44,10 +44,14 @@ export function surfaceUV(surface: Surface, bitmap: SurfaceBitmap, width: number
   return new THREE.BufferAttribute(uv, 2);
 }
 
+type SurfaceMaterial = THREE.MeshBasicMaterial | THREE.MeshStandardMaterial;
+type SurfaceEntry = { image: THREE.MeshBasicMaterial; lit: THREE.MeshStandardMaterial; meshes: THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>[] };
+
 export class SurfaceScene {
   transparency = true;
   opacity = DEFAULT_SURFACE_OPACITY;
-  private materials = new Set<THREE.MeshBasicMaterial>();
+  imageOverlay = true;
+  private entries: SurfaceEntry[] = [];
   private revision = 0;
   private pending = new Map<string, THREE.Texture>();
 
@@ -55,10 +59,15 @@ export class SurfaceScene {
 
   setAppearance(transparency: boolean, opacity: number) {
     this.transparency = transparency; this.opacity = Math.max(0, Math.min(1, opacity));
-    for (const material of this.materials) this.applyAppearance(material);
+    for (const entry of this.entries) { this.applyAppearance(entry.image); this.applyAppearance(entry.lit); }
     this.onChange();
   }
-  private applyAppearance(material: THREE.MeshBasicMaterial) {
+  setImageOverlay(enabled: boolean) {
+    this.imageOverlay = enabled;
+    for (const entry of this.entries) for (const mesh of entry.meshes) mesh.material = enabled ? entry.image : entry.lit;
+    this.onChange();
+  }
+  private applyAppearance(material: SurfaceMaterial) {
     const transparent = this.transparency && this.opacity < 1;
     if (material.transparent !== transparent) material.needsUpdate = true;
     material.transparent = transparent;
@@ -68,15 +77,17 @@ export class SurfaceScene {
 
   add(surface: Surface, origin: THREE.Vector3) {
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-    material.forceSinglePass = true;
-    this.applyAppearance(material); this.materials.add(material);
+    const lit = new THREE.MeshStandardMaterial({ color: 0xcccccc, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
+    const entry: SurfaceEntry = { image: material, lit, meshes: [] };
+    for (const surfaceMaterial of [material, lit]) { surfaceMaterial.forceSinglePass = true; this.applyAppearance(surfaceMaterial); }
+    this.entries.push(entry);
     const tiles: { geometry: THREE.BufferGeometry; column: number; row: number; columns: number; rows: number }[] = [];
     for (let row = 0; row < surface.height - 1; row += TILE_CELLS) {
       for (let column = 0; column < surface.width - 1; column += TILE_CELLS) {
         const columns = Math.min(TILE_CELLS, surface.width - column - 1), rows = Math.min(TILE_CELLS, surface.height - row - 1);
         const geometry = surfaceGeometry(surface, origin, column, row, columns, rows);
-        const mesh = new THREE.Mesh(geometry, material); mesh.name = `Surface ${surface.id}`;
-        this.group.add(mesh); tiles.push({ geometry, column, row, columns, rows });
+        const mesh = new THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>(geometry, this.imageOverlay ? material : lit); mesh.name = `Surface ${surface.id}`;
+        this.group.add(mesh); entry.meshes.push(mesh); tiles.push({ geometry, column, row, columns, rows });
       }
     }
     if (!surface.bitmap || !tiles.length) return;
@@ -106,25 +117,28 @@ export class SurfaceScene {
     for (const child of [...this.group.children]) {
       this.group.remove(child); (child as THREE.Mesh).geometry.dispose();
     }
-    for (const material of this.materials) { material.map?.dispose(); material.dispose(); }
-    this.materials.clear();
+    for (const entry of this.entries) { entry.image.map?.dispose(); entry.image.dispose(); entry.lit.dispose(); }
+    this.entries = [];
   }
 }
 
 export function initializeSurfaceControls(surface: SurfaceScene) {
   const visible = document.querySelector<HTMLInputElement>('#surface')!;
   const transparency = document.querySelector<HTMLInputElement>('#surface-transparency')!;
+  const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
   const opacity = document.querySelector<HTMLInputElement>('#surface-opacity')!;
   const value = document.querySelector<HTMLOutputElement>('#surface-opacity-value')!;
   const slider = document.querySelector<HTMLElement>('#surface-opacity-control')!;
   visible.checked = true; surface.group.visible = true; transparency.checked = true;
   opacity.value = String(DEFAULT_SURFACE_OPACITY * 100);
+  overlay.checked = true;
   const update = () => {
     slider.hidden = !transparency.checked; opacity.disabled = !transparency.checked;
     value.value = `${opacity.value}%`;
     surface.setAppearance(transparency.checked, Number(opacity.value) / 100);
   };
   visible.addEventListener('change', () => { surface.group.visible = visible.checked; update(); });
+  overlay.addEventListener('change', () => surface.setImageOverlay(overlay.checked));
   transparency.addEventListener('change', update); opacity.addEventListener('input', update);
   update();
 }
