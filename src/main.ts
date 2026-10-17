@@ -17,6 +17,7 @@ import { SurfaceScene, initializeSurfaceControls } from './surface';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators } from './indicators';
 import { displayProjectTitle } from './lox-title';
+import { initializeAutorotateControls } from './autorotate';
 import './style.css';
 
 initializeAbout();
@@ -81,6 +82,7 @@ initializeSurfaceControls(surfaceScene);
 const centreline = new CentrelineScene(lines, invalidateView);
 initializeCentrelineControls(centreline);
 const indicators = initializeIndicators(canvas, () => camera, () => controls.target);
+const autorotate = initializeAutorotateControls(controls);
 const walker = new WalkerControls(controls, canvas);
 const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
 const walkerButton = document.querySelector<HTMLButtonElement>('#walker-toggle')!;
@@ -291,8 +293,9 @@ window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file?.name.toLowerCase().endsWith('.lox')) void loadFile(file); });
 const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); resizeCamera(camera, w / h); invalidateView(); };
 new ResizeObserver(resize).observe(canvas); resize();
-function frame() {
-  requestAnimationFrame(frame); controls.update();
+function frame(time = performance.now()) {
+  requestAnimationFrame(frame);
+  autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
   if (sceneDirty) indicators.update();
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
     try {

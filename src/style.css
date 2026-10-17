@@ -37,10 +37,12 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid #8e
 .light-sliders .light-mode{display:flex}
 .light-sliders input:disabled{opacity:.4;cursor:default}
 #menu-toggle{width:36px;height:34px;display:grid;place-items:center;padding:7px;margin-left:auto;flex-shrink:0}
-#walker-toggle{position:absolute;top:calc(100% + .4rem);right:1rem;width:36px;height:34px;padding:4px;display:grid;place-items:center}
-#walker-toggle svg{width:24px;height:24px}
-#walker-toggle[aria-pressed="true"]{background:#215a75;border-color:#8ed9ff;color:#8ed9ff}
-@media(max-width:650px){#walker-toggle{right:.75rem}}
+#walker-toggle,#autorotate-toggle{position:absolute;right:1rem;width:36px;height:34px;padding:4px;display:grid;place-items:center}
+#walker-toggle{top:calc(100% + .4rem)}
+#autorotate-toggle{top:calc(100% + 34px + .8rem)}
+#walker-toggle svg,#autorotate-toggle svg{width:24px;height:24px}
+#walker-toggle[aria-pressed="true"],#autorotate-toggle[aria-pressed="true"]{background:#215a75;border-color:#8ed9ff;color:#8ed9ff}
+@media(max-width:650px){#walker-toggle,#autorotate-toggle{right:.75rem}}
 .hamburger,.hamburger::before,.hamburger::after{display:block;width:18px;height:2px;background:currentColor;border-radius:1px}
 .hamburger{position:relative}
 .hamburger::before,.hamburger::after{content:"";position:absolute;left:0}
