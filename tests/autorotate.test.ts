@@ -52,28 +52,50 @@ describe('automatic rotation', () => {
   it('reverses on a quick restart and retains that direction on later ordinary starts', () => {
     const { controls, rotation } = setup();
     rotation.setEnabled(true, 0); rotation.update(0);
-    const initial = controls.getAzimuthalAngle(); rotation.update(1000);
+    const initial = controls.getAzimuthalAngle(); rotation.update(500);
     const firstDelta = angleDifference(controls.getAzimuthalAngle(), initial);
-    rotation.setEnabled(false, 1200); rotation.setEnabled(true, 1700);
+    rotation.setEnabled(false, 600); rotation.setEnabled(true, 800);
     expect(rotation.direction).toBe(-1);
-    rotation.update(1700); const reversed = controls.getAzimuthalAngle(); rotation.update(2700);
+    rotation.update(800); const reversed = controls.getAzimuthalAngle(); rotation.update(1300);
     expect(angleDifference(controls.getAzimuthalAngle(), reversed)).toBeCloseTo(-firstDelta);
     rotation.setEnabled(false, 3000); rotation.setEnabled(true, 5001);
     expect(rotation.direction).toBe(-1);
-    rotation.update(5001); const resumed = controls.getAzimuthalAngle(); rotation.update(6001);
+    rotation.update(5001); const resumed = controls.getAzimuthalAngle(); rotation.update(5501);
     expect(angleDifference(controls.getAzimuthalAngle(), resumed)).toBeCloseTo(-firstDelta);
-    rotation.setEnabled(false, 6100); rotation.setEnabled(true, 6200);
+    rotation.setEnabled(false, 5600); rotation.setEnabled(true, 5800);
     expect(rotation.direction).toBe(1);
     expect(controls.autoRotateSpeed).toBe(4);
     rotation.dispose(); controls.dispose();
   });
 
-  it.each([[1000, -1], [1001, 1]])('uses a one-second restart window (%s ms)', (delay, direction) => {
+  it.each([[1000, -1], [1001, 1]])('measures the restart window from the first start (%s ms)', (delay, direction) => {
     const { controls, rotation } = setup();
     rotation.setEnabled(true, 0); rotation.setEnabled(false, 100);
     rotation.setEnabled(false, 500); // Repeated pause assignments do not extend the window.
-    rotation.setEnabled(true, 100 + delay);
+    rotation.setEnabled(true, delay);
     expect(rotation.direction).toBe(direction);
+    rotation.dispose(); controls.dispose();
+  });
+
+  it('keeps direction after a five-second run, even with a quick stop/start', () => {
+    const { controls, rotation } = setup();
+    rotation.setEnabled(true, 0); rotation.update(0); rotation.update(5000);
+    rotation.setEnabled(false, 5000); rotation.setEnabled(true, 5100);
+    expect(rotation.direction).toBe(1);
+    expect(controls.autoRotateSpeed).toBe(4);
+    rotation.update(5100); const resumed = controls.getAzimuthalAngle(); rotation.update(5200);
+    expect(angleDifference(controls.getAzimuthalAngle(), resumed)).toBeCloseTo(-MathUtils.degToRad(2.4));
+    // This new start can begin another complete start/stop/start gesture.
+    rotation.setEnabled(false, 5250); rotation.setEnabled(true, 5300);
+    expect(rotation.direction).toBe(-1);
+    rotation.dispose(); controls.dispose();
+  });
+
+  it('does not extend the gesture window for redundant start assignments', () => {
+    const { controls, rotation } = setup();
+    rotation.setEnabled(true, 0); rotation.setEnabled(true, 900);
+    rotation.setEnabled(false, 950); rotation.setEnabled(true, 1001);
+    expect(rotation.direction).toBe(1);
     rotation.dispose(); controls.dispose();
   });
 

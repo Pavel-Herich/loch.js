@@ -7,7 +7,7 @@ export class AutoRotation {
   private active = false;
   private interacting = false;
   private previousTime?: number;
-  private stoppedAt?: number;
+  private startedAt?: number;
   constructor(private controls: OrbitControls, private rotationDirection: 1 | -1 = 1) {
     // OrbitControls speed 1 is one turn per 60 seconds.
     controls.autoRotateSpeed = rotationDirection * 60 / AUTOROTATE_PERIOD_SECONDS;
@@ -20,11 +20,11 @@ export class AutoRotation {
   get direction() { return this.rotationDirection; }
   setEnabled(enabled: boolean, time = performance.now()) {
     if (enabled === this.active) return;
-    if (enabled && this.stoppedAt !== undefined && time >= this.stoppedAt && time - this.stoppedAt <= 1000) {
+    if (enabled && this.startedAt !== undefined && time >= this.startedAt && time - this.startedAt <= 1000) {
       this.rotationDirection = this.rotationDirection === 1 ? -1 : 1;
       this.controls.autoRotateSpeed = this.rotationDirection * 60 / AUTOROTATE_PERIOD_SECONDS;
     }
-    this.stoppedAt = enabled ? undefined : time;
+    if (enabled) this.startedAt = time;
     this.active = enabled; this.resetTime();
   }
   resetTime() { this.previousTime = undefined; }
