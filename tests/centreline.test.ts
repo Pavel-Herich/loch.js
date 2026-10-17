@@ -39,7 +39,7 @@ describe('centreline shot types and colours', () => {
 
   it('shows all types by default and combines surface/underground and splay/duplicate filters', () => {
     const defaults = { ...DEFAULT_CENTRELINE_OPTIONS };
-    expect(defaults).toEqual({ surface: true, underground: true, splay: true, duplicate: true, color: 'altitude', stations: true, label: 'none' });
+    expect(defaults).toEqual({ surface: true, underground: true, splay: true, duplicate: true, color: 'altitude', stations: false, label: 'none' });
     expect(shots.every(shot => centrelineVisible(shot.flags, defaults))).toBe(true);
     for (const shot of shots) {
       expect(centrelineVisible(shot.flags, { ...defaults, surface: false })).toBe(!(shot.flags & SHOT_SURFACE));

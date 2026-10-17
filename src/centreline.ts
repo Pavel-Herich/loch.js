@@ -5,7 +5,7 @@ import type { Station, StationLabel } from './lox-stations';
 
 type AltitudeRange = { minZ: number; maxZ: number };
 export type CentrelineOptions = StationOptions & { color: 'altitude' | 'default'; duplicate: boolean };
-export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true, stations: true, label: 'none' };
+export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true, stations: false, label: 'none' };
 
 export function centrelineVisible(flags: number, options: CentrelineOptions) {
   return Boolean((flags & SHOT_SURFACE ? options.surface : options.underground)
@@ -106,7 +106,7 @@ export function initializeCentrelineControls(centreline: CentrelineScene) {
   const label = document.querySelector<HTMLSelectElement>('#station-label')!;
   label.value = 'none';
   color.value = 'altitude';
-  for (const control of Object.values(controls)) control.checked = true;
+  for (const [key, control] of Object.entries(controls)) control.checked = DEFAULT_CENTRELINE_OPTIONS[key as keyof typeof controls];
   const update = () => centreline.setOptions({
     surface: controls.surface.checked, underground: controls.underground.checked,
     color: color.value === 'default' ? 'default' : 'altitude', splay: controls.splay.checked, duplicate: controls.duplicate.checked,

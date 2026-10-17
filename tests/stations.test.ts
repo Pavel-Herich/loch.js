@@ -69,6 +69,8 @@ describe('station metadata, dots and labels', () => {
     const group = new THREE.Group(), scene = new StationScene(group), stations = parseLox(fixture()).stationDetails;
     scene.setModel(stations, new THREE.Vector3(1000, 2000, 100));
     expect(group.children).toHaveLength(2);
+    expect(group.children.every(point => !point.visible)).toBe(true);
+    scene.setOptions(options);
     expect(group.children.reduce((count, child) => count + (child as THREE.Points).geometry.getAttribute('position').count, 0)).toBe(2);
     const underground = group.children.find(p => p.name === 'Stations 0') as THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
     const surface = group.children.find(p => p.name === 'Stations 1') as typeof underground;

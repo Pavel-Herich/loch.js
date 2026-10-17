@@ -13,7 +13,7 @@ export class StationScene {
   private entries: Entry[] = [];
   private stations: Station[] = [];
   private origin = new THREE.Vector3();
-  private options: StationOptions = { stations: true, label: 'none', surface: true, underground: true, splay: true };
+  private options: StationOptions = { stations: false, label: 'none', surface: true, underground: true, splay: true };
   constructor(private group: THREE.Group, private canvas?: HTMLCanvasElement) {}
 
   setModel(stations: Station[], origin: THREE.Vector3) {
