@@ -81,7 +81,7 @@ const surfaceScene = new SurfaceScene(surfaceGroup, invalidateView, error => rep
   phase: 'Loading surface image', ...(largeModel ? { file: largeModel.file } : { source: 'LOX surface image' }),
 }));
 initializeSurfaceControls(surfaceScene);
-const centreline = new CentrelineScene(lines, invalidateView, document.querySelector<HTMLCanvasElement>('#station-labels')!);
+const centreline = new CentrelineScene(lines, invalidateView);
 initializeCentrelineControls(centreline);
 const indicators = initializeIndicators(canvas, () => camera, () => controls.target);
 const autorotate = initializeAutorotateControls(controls);

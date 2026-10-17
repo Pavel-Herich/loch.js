@@ -52,7 +52,6 @@ header.compact.collapsed{left:auto;background:transparent}
 header.compact.collapsed h1{display:none}
 main{flex:1;min-height:0;position:relative}
 canvas{width:100%;height:100%;display:block;touch-action:none}
-#station-labels{position:absolute;inset:0;pointer-events:none}
 .overlay{position:absolute;inset:0;font-size:12px;pointer-events:none}
 .orientation-indicators{position:absolute;left:16px;bottom:64px;display:flex;flex-direction:column;gap:8px;padding:8px;background:#15263480;border-radius:10px}
 .orientation-indicator{display:flex;flex-direction:column;align-items:center;gap:2px;font-variant-numeric:tabular-nums}

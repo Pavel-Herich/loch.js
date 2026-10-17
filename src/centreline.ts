@@ -29,8 +29,8 @@ export class CentrelineScene {
   private range: AltitudeRange = { minZ: 0, maxZ: 0 };
   private originZ = 0;
   private stations: StationScene;
-  constructor(readonly group: THREE.Group, private onChange: () => void, labels?: HTMLCanvasElement) {
-    this.stations = new StationScene(group, labels);
+  constructor(readonly group: THREE.Group, private onChange: () => void) {
+    this.stations = new StationScene(group);
   }
 
   updateLabels(camera: THREE.Camera, width: number, height: number) { this.stations.updateLabels(camera, width, height); }

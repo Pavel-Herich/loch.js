@@ -95,21 +95,33 @@ describe('station metadata, dots and labels', () => {
     expect(stations.some(station => stationVisible(station, { ...options, stations: false }))).toBe(false);
   });
 
-  it('projects labels with the camera, skips points behind it and hides them with master visibility', () => {
-    const context = { setTransform: vi.fn(), clearRect: vi.fn(), strokeText: vi.fn(), fillText: vi.fn() };
-    const canvas = { hidden: true, width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
-    const group = new THREE.Group(), scene = new StationScene(group, canvas);
-    const station: Station = { id: 1, surveyId: 0, name: '1', flags: 0, position: [0, 0, -10], survey: '', fullSurvey: '' };
+  it('batches depth-tested labels, keeps pixel size on camera changes and disposes replaced atlases', () => {
+    const context = { measureText: (text: string) => ({ width: text.length * 14 }), strokeText: vi.fn(), fillText: vi.fn() };
+    const createCanvas = vi.fn(() => ({ width: 0, height: 0, getContext: () => context }) as unknown as HTMLCanvasElement);
+    const group = new THREE.Group(), scene = new StationScene(group, createCanvas);
+    const station: Station = { id: 1, surveyId: 0, name: '1', flags: 0, position: [1000, 2000, 90], survey: '', fullSurvey: '' };
     const camera = new THREE.PerspectiveCamera(45, 4 / 3, .1, 100);
-    vi.stubGlobal('devicePixelRatio', 2);
-    try {
-      scene.setModel([station, { ...station, name: 'behind', position: [0, 0, 10] }], new THREE.Vector3());
-      scene.setOptions({ ...options, label: 'number' }); scene.updateLabels(camera, 800, 600);
-      expect(canvas.hidden).toBe(false); expect(canvas.width).toBe(1600);
-      expect(context.fillText).toHaveBeenCalledExactlyOnceWith('1', 405, 300);
-      group.visible = false; scene.updateLabels(camera, 800, 600); expect(canvas.hidden).toBe(true);
-      group.visible = true; scene.setOptions({ ...options, label: 'none' }); expect(canvas.hidden).toBe(true);
-      scene.clear();
-    } finally { vi.unstubAllGlobals(); }
+    scene.setModel([station, { ...station, name: '2', position: [1010, 2000, 80] }], new THREE.Vector3(1000, 2000, 100));
+    scene.setOptions({ ...options, label: 'number' }); scene.updateLabels(camera, 800, 600);
+    const labels = group.children.find(child => child.name === 'Station labels') as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+    expect(labels).toBeDefined(); expect(createCanvas).toHaveBeenCalledOnce();
+    expect(labels.geometry.getAttribute('position').count).toBe(8);
+    expect(Array.from(labels.geometry.getAttribute('position').array).slice(0, 12)).toEqual([0, 0, -10, 0, 0, -10, 0, 0, -10, 0, 0, -10]);
+    expect(context.fillText.mock.calls.map(call => call[0])).toEqual(['1', '2']);
+    expect(labels.material.depthTest).toBe(true); expect(labels.material.depthWrite).toBe(true);
+    expect(labels.material.transparent).toBe(false);
+    expect(labels.material.uniforms.viewport.value.toArray()).toEqual([800, 600]);
+    expect(labels.material.uniforms.orthographic.value).toBe(false);
+    const geometry = labels.geometry;
+    scene.updateLabels(new THREE.OrthographicCamera(-10, 10, 10, -10, .1, 100), 400, 300);
+    expect(labels.geometry).toBe(geometry); expect(createCanvas).toHaveBeenCalledOnce();
+    expect(labels.material.uniforms.viewport.value.toArray()).toEqual([400, 300]);
+    expect(labels.material.uniforms.orthographic.value).toBe(true);
+    group.visible = false; scene.updateLabels(camera, 800, 600); expect(labels.visible).toBe(false);
+    group.visible = true; scene.updateLabels(camera, 800, 600); expect(labels.visible).toBe(true);
+    scene.setOptions({ ...options, label: 'none' }); expect(labels.visible).toBe(false);
+    const dispose = vi.fn(); geometry.addEventListener('dispose', dispose); labels.material.addEventListener('dispose', dispose);
+    labels.material.uniforms.atlas.value.addEventListener('dispose', dispose);
+    scene.clear(); expect(dispose).toHaveBeenCalledTimes(3); expect(group.children).toHaveLength(0);
   });
 });
