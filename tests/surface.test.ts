@@ -90,8 +90,11 @@ describe('LOX terrain surfaces', () => {
     });
     try {
       const group = new THREE.Group(), scene = new SurfaceScene(group, vi.fn(), vi.fn());
+      expect(scene.loading).toBe(false);
       scene.add(parseLox(combine(fixture(), bitmap())).surfaces[0], new THREE.Vector3());
+      expect(scene.loading).toBe(true);
       complete!(texture);
+      expect(scene.loading).toBe(false);
       const mesh = group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
       expect(mesh.material.map).toBe(texture);
       expect(texture.flipY).toBe(false);
@@ -154,7 +157,9 @@ describe('LOX terrain surfaces', () => {
       const scene = new SurfaceScene(group, onChange, onError);
       scene.add(parseLox(combine(fixture(), bitmap())).surfaces[0], new THREE.Vector3());
       const dispose = vi.fn(); texture.addEventListener('dispose', dispose);
+      expect(scene.loading).toBe(true);
       scene.clear();
+      expect(scene.loading).toBe(false);
       complete!(texture);
       expect(group.children).toHaveLength(0); expect(dispose).toHaveBeenCalled();
       expect(onChange).not.toHaveBeenCalled(); expect(onError).not.toHaveBeenCalled();

@@ -57,6 +57,8 @@ export class SurfaceScene {
 
   constructor(readonly group: THREE.Group, private onChange: () => void, private onError: (error: unknown) => void) {}
 
+  get loading() { return this.pending.size > 0; }
+
   setAppearance(transparency: boolean, opacity: number) {
     this.transparency = transparency; this.opacity = Math.max(0, Math.min(1, opacity));
     for (const entry of this.entries) { this.applyAppearance(entry.image); this.applyAppearance(entry.lit); }

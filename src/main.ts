@@ -53,6 +53,7 @@ let lastViewChange = performance.now();
 let progressiveView: ProgressiveView | undefined;
 let preparationPending = false;
 let preparation: WallPreparation | undefined;
+let collapseAfterRender = false;
 function reportPreparation() {
   if (!largeModel) return;
   const phase = preparation?.phase ?? 'Preparing geometry';
@@ -71,6 +72,7 @@ function invalidateView() {
 }
 function reportLoadError(error: unknown, context: LoadContext) {
   loadingError = true; preparationPending = false;
+  collapseAfterRender = false;
   preparation?.dispose(); preparation = undefined;
   showLoadError(status, error, context);
 }
@@ -188,6 +190,8 @@ function draw(model: Model, label: string) {
 }
 async function loadFile(file: File) {
   const id = ++loadId;
+  collapseAfterRender = false;
+  menus.expand();
   largeWorker?.terminate(); largeWorker = undefined;
   loadingLargeWalls = false; loadingError = false; preparationPending = false;
   surfaceScene.clear();
@@ -202,7 +206,7 @@ async function loadFile(file: File) {
     const model = parseLox(buffer);
     phase = 'Rendering model';
     draw(model, file.name);
-    menus.collapse();
+    collapseAfterRender = true;
   }
   catch (e) { if (id === loadId) reportLoadError(e, { phase, file }); }
 }
@@ -254,7 +258,7 @@ function loadLargeFile(file: File, id: number) {
         applyWallCulling();
         updateProjectTitle(model.title, file.name);
         centreline.setModel(model, origin);
-        updateLegend(model); setCameraView(camera, controls, activeBox, 'fit'); menus.collapse();
+        updateLegend(model); setCameraView(camera, controls, activeBox, 'fit');
         worker.postMessage({ acknowledge: true });
       } else if (message.type === 'surface') {
         phase = 'Preparing surface';
@@ -267,6 +271,7 @@ function loadLargeFile(file: File, id: number) {
       } else if (message.type === 'done') {
         largeModel = { name: file.name, model: message.model, file };
         preparationPending = true;
+        collapseAfterRender = true;
         stop();
       } else if (message.type === 'error') {
         stop(Object.assign(new Error(message.error.message), message.error));
@@ -279,6 +284,12 @@ function updateLargeStatus() {
   if (!largeModel || largeWorker || loadingError || (preparationPending && walls.visible)) return;
   const { name, model } = largeModel;
   setStatusText(status, `${name} · ${model.scraps} scraps · ${model.triangles.toLocaleString()} triangles · ${detail.value === 'full' ? 'full detail' : viewRefined ? 'automatic detail · stationary view complete' : 'automatic detail (moving preview)'}`);
+}
+function finishFileLoading() {
+  if (!collapseAfterRender || loadingError || largeWorker || surfaceScene.loading || (preparationPending && walls.visible)) return;
+  collapseAfterRender = false;
+  setStatusProgress(status);
+  menus.collapse();
 }
 detail.addEventListener('change', () => { loadingError = false; invalidateView(); });
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
@@ -310,6 +321,7 @@ function frame(time = performance.now()) {
         if (preparation.complete) {
           preparation.dispose(); preparation = undefined; preparationPending = false;
           setStatusProgress(status); updateLargeStatus();
+          finishFileLoading();
         }
       }
       sceneDirty = false;
@@ -325,6 +337,7 @@ function frame(time = performance.now()) {
     if (loadingLargeWalls) walls.visible = false;
     renderer.render(scene, camera);
     walls.visible = visible; sceneDirty = false;
+    finishFileLoading();
     return;
   }
   if (largeWorker || !largeScene || !largeModel || !walls.visible || detail.value === 'full' || loadingError

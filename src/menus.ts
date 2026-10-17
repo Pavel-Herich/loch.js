@@ -84,6 +84,11 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   });
 
   return {
+    expand() {
+      toolbar.classList.remove('compact', 'collapsed');
+      menus.hidden = false; status.hidden = false; toggle.hidden = true;
+      close();
+    },
     collapse() {
       toolbar.classList.add('compact');
       toggle.hidden = false;
