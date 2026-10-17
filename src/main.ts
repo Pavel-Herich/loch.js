@@ -16,6 +16,7 @@ import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators } from './indicators';
+import { displayProjectTitle } from './lox-title';
 import './style.css';
 
 initializeAbout();
@@ -23,6 +24,7 @@ initializeAbout();
 const canvas = document.querySelector<HTMLCanvasElement>('#view')!;
 const status = document.querySelector<HTMLElement>('#status')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
+const projectTitle = document.querySelector<HTMLElement>('#project-title')!;
 const detail = document.querySelector<HTMLSelectElement>('#detail')!;
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x09131c);
 let camera: ViewCamera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
@@ -145,6 +147,9 @@ function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
   const low = altitudeColor(model.minZ, model).getStyle(), high = altitudeColor(model.maxZ, model).getStyle();
   legend.innerHTML = `<span>${model.maxZ.toFixed(1)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.minZ.toFixed(1)} m</span>`;
 }
+function updateProjectTitle(title: string | undefined, filename: string) {
+  projectTitle.textContent = displayProjectTitle(title, filename); projectTitle.hidden = false;
+}
 function draw(model: Model, label: string) {
   largeScene = undefined; largeModel = undefined; preparationPending = false;
   invalidateView();
@@ -171,6 +176,7 @@ function draw(model: Model, label: string) {
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.setIndex(indices); g.computeVertexNormals();
     walls.add(new THREE.Mesh(g, wallMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: .85, metalness: 0 }))));
   }
+  updateProjectTitle(model.title, label);
   centreline.setModel(model, origin);
   for (const surface of model.surfaces) surfaceScene.add(surface, origin);
   updateLegend(model);
@@ -244,6 +250,7 @@ function loadLargeFile(file: File, id: number) {
         material = largeWallMaterial(model);
         largeScene = new LargeScene(walls, material, model);
         applyWallCulling();
+        updateProjectTitle(model.title, file.name);
         centreline.setModel(model, origin);
         updateLegend(model); setCameraView(camera, controls, activeBox, 'fit'); menus.collapse();
         worker.postMessage({ acknowledge: true });

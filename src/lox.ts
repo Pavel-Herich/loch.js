@@ -1,9 +1,10 @@
+import { decodeSurveyText, surveyTextReferences, SURVEY_TEXT_BYTES } from './lox-title';
 import { resolveShots, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, type Surface, type SurfaceBitmap } from './lox-surface';
 /** Therion lxFile chunks, matching loch/lxFile.{h,cxx} (little endian). */
 export type Point = [number, number, number];
 export type Scrap = { points: Point[]; triangles: [number, number, number][] };
-export type Model = { scraps: Scrap[]; stations: Map<number, Point>; shots: Shot[]; minZ: number; maxZ: number; surfaces: Surface[] };
+export type Model = { title?: string; scraps: Scrap[]; stations: Map<number, Point>; shots: Shot[]; minZ: number; maxZ: number; surfaces: Surface[] };
 const LIMIT = 50_000_000;
 export function parseLox(buffer: ArrayBuffer): Model {
   const d = new DataView(buffer); let p = 0;
@@ -19,13 +20,20 @@ export function parseLox(buffer: ArrayBuffer): Model {
     return new DataView(buffer, dataStart + start, length);
   };
   const surfaces: Surface[] = [], bitmaps = new Map<number, SurfaceBitmap>();
-  let chunks = 0;
+  let chunks = 0, projectTitle = '', projectName = '';
   while (p < d.byteLength) {
     check(16); const kind = u(), recordBytes = u(), count = u(), dataSize = u();
     if (++chunks > 100000 || count > LIMIT || recordBytes > d.byteLength || dataSize > d.byteLength) throw new Error('LOX limits exceeded');
     check(recordBytes + dataSize);
     const recordsStart = p, recordsEnd = p + recordBytes, dataStart = recordsEnd;
-    if (kind === 2) {
+    if (kind === 1) {
+      if (recordBytes !== count * 24) throw new Error('Invalid survey chunk');
+      for (let i = 0; i < count; i++) {
+        const refs = surveyTextReferences(d, recordsStart + i * 24, dataSize);
+        if (!projectTitle) projectTitle = decodeSurveyText(new Uint8Array(buffer, dataStart + refs.title.offset, Math.min(refs.title.size, SURVEY_TEXT_BYTES)));
+        if (!projectName && !projectTitle) projectName = decodeSurveyText(new Uint8Array(buffer, dataStart + refs.name.offset, Math.min(refs.name.size, SURVEY_TEXT_BYTES)));
+      }
+    } else if (kind === 2) {
       // id, surveyId, namePtr, commentPtr, flags, xyz (52 bytes)
       if (recordBytes !== count * 52) throw new Error('Invalid station chunk');
       for (let i = 0; i < count; i++) {
@@ -79,7 +87,7 @@ export function parseLox(buffer: ArrayBuffer): Model {
           bitmaps.set(record.id, { mime: record.mime, calibration: record.calibration, data });
         }
       }
-    } else if (kind !== 1) throw new Error(`Unsupported LOX chunk ${kind}`);
+    } else throw new Error(`Unsupported LOX chunk ${kind}`);
     p = dataStart + dataSize;
   }
   const shots = resolveShots(shotIds, stations);
@@ -92,5 +100,5 @@ export function parseLox(buffer: ArrayBuffer): Model {
     addHeight(surface.heights[i]);
   }
   if (!Number.isFinite(minZ)) throw new Error('No cave geometry in LOX file');
-  return { scraps, stations, shots, minZ, maxZ, surfaces };
+  return { title: projectTitle || projectName || undefined, scraps, stations, shots, minZ, maxZ, surfaces };
 }

@@ -1,3 +1,4 @@
+import { decodeSurveyText, surveyTextReferences, SURVEY_TEXT_BYTES } from './lox-title';
 import { resolveShots, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, surfacePoint, type Surface, type SurfaceRecord, type BitmapRecord } from './lox-surface';
 import type { Point } from './lox';
@@ -7,6 +8,7 @@ export const BATCH_TRIANGLES = 65_536;
 type Source = Pick<Blob, 'size' | 'slice'>;
 type Scrap = { points: number; triangles: number; pointOffset: number; triangleOffset: number };
 export type LargeModel = {
+  title?: string;
   min: Point; max: Point; origin: Point; minZ: number; maxZ: number;
   scraps: number; triangles: number; points: number; shots: Shot[];
 };
@@ -37,6 +39,7 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
     max[0] = Math.max(max[0], x); max[1] = Math.max(max[1], y); max[2] = Math.max(max[2], z);
   }
   let offset = 0, chunks = 0, totalPoints = 0, totalTriangles = 0;
+  let projectTitle = '', projectName = '';
   while (offset < source.size) {
     const header = await read(source, offset, 16);
     const kind = header.getUint32(0, true), recordBytes = header.getUint32(4, true);
@@ -44,8 +47,8 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
     const recordStart = offset + 16, dataStart = recordStart + recordBytes;
     if (++chunks > 100000) throw new Error('LOX limits exceeded');
     if (dataStart + dataBytes > source.size) throw new Error('Truncated or corrupt LOX record');
-    const width = kind === 2 ? 52 : kind === 3 ? 92 : kind === 4 ? 32 : kind === 5 ? 68 : kind === 6 ? 64 : 0;
-    if (width && recordBytes !== count * width) throw new Error(`Invalid ${kind === 2 ? 'station' : kind === 3 ? 'shot' : kind === 4 ? 'scrap' : 'surface'} chunk`);
+    const width = kind === 1 ? 24 : kind === 2 ? 52 : kind === 3 ? 92 : kind === 4 ? 32 : kind === 5 ? 68 : kind === 6 ? 64 : 0;
+    if (width && recordBytes !== count * width) throw new Error(`Invalid ${kind === 1 ? 'survey' : kind === 2 ? 'station' : kind === 3 ? 'shot' : kind === 4 ? 'scrap' : 'surface'} chunk`);
     if (![1, 2, 3, 4, 5, 6].includes(kind)) throw new Error(`Unsupported LOX chunk ${kind}`);
     if (width) {
       const recordsPerRead = Math.floor(READ_BYTES / width);
@@ -54,7 +57,17 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
         const records = await read(source, recordStart + first * width, n * width);
         for (let i = 0; i < n; i++) {
           const p = i * width;
-          if (kind === 2) {
+          if (kind === 1) {
+            const refs = surveyTextReferences(records, p, dataBytes);
+            if (!projectTitle && refs.title.size) {
+              const text = await read(source, dataStart + refs.title.offset, Math.min(refs.title.size, SURVEY_TEXT_BYTES));
+              projectTitle = decodeSurveyText(new Uint8Array(text.buffer, text.byteOffset, text.byteLength));
+            }
+            if (!projectName && !projectTitle && refs.name.size) {
+              const text = await read(source, dataStart + refs.name.offset, Math.min(refs.name.size, SURVEY_TEXT_BYTES));
+              projectName = decodeSurveyText(new Uint8Array(text.buffer, text.byteOffset, text.byteLength));
+            }
+          } else if (kind === 2) {
             const point: Point = [records.getFloat64(p + 28, true), records.getFloat64(p + 36, true), records.getFloat64(p + 44, true)];
             bounds(...point); stations.set(records.getUint32(p, true), point);
           } else if (kind === 3) {
@@ -109,7 +122,7 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
   if (!Number.isFinite(min[0])) throw new Error('No cave geometry in LOX file');
   const origin = min.map((value, axis) => value + (max[axis] - value) / 2) as Point;
   const shots = resolveShots(shotIds, stations);
-  const model: LargeModel = { min, max, origin, minZ: Number.isFinite(caveMinZ) ? caveMinZ : min[2], maxZ: Number.isFinite(caveMaxZ) ? caveMaxZ : max[2], scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
+  const model: LargeModel = { title: projectTitle || projectName || undefined, min, max, origin, minZ: Number.isFinite(caveMinZ) ? caveMinZ : min[2], maxZ: Number.isFinite(caveMaxZ) ? caveMaxZ : max[2], scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
   await callbacks.ready(model);
   for (const surface of surfaces) {
     if (!callbacks.surface) break;

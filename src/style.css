@@ -91,3 +91,7 @@ footer a{color:#8ed9ff;white-space:nowrap;flex-shrink:0}
 #about-dialog form{display:flex;justify-content:flex-end;margin-top:24px}
 
 @media(max-width:450px){header{gap:.25rem}h1{margin-right:0}.menu>summary{padding:.45rem .3rem;font-size:.85rem}}
+
+#project-title{position:absolute;top:16px;left:16px;max-width:calc(100% - 100px);margin:0;padding:8px 12px;border-radius:6px;background:#15263480;font-size:1rem;font-weight:600;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+header.compact:not(.collapsed)~main #project-title{top:calc(34px + 1.4rem + 16px)}
+@media(max-width:650px){#project-title{top:12px;left:8px;font-size:.9rem}header.compact:not(.collapsed)~main #project-title{top:calc(34px + 1.2rem + 12px)}}
