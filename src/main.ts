@@ -15,6 +15,7 @@ import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
+import { initializeIndicators } from './indicators';
 import './style.css';
 
 initializeAbout();
@@ -77,6 +78,7 @@ const surfaceScene = new SurfaceScene(surfaceGroup, invalidateView, error => rep
 initializeSurfaceControls(surfaceScene);
 const centreline = new CentrelineScene(lines, invalidateView);
 initializeCentrelineControls(centreline);
+const indicators = initializeIndicators(canvas, () => camera, () => controls.target);
 const walker = new WalkerControls(controls, canvas);
 const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
 const walkerButton = document.querySelector<HTMLButtonElement>('#walker-toggle')!;
@@ -284,6 +286,7 @@ const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if
 new ResizeObserver(resize).observe(canvas); resize();
 function frame() {
   requestAnimationFrame(frame); controls.update();
+  if (sceneDirty) indicators.update();
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
     try {
       if (!preparation) {

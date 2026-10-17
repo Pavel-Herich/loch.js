@@ -6,6 +6,7 @@ type DesktopAPI = { window: { getCurrentWindow(): DesktopWindow } };
 export function initializeMenus(onView: (view: ModelView) => void, onError: (error: unknown) => void) {
   const toolbar = document.querySelector<HTMLElement>('#toolbar')!;
   const menus = document.querySelector<HTMLElement>('#menus')!;
+  const status = document.querySelector<HTMLElement>('#status')!;
   const toggle = document.querySelector<HTMLButtonElement>('#menu-toggle')!;
   const groups = Array.from(menus.querySelectorAll<HTMLDetailsElement>(':scope > details'));
   const fullscreen = document.querySelector<HTMLButtonElement>('#fullscreen')!;
@@ -22,13 +23,14 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
       menus.hidden = true;
       toolbar.classList.add('collapsed');
     }
+    status.hidden = menus.hidden;
     toggle.setAttribute('aria-expanded', 'false');
     toggle.setAttribute('aria-label', 'Open menu');
   }
 
   toggle.addEventListener('click', () => {
     if (!menus.hidden) { close(); return; }
-    menus.hidden = false;
+    menus.hidden = false; status.hidden = false;
     toolbar.classList.remove('collapsed');
     toggle.setAttribute('aria-expanded', 'true');
     toggle.setAttribute('aria-label', 'Close menu');
