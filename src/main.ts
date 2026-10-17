@@ -4,7 +4,7 @@ import { createCameraControls, resizeCamera, setCameraView, setPerspective, setT
 import { exceptionMessage, showLoadError, type LoadContext } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import { initializeMenus } from './menus';
-import { initializeLightControls } from './lighting';
+import { createHeadlight, initializeLightControls } from './lighting';
 import { WalkerControls } from './walker';
 import type { GeometryBatch, LargeModel, LoadProgress } from './large-lox';
 import { largeWallMaterial, LargeScene } from './large-scene';
@@ -23,8 +23,9 @@ let camera: ViewCamera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const controls = createCameraControls(camera, canvas);
-scene.add(new THREE.HemisphereLight(0xcfe9ff, 0x213847, 2.1));
+const fillLight = new THREE.HemisphereLight(0xcfe9ff, 0x213847, 2.1); scene.add(fillLight);
 const light = new THREE.DirectionalLight(0xffffff, 2); scene.add(light, light.target);
+const headlight = createHeadlight(); scene.add(headlight, headlight.target);
 const walls = new THREE.Group(), lines = new THREE.Group(); scene.add(walls, lines);
 const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
 boundingBox.visible = false;
@@ -49,7 +50,7 @@ function reportLoadError(error: unknown, context: LoadContext) {
   loadingError = true;
   showLoadError(status, error, context);
 }
-const lighting = initializeLightControls(light, () => camera, () => controls.target, invalidateView);
+const lighting = initializeLightControls({ directional: light, fill: fillLight, headlight }, () => camera, () => controls.target, invalidateView);
 const walker = new WalkerControls(controls, canvas);
 const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
 const walkerButton = document.querySelector<HTMLButtonElement>('#walker-toggle')!;

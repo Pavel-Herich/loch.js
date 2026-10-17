@@ -51,6 +51,13 @@ function previewPointMaterial(model: LargeModel) {
           pointLighting += max(dot(pointNormal, directionalLights[i].direction), 0.0) * directionalLights[i].color;
         }
         #endif
+        #if NUM_SPOT_LIGHTS > 0
+        for (int i = 0; i < NUM_SPOT_LIGHTS; i++) {
+          IncidentLight spot;
+          getSpotLightInfo(spotLights[i], mvPosition.xyz, spot);
+          pointLighting += max(dot(pointNormal, spot.direction), 0.0) * spot.color;
+        }
+        #endif
         pointLighting *= RECIPROCAL_PI;
       `),
     fragmentShader: THREE.ShaderLib.points.fragmentShader

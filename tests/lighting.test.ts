@@ -1,6 +1,44 @@
 import { describe, expect, it } from 'vitest';
-import { DirectionalLight, OrthographicCamera, PerspectiveCamera, Vector3 } from 'three';
-import { lightDirection, setLightDirection } from '../src/lighting';
+import { DirectionalLight, HemisphereLight, OrthographicCamera, PerspectiveCamera, Vector3 } from 'three';
+import { createHeadlight, lightDirection, setLightDirection, setLightingMode, updateHeadlight } from '../src/lighting';
+
+describe('headlight', () => {
+  it('replaces directional/fill lighting only in headlight mode and restores their intensities', () => {
+    const lights = { directional: new DirectionalLight(0xffffff, 2), fill: new HemisphereLight(0xffffff, 0x111111, 2.1), headlight: createHeadlight() };
+    setLightingMode(lights, 'headlight');
+    expect(lights.headlight.visible).toBe(true);
+    expect(lights.directional.visible).toBe(false);
+    expect(lights.fill.visible).toBe(false);
+    expect(lights.headlight.penumbra).toBe(1);
+    expect(lights.headlight.decay).toBe(0);
+    for (const mode of ['static', 'follow'] as const) {
+      setLightingMode(lights, mode);
+      expect(lights.headlight.visible).toBe(false);
+      expect(lights.directional.visible).toBe(true);
+      expect(lights.fill.visible).toBe(true);
+      expect(lights.directional.intensity).toBe(2);
+      expect(lights.fill.intensity).toBe(2.1);
+    }
+  });
+
+  it.each([new PerspectiveCamera(45, 1), new OrthographicCamera(-10, 10, 10, -10)])('tracks the camera and adapts its cone to projection and zoom (%s)', camera => {
+    const light = createHeadlight(), target = new Vector3(10, 20, 30);
+    camera.up.set(0, 0, 1); camera.position.set(40, -30, 60); camera.lookAt(target);
+    const position = camera.position.clone(), orientation = camera.quaternion.clone();
+    updateHeadlight(light, camera, target);
+    expect(light.position.distanceTo(position)).toBeLessThan(1e-8);
+    expect(light.target.position.clone().sub(light.position).distanceTo(camera.getWorldDirection(new Vector3()))).toBeLessThan(1e-8);
+    const angle = light.angle;
+    camera.zoom = 2; camera.updateProjectionMatrix(); updateHeadlight(light, camera, target);
+    expect(light.angle).toBeLessThan(angle);
+    expect(camera.position.distanceTo(position)).toBe(0);
+    expect(camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
+    camera.position.add(new Vector3(1, 2, 3)); camera.rotateY(.3);
+    updateHeadlight(light, camera, target);
+    expect(light.position.distanceTo(camera.position)).toBeLessThan(1e-8);
+    expect(light.target.position.clone().sub(light.position).distanceTo(camera.getWorldDirection(new Vector3()))).toBeLessThan(1e-8);
+  });
+});
 
 describe('Z-up light direction', () => {
   it.each([PerspectiveCamera, OrthographicCamera])('follows camera position at zero offset and rotates offsets with the camera (%s)', CameraType => {

@@ -9,7 +9,7 @@
       <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
       <label>Detail <select id="detail" aria-label="Wall detail"><option value="auto">Automatic</option><option value="full" selected>Full detail</option></select></label>
       <details class="light-controls"><summary>Light</summary><div class="light-sliders">
-        <label class="light-follow"><input id="light-follow-camera" type="checkbox"/> Follow camera</label>
+        <label class="light-mode" for="light-mode">Mode <select id="light-mode"><option value="static" selected>Static</option><option value="follow">Follow camera</option><hr/><option value="headlight">Headlight</option></select></label>
         <label for="light-bearing">Bearing <output id="light-bearing-value" for="light-bearing">27°</output><input id="light-bearing" type="range" min="0" max="360" step="1" value="27" title="Light from: 0° north, 90° east, 180° south, 270° west"/></label>
         <label for="light-clino">Clino <output id="light-clino-value" for="light-clino">53°</output><input id="light-clino" type="range" min="-90" max="90" step="1" value="53" title="Light from: −90° below, 0° horizontal, +90° above"/></label>
       </div></details>
