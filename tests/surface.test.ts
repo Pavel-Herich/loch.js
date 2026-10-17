@@ -82,6 +82,24 @@ describe('LOX terrain surfaces', () => {
     expect(model.min).toEqual([-24, 2000, 10]); expect(model.max).toEqual([3048, 6096, 13]);
   });
 
+  it('uploads the calibrated image without a second vertical flip', () => {
+    const texture = new THREE.Texture(); texture.image = { width: 2, height: 2 };
+    let complete: ((texture: THREE.Texture) => void) | undefined;
+    const loader = vi.spyOn(THREE.TextureLoader.prototype, 'load').mockImplementation((_url, onLoad) => {
+      complete = onLoad; return texture;
+    });
+    try {
+      const group = new THREE.Group(), scene = new SurfaceScene(group, vi.fn(), vi.fn());
+      scene.add(parseLox(combine(fixture(), bitmap())).surfaces[0], new THREE.Vector3());
+      complete!(texture);
+      const mesh = group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
+      expect(mesh.material.map).toBe(texture);
+      expect(texture.flipY).toBe(false);
+      expect(Array.from(mesh.geometry.getAttribute('uv').array)).toEqual([0, 1, .5, 1, 0, .5, .5, .5]);
+      scene.clear();
+    } finally { loader.mockRestore(); }
+  });
+
   it('discards late texture loads after another model replaces the surface', () => {
     const texture = new THREE.Texture();
     let complete: ((texture: THREE.Texture) => void) | undefined;

@@ -88,6 +88,8 @@ export class SurfaceScene {
       if (revision !== this.revision) { texture.dispose(); return; }
       for (const tile of tiles) tile.geometry.setAttribute('uv', surfaceUV(surface, bitmap, texture.image.width, texture.image.height,
         tile.column, tile.row, tile.columns, tile.rows));
+      // surfaceUV already reverses image Y to texture V; avoid a second flip on upload.
+      texture.flipY = false;
       texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4;
       material.map = texture; material.needsUpdate = true; this.onChange();
     }, undefined, () => {
