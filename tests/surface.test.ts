@@ -100,7 +100,7 @@ describe('LOX terrain surfaces', () => {
     } finally { loader.mockRestore(); }
   });
 
-  it('switches to lit 80% white terrain without changing geometry, visibility, or opacity choices', () => {
+  it('switches to lit 100% white terrain without changing geometry, visibility, or opacity choices', () => {
     const group = new THREE.Group(), scene = new SurfaceScene(group, vi.fn(), vi.fn());
     scene.add(parseLox(fixture()).surfaces[0], new THREE.Vector3());
     const mesh = group.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial | THREE.MeshStandardMaterial>;
@@ -108,7 +108,7 @@ describe('LOX terrain surfaces', () => {
     expect(scene.imageOverlay).toBe(true); expect(imageMaterial).toBeInstanceOf(THREE.MeshBasicMaterial);
     group.visible = false; scene.setImageOverlay(false);
     const lit = mesh.material as THREE.MeshStandardMaterial;
-    expect(lit).toBeInstanceOf(THREE.MeshStandardMaterial); expect(lit.color.getHex()).toBe(0xcccccc);
+    expect(lit).toBeInstanceOf(THREE.MeshStandardMaterial); expect(lit.color.getHex()).toBe(0xffffff);
     expect(lit.flatShading).toBe(true); expect(mesh.geometry).toBe(geometry);
     expect(geometry.getAttribute('normal')).toBeUndefined();
     expect(lit.opacity).toBe(.5); expect(lit.transparent).toBe(true); expect(lit.depthWrite).toBe(false);

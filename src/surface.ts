@@ -77,7 +77,7 @@ export class SurfaceScene {
 
   add(surface: Surface, origin: THREE.Vector3) {
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-    const lit = new THREE.MeshStandardMaterial({ color: 0xcccccc, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
+    const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
     const entry: SurfaceEntry = { image: material, lit, meshes: [] };
     for (const surfaceMaterial of [material, lit]) { surfaceMaterial.forceSinglePass = true; this.applyAppearance(surfaceMaterial); }
     this.entries.push(entry);
