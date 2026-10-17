@@ -1,20 +1,32 @@
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 export const AUTOROTATE_PERIOD_SECONDS = 15;
+export const AUTOROTATE_DIRECTION_KEY = 'loch.js.autorotate-direction';
 
 export class AutoRotation {
   private active = false;
   private interacting = false;
   private previousTime?: number;
-  constructor(private controls: OrbitControls) {
+  private stoppedAt?: number;
+  constructor(private controls: OrbitControls, private rotationDirection: 1 | -1 = 1) {
     // OrbitControls speed 1 is one turn per 60 seconds.
-    controls.autoRotateSpeed = 60 / AUTOROTATE_PERIOD_SECONDS;
+    controls.autoRotateSpeed = rotationDirection * 60 / AUTOROTATE_PERIOD_SECONDS;
     controls.autoRotate = false;
     controls.addEventListener('start', this.startInteraction);
     controls.addEventListener('end', this.endInteraction);
   }
   get enabled() { return this.active; }
-  set enabled(enabled: boolean) { this.active = enabled; this.resetTime(); }
+  set enabled(enabled: boolean) { this.setEnabled(enabled); }
+  get direction() { return this.rotationDirection; }
+  setEnabled(enabled: boolean, time = performance.now()) {
+    if (enabled === this.active) return;
+    if (enabled && this.stoppedAt !== undefined && time >= this.stoppedAt && time - this.stoppedAt <= 1000) {
+      this.rotationDirection = this.rotationDirection === 1 ? -1 : 1;
+      this.controls.autoRotateSpeed = this.rotationDirection * 60 / AUTOROTATE_PERIOD_SECONDS;
+    }
+    this.stoppedAt = enabled ? undefined : time;
+    this.active = enabled; this.resetTime();
+  }
   resetTime() { this.previousTime = undefined; }
 
   update(time: number, suspended = false) {
@@ -38,12 +50,15 @@ export class AutoRotation {
 }
 
 export function initializeAutorotateControls(controls: OrbitControls) {
-  const rotation = new AutoRotation(controls);
+  let direction: 1 | -1 = 1;
+  try { if (localStorage.getItem(AUTOROTATE_DIRECTION_KEY) === '-1') direction = -1; } catch { /* Storage may be disabled. */ }
+  const rotation = new AutoRotation(controls, direction);
   const checkbox = document.querySelector<HTMLInputElement>('#autorotate')!;
   const button = document.querySelector<HTMLButtonElement>('#autorotate-toggle')!;
   const symbol = document.querySelector<SVGPathElement>('#autorotate-symbol')!;
   function setEnabled(enabled: boolean) {
     rotation.enabled = enabled; checkbox.checked = enabled;
+    try { localStorage.setItem(AUTOROTATE_DIRECTION_KEY, String(rotation.direction)); } catch { /* Keep the session preference. */ }
     button.setAttribute('aria-pressed', String(enabled));
     button.title = enabled ? 'Pause autorotation' : 'Start autorotation';
     button.setAttribute('aria-label', button.title);

@@ -49,6 +49,54 @@ describe('automatic rotation', () => {
     rotation.dispose(); controls.dispose();
   });
 
+  it('reverses on a quick restart and retains that direction on later ordinary starts', () => {
+    const { controls, rotation } = setup();
+    rotation.setEnabled(true, 0); rotation.update(0);
+    const initial = controls.getAzimuthalAngle(); rotation.update(1000);
+    const firstDelta = angleDifference(controls.getAzimuthalAngle(), initial);
+    rotation.setEnabled(false, 1200); rotation.setEnabled(true, 1700);
+    expect(rotation.direction).toBe(-1);
+    rotation.update(1700); const reversed = controls.getAzimuthalAngle(); rotation.update(2700);
+    expect(angleDifference(controls.getAzimuthalAngle(), reversed)).toBeCloseTo(-firstDelta);
+    rotation.setEnabled(false, 3000); rotation.setEnabled(true, 5001);
+    expect(rotation.direction).toBe(-1);
+    rotation.update(5001); const resumed = controls.getAzimuthalAngle(); rotation.update(6001);
+    expect(angleDifference(controls.getAzimuthalAngle(), resumed)).toBeCloseTo(-firstDelta);
+    rotation.setEnabled(false, 6100); rotation.setEnabled(true, 6200);
+    expect(rotation.direction).toBe(1);
+    expect(controls.autoRotateSpeed).toBe(4);
+    rotation.dispose(); controls.dispose();
+  });
+
+  it.each([[1000, -1], [1001, 1]])('uses a one-second restart window (%s ms)', (delay, direction) => {
+    const { controls, rotation } = setup();
+    rotation.setEnabled(true, 0); rotation.setEnabled(false, 100);
+    rotation.setEnabled(false, 500); // Repeated pause assignments do not extend the window.
+    rotation.setEnabled(true, 100 + delay);
+    expect(rotation.direction).toBe(direction);
+    rotation.dispose(); controls.dispose();
+  });
+
+  it('does not reverse for interaction pauses, loading pauses, or redundant start assignments', () => {
+    const { controls, rotation } = setup(); rotation.setEnabled(true, 0);
+    controls.dispatchEvent({ type: 'start' }); rotation.update(100, true);
+    controls.dispatchEvent({ type: 'end' }); rotation.update(200);
+    rotation.setEnabled(true, 300);
+    expect(rotation.direction).toBe(1);
+    rotation.dispose(); controls.dispose();
+  });
+
+  it('starts paused in a saved direction and preserves the 15-second period', () => {
+    const { controls, rotation: original } = setup(); original.dispose();
+    const rotation = new AutoRotation(controls, -1);
+    expect(rotation.enabled).toBe(false); expect(rotation.direction).toBe(-1);
+    rotation.setEnabled(false, 0); rotation.setEnabled(true, 100);
+    rotation.update(100); const start = controls.getAzimuthalAngle(); rotation.update(3850);
+    expect(angleDifference(controls.getAzimuthalAngle(), start)).toBeCloseTo(Math.PI / 2);
+    expect(rotation.direction).toBe(-1);
+    rotation.dispose(); controls.dispose();
+  });
+
   it('does not add rotation during extra control updates or a projection switch', () => {
     const { controls, rotation } = setup(); rotation.enabled = true; rotation.update(0); rotation.update(1000);
     const angle = controls.getAzimuthalAngle();
