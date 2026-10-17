@@ -6,6 +6,7 @@ import { parseLox, type Model, type Point } from './lox';
 import { initializeMenus } from './menus';
 import { createHeadlight, initializeLightControls } from './lighting';
 import { WalkerControls } from './walker';
+import { loadWallTexture, setTexturedWalls, wallMaterial } from './wall-material';
 import type { GeometryBatch, LargeModel, LoadProgress } from './large-lox';
 import { largeWallMaterial, LargeScene } from './large-scene';
 import { ProgressiveView } from './progressive-view';
@@ -86,6 +87,15 @@ function applyWallCulling() {
   largeScene?.setCulling(wallsCulling.checked);
 }
 wallsCulling.addEventListener('change', () => { applyWallCulling(); invalidateView(); });
+const texturedWalls = document.querySelector<HTMLInputElement>('#textured-walls')!;
+texturedWalls.checked = false;
+texturedWalls.addEventListener('change', () => {
+  setTexturedWalls(texturedWalls.checked);
+  if (texturedWalls.checked) void loadWallTexture().then(invalidateView).catch(error => {
+    reportLoadError(error, { phase: 'Loading wall texture', source: 'limestone wall texture' });
+  });
+  invalidateView();
+});
 const menus = initializeMenus(view => {
   setCameraView(camera, controls, activeBox, view);
   lockTilt.checked = controls.minPolarAngle === controls.maxPolarAngle;
@@ -129,7 +139,7 @@ function draw(model: Model, label: string) {
     if (!indices.length) continue;
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.setIndex(indices); g.computeVertexNormals();
-    walls.add(new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: .85, metalness: 0 })));
+    walls.add(new THREE.Mesh(g, wallMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, side: THREE.DoubleSide, roughness: .85, metalness: 0 }))));
   }
   const vertices: number[] = [], colors: number[] = [];
   for (const [a, b] of model.shots) for (const p of [a, b]) {

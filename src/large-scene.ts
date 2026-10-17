@@ -1,24 +1,10 @@
 import * as THREE from 'three';
 import type { GeometryBatch, LargeModel } from './large-lox';
-
-function altitudeMaterial<T extends THREE.Material>(material: T, model: LargeModel): T {
-  // Evaluate altitude color on the GPU instead of storing a color per vertex.
-  material.onBeforeCompile = shader => {
-    shader.uniforms.lowZ = { value: model.minZ - model.origin[2] };
-    shader.uniforms.highZ = { value: model.maxZ - model.origin[2] };
-    shader.vertexShader = 'varying float altitude;\n' + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\naltitude = position.z;');
-    shader.fragmentShader = 'varying float altitude;\nuniform float lowZ;\nuniform float highZ;\n' + shader.fragmentShader.replace('#include <color_fragment>', `
-      float t = highZ == lowZ ? 0.5 : clamp((altitude - lowZ) / (highZ - lowZ), 0.0, 1.0);
-      vec3 hue = clamp(abs(mod((1.0 - t) * 0.68 * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-      diffuseColor.rgb *= 0.54 + 0.82 * (hue - 0.5) * (1.0 - abs(2.0 * 0.54 - 1.0));
-    `);
-  };
-  return material;
-}
+import { wallMaterial } from './wall-material';
 
 export function largeWallMaterial(model: LargeModel) {
   // Derivative normals light the triangle soup without a per-vertex normal buffer.
-  return altitudeMaterial(new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 }), model);
+  return wallMaterial(new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 }), model);
 }
 
 export function largeWallMesh(batch: GeometryBatch, material: THREE.Material) {
@@ -66,7 +52,7 @@ function previewPointMaterial(model: LargeModel) {
       .replace('outgoingLight = diffuseColor.rgb;', 'outgoingLight = diffuseColor.rgb * pointLighting;'),
   });
   material.onBeforeRender = renderer => { material.uniforms.size.value = 1.5 * renderer.getPixelRatio(); };
-  return altitudeMaterial(material, model);
+  return wallMaterial(material, model, true);
 }
 
 export const LOD_TRIANGLE_BUDGET = 262_144;
