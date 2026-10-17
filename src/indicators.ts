@@ -63,7 +63,7 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     compass.title = `Bearing ${bearing}° clockwise from north`;
     compass.setAttribute('aria-label', compass.title);
     arrow.setAttribute('transform', `rotate(${-orientation.tilt} 34 34)`);
-    tiltValue.textContent = `Tilt ${angle > 0 ? '+' : ''}${angle}°`;
+    tiltValue.textContent = `${angle > 0 ? '+' : ''}${angle}°`;
     tilt.title = `View tilt ${angle}°; 0° horizontal, +90° up, −90° down`;
     tilt.setAttribute('aria-label', tilt.title);
     if (size) {

@@ -51,7 +51,7 @@ header.compact.collapsed h1{display:none}
 main{flex:1;min-height:0;position:relative}
 canvas{width:100%;height:100%;display:block;touch-action:none}
 .overlay{position:absolute;right:16px;bottom:64px;display:flex;flex-direction:column;gap:10px;align-items:flex-end;font-size:12px;pointer-events:none}
-.orientation-indicators{display:flex;gap:8px;padding:8px;background:#152634d9;border-radius:10px}
+.orientation-indicators{display:flex;flex-direction:column;gap:8px;padding:8px;background:#152634d9;border-radius:10px}
 .orientation-indicator{display:flex;flex-direction:column;align-items:center;gap:2px;font-variant-numeric:tabular-nums}
 .orientation-indicator svg{display:block;width:56px;height:56px;overflow:visible}
 .orientation-indicator text{fill:currentColor;font:10px system-ui,sans-serif;text-anchor:middle}
