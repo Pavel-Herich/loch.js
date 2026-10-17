@@ -7,10 +7,15 @@
         <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
         <label><input id="lines" type="checkbox" checked/> Centreline</label>
         <label><input id="walls" type="checkbox" checked/> Walls</label>
+        <label><input id="surface" type="checkbox" checked/> Surface</label>
       </div></details>
       <details class="control-group"><summary>Walls</summary><div class="group-items">
         <label><input id="walls-culling" type="checkbox"/> Culling</label>
         <label><input id="textured-walls" type="checkbox"/> Texture walls</label>
+      </div></details>
+      <details class="control-group"><summary>Surface</summary><div class="surface-controls">
+        <label><input id="surface-transparency" type="checkbox" checked/> Transparency</label>
+        <label id="surface-opacity-control" class="surface-opacity" for="surface-opacity">Opacity <output id="surface-opacity-value" for="surface-opacity">50%</output><input id="surface-opacity" type="range" min="0" max="100" step="1" value="50"/></label>
       </div></details>
     </div></details>
     <details class="menu"><summary>View</summary><div class="menu-items">

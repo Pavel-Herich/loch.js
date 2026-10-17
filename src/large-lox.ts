@@ -1,3 +1,4 @@
+import { bitmapRecord, surfaceRecord, surfacePoint, type Surface, type SurfaceRecord, type BitmapRecord } from './lox-surface';
 import type { Point } from './lox';
 
 export const READ_BYTES = 8 * 1024 * 1024;
@@ -14,6 +15,7 @@ export type LargeLoadCallbacks = {
   progress(progress: LoadProgress): void;
   ready(model: LargeModel): Promise<void>;
   batch(batch: GeometryBatch): Promise<void>;
+  surface?(surface: Surface): Promise<void>;
 };
 
 async function read(source: Source, offset: number, length: number): Promise<DataView> {
@@ -25,6 +27,7 @@ async function read(source: Source, offset: number, length: number): Promise<Dat
 }
 
 export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbacks): Promise<LargeModel> {
+  const surfaces: SurfaceRecord[] = [], bitmaps = new Map<number, BitmapRecord>();
   const scraps: Scrap[] = [], stations = new Map<number, Point>(), shotIds: [number, number][] = [];
   const min: Point = [Infinity, Infinity, Infinity], max: Point = [-Infinity, -Infinity, -Infinity];
   function bounds(x: number, y: number, z: number) {
@@ -40,8 +43,8 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
     const recordStart = offset + 16, dataStart = recordStart + recordBytes;
     if (++chunks > 100000) throw new Error('LOX limits exceeded');
     if (dataStart + dataBytes > source.size) throw new Error('Truncated or corrupt LOX record');
-    const width = kind === 2 ? 52 : kind === 3 ? 92 : kind === 4 ? 32 : 0;
-    if (width && recordBytes !== count * width) throw new Error(`Invalid ${kind === 2 ? 'station' : kind === 3 ? 'shot' : 'scrap'} chunk`);
+    const width = kind === 2 ? 52 : kind === 3 ? 92 : kind === 4 ? 32 : kind === 5 ? 68 : kind === 6 ? 64 : 0;
+    if (width && recordBytes !== count * width) throw new Error(`Invalid ${kind === 2 ? 'station' : kind === 3 ? 'shot' : kind === 4 ? 'scrap' : 'surface'} chunk`);
     if (![1, 2, 3, 4, 5, 6].includes(kind)) throw new Error(`Unsupported LOX chunk ${kind}`);
     if (width) {
       const recordsPerRead = Math.floor(READ_BYTES / width);
@@ -55,13 +58,19 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
             bounds(...point); stations.set(records.getUint32(p, true), point);
           } else if (kind === 3) {
             if (!(records.getUint32(p + 72, true) & (1 | 4 | 16))) shotIds.push([records.getUint32(p, true), records.getUint32(p + 4, true)]);
-          } else {
+          } else if (kind === 4) {
             const points = records.getUint32(p + 8, true), po = records.getUint32(p + 12, true), ps = records.getUint32(p + 16, true);
             const triangles = records.getUint32(p + 20, true), to = records.getUint32(p + 24, true), ts = records.getUint32(p + 28, true);
             if (ps !== points * 24 || ts !== triangles * 12) throw new Error('Invalid scrap geometry lengths');
             if (po > dataBytes || ps > dataBytes - po || to > dataBytes || ts > dataBytes - to) throw new Error('Invalid LOX data pointer');
             scraps.push({ points, triangles, pointOffset: dataStart + po, triangleOffset: dataStart + to });
             totalPoints += points; totalTriangles += triangles;
+          } else if (kind === 5) {
+            const record = surfaceRecord(records, p, dataBytes);
+            surfaces.push({ ...record, offset: dataStart + record.offset });
+          } else {
+            const record = bitmapRecord(records, p, dataBytes);
+            bitmaps.set(record.id, { ...record, offset: dataStart + record.offset });
           }
         }
       }
@@ -83,6 +92,18 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
       callbacks.progress({ phase: 'Scanning model bounds', completed: scanned, total: totalPoints });
     }
   }
+  const caveMinZ = min[2], caveMaxZ = max[2];
+  let scannedSurface = 0;
+  const surfacePoints = surfaces.reduce((sum, surface) => sum + surface.width * surface.height, 0);
+  for (const surface of surfaces) {
+    for (let first = 0; first < surface.width * surface.height; first += READ_BYTES / 8) {
+      const count = Math.min(READ_BYTES / 8, surface.width * surface.height - first);
+      const data = await read(source, surface.offset + first * 8, count * 8);
+      for (let i = 0; i < count; i++) bounds(...surfacePoint(surface, first + i, data.getFloat64(i * 8, true)));
+      scannedSurface += count;
+      callbacks.progress({ phase: 'Scanning surface bounds', completed: scannedSurface, total: surfacePoints });
+    }
+  }
   if (!Number.isFinite(min[0])) throw new Error('No cave geometry in LOX file');
   const origin = min.map((value, axis) => value + (max[axis] - value) / 2) as Point;
   const shots: [Point, Point][] = [];
@@ -90,8 +111,30 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
     const from = stations.get(a), to = stations.get(b);
     if (from && to) shots.push([from, to]);
   }
-  const model: LargeModel = { min, max, origin, minZ: min[2], maxZ: max[2], scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
+  const model: LargeModel = { min, max, origin, minZ: Number.isFinite(caveMinZ) ? caveMinZ : min[2], maxZ: Number.isFinite(caveMaxZ) ? caveMaxZ : max[2], scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
   await callbacks.ready(model);
+  for (const surface of surfaces) {
+    if (!callbacks.surface) break;
+    const heights = new Float64Array(surface.width * surface.height);
+    for (let first = 0; first < heights.length; first += READ_BYTES / 8) {
+      const count = Math.min(READ_BYTES / 8, heights.length - first);
+      const data = await read(source, surface.offset + first * 8, count * 8);
+      for (let i = 0; i < count; i++) heights[first + i] = data.getFloat64(i * 8, true);
+      callbacks.progress({ phase: 'Loading surface', completed: first + count, total: heights.length });
+    }
+    const bitmap = bitmaps.get(surface.id);
+    let image: Uint8Array<ArrayBuffer> | undefined;
+    if (bitmap) {
+      image = new Uint8Array(bitmap.size);
+      for (let first = 0; first < bitmap.size; first += READ_BYTES) {
+        const count = Math.min(READ_BYTES, bitmap.size - first);
+        const data = await read(source, bitmap.offset + first, count);
+        image.set(new Uint8Array(data.buffer, data.byteOffset, count), first);
+      }
+    }
+    await callbacks.surface({ id: surface.id, width: surface.width, height: surface.height, calibration: surface.calibration, heights,
+      bitmap: bitmap && image ? { mime: bitmap.mime, calibration: bitmap.calibration, data: image } : undefined });
+  }
   let decoded = 0;
   for (const scrap of scraps) {
     for (let first = 0; first < scrap.triangles; first += BATCH_TRIANGLES) {

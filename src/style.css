@@ -24,6 +24,10 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid #8e
 .control-group>summary::before{content:"";width:0;height:0;border-top:4px solid transparent;border-bottom:4px solid transparent;border-left:6px solid currentColor;flex-shrink:0}
 .control-group[open]>summary{background:#294251}
 .control-group[open]>summary::before{transform:rotate(90deg)}
+.surface-controls{padding:.15rem .25rem .35rem}
+.surface-controls .surface-opacity{display:grid;grid-template-columns:1fr auto;gap:.4rem}
+.surface-opacity input{grid-column:1/-1;width:100%;min-width:0}
+.surface-opacity output{font-variant-numeric:tabular-nums}
 .group-items{padding:.15rem .25rem .35rem}
 .light-sliders{padding:.15rem .25rem .35rem}
 .light-sliders label{display:grid;grid-template-columns:1fr auto;gap:.4rem}

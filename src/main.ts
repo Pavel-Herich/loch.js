@@ -12,6 +12,8 @@ import { largeWallMaterial, LargeScene } from './large-scene';
 import { ProgressiveView } from './progressive-view';
 import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
+import { surfacePoint, type Surface } from './lox-surface';
+import { SurfaceScene, initializeSurfaceControls } from './surface';
 import './style.css';
 
 initializeAbout();
@@ -29,6 +31,7 @@ const fillLight = new THREE.HemisphereLight(0xcfe9ff, 0x213847, 2.1); scene.add(
 const light = new THREE.DirectionalLight(0xffffff, 2); scene.add(light, light.target);
 const headlight = createHeadlight(); scene.add(headlight, headlight.target);
 const walls = new THREE.Group(), lines = new THREE.Group(); scene.add(walls, lines);
+const surfaceGroup = new THREE.Group(); scene.add(surfaceGroup);
 const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
 boundingBox.visible = false;
 scene.add(boundingBox);
@@ -67,6 +70,10 @@ function reportLoadError(error: unknown, context: LoadContext) {
   showLoadError(status, error, context);
 }
 const lighting = initializeLightControls({ directional: light, fill: fillLight, headlight }, () => camera, () => controls.target, invalidateView);
+const surfaceScene = new SurfaceScene(surfaceGroup, invalidateView, error => reportLoadError(error, {
+  phase: 'Loading surface image', ...(largeModel ? { file: largeModel.file } : { source: 'LOX surface image' }),
+}));
+initializeSurfaceControls(surfaceScene);
 const walker = new WalkerControls(controls, canvas);
 const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
 const walkerButton = document.querySelector<HTMLButtonElement>('#walker-toggle')!;
@@ -136,10 +143,13 @@ function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
 function draw(model: Model, label: string) {
   largeScene = undefined; largeModel = undefined; preparationPending = false;
   invalidateView();
-  clear(walls); clear(lines);
+  clear(walls); clear(lines); surfaceScene.clear();
   const bounds = new THREE.Box3();
   for (const p of model.stations.values()) bounds.expandByPoint(new THREE.Vector3(...p));
   for (const scrap of model.scraps) for (const p of scrap.points) bounds.expandByPoint(new THREE.Vector3(...p));
+  for (const surface of model.surfaces) for (let i = 0; i < surface.heights.length; i++) {
+    bounds.expandByPoint(new THREE.Vector3(...surfacePoint(surface, i, surface.heights[i])));
+  }
   const origin = bounds.getCenter(new THREE.Vector3());
   const centered = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(), bounds.getSize(new THREE.Vector3()));
   activeBox = bounds.isEmpty() ? new THREE.Box3() : centered;
@@ -165,6 +175,7 @@ function draw(model: Model, label: string) {
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     lines.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true })));
   }
+  for (const surface of model.surfaces) surfaceScene.add(surface, origin);
   updateLegend(model);
   applyWallCulling();
   setStatusText(status, `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`);
@@ -174,6 +185,7 @@ async function loadFile(file: File) {
   const id = ++loadId;
   largeWorker?.terminate(); largeWorker = undefined;
   loadingLargeWalls = false; loadingError = false; preparationPending = false;
+  surfaceScene.clear();
   invalidateView();
   setStatusText(status, `Opening ${file.name}…`); setStatusProgress(status, 0);
   let phase = 'Reading file';
@@ -196,6 +208,7 @@ function loadLargeFile(file: File, id: number) {
   loadingLargeWalls = true;
   let phase = 'Reading LOX directory';
   let material: THREE.MeshStandardMaterial | undefined;
+  let modelOrigin = new THREE.Vector3();
   function stop(error?: unknown) {
     worker.terminate();
     if (largeWorker === worker) largeWorker = undefined;
@@ -209,7 +222,7 @@ function loadLargeFile(file: File, id: number) {
     if (id === loadId) stop(new Error(event.message || 'Large-file worker failed'));
   };
   worker.onmessage = (event: MessageEvent<{
-    type: string; model: LargeModel; batch: GeometryBatch;
+    type: string; model: LargeModel; batch: GeometryBatch; surface: Surface;
     error: { name: string; message: string; stack?: string; code?: number };
   } & LoadProgress>) => {
     if (id !== loadId) return;
@@ -224,10 +237,10 @@ function loadLargeFile(file: File, id: number) {
         phase = 'Preparing full-detail scene';
         const model = message.model;
         largeScene = undefined; largeModel = undefined;
-        clear(walls); clear(lines);
+        clear(walls); clear(lines); surfaceScene.clear();
         loadingLargeWalls = true;
         invalidateView();
-        const origin = new THREE.Vector3(...model.origin);
+        const origin = new THREE.Vector3(...model.origin); modelOrigin = origin;
         activeBox = new THREE.Box3(new THREE.Vector3(...model.min).sub(origin), new THREE.Vector3(...model.max).sub(origin));
         boundingBox.box.copy(activeBox);
         boundingBox.visible = document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
@@ -245,6 +258,10 @@ function loadLargeFile(file: File, id: number) {
         geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         lines.add(new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true })));
         updateLegend(model); setCameraView(camera, controls, activeBox, 'fit'); menus.collapse();
+        worker.postMessage({ acknowledge: true });
+      } else if (message.type === 'surface') {
+        phase = 'Preparing surface';
+        surfaceScene.add(message.surface, modelOrigin);
         worker.postMessage({ acknowledge: true });
       } else if (message.type === 'batch') {
         phase = 'Rendering full-detail walls';
@@ -314,7 +331,7 @@ function frame() {
   if (largeWorker || !largeScene || !largeModel || !walls.visible || detail.value === 'full' || loadingError
     || viewRefined || performance.now() - lastViewChange < 500) return;
   try {
-    progressiveView ??= new ProgressiveView(renderer, scene, camera, largeScene);
+    progressiveView ??= new ProgressiveView(renderer, scene, camera, largeScene, surfaceGroup);
     if (!progressiveView.complete) progressiveView.step();
     const percent = Math.round(progressiveView.progress * 100);
     setStatusText(status, `${largeModel.name} · Refining stationary view · ${percent}%`);

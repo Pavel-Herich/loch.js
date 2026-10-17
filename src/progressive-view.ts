@@ -10,9 +10,11 @@ export class ProgressiveView {
   private batches: THREE.Mesh[];
   private frustum = new THREE.Frustum();
   private next = 0;
+  private surfaceVisible = false;
+  private transparentSurface = false;
 
   constructor(private renderer: THREE.WebGLRenderer, private scene: THREE.Scene,
-    private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, largeScene: LargeScene) {
+    private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera, largeScene: LargeScene, private surface?: THREE.Group) {
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     // Multisample render targets can discard their color attachment on resolve,
     // so use a persistent single-sample target for accumulation across frames.
@@ -25,7 +27,11 @@ export class ProgressiveView {
     this.batches = largeScene.refinementBatches(camera);
     camera.updateMatrixWorld();
     this.frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    this.surfaceVisible = surface?.visible ?? false;
+    this.transparentSurface = Boolean(surface?.children.some(child => (child as THREE.Mesh<THREE.BufferGeometry, THREE.Material>).material.transparent));
     const target = renderer.getRenderTarget(), autoClear = renderer.autoClear;
+    // Blended terrain must be composited once after every opaque wall batch.
+    if (surface && this.transparentSurface && this.batches.length) surface.visible = false;
     try {
       renderer.setRenderTarget(this.target);
       renderer.autoClear = true;
@@ -33,6 +39,7 @@ export class ProgressiveView {
       // bounding box and depth once, then retain them throughout refinement.
       renderer.render(scene, camera);
     } finally {
+      if (surface) surface.visible = this.surfaceVisible;
       renderer.setRenderTarget(target); renderer.autoClear = autoClear;
     }
   }
@@ -46,6 +53,7 @@ export class ProgressiveView {
     const renderer = this.renderer, target = renderer.getRenderTarget();
     const autoClear = renderer.autoClear, background = this.scene.background;
     try {
+      if (this.surface) this.surface.visible = false;
       if (mesh && this.frustum.intersectsObject(mesh)) {
         mesh.visible = true;
         renderer.setRenderTarget(this.target);
@@ -54,11 +62,18 @@ export class ProgressiveView {
         this.scene.background = null;
         renderer.render(this.scene, this.camera);
       }
+      if (mesh) mesh.visible = false;
+      if (this.complete && this.surface && this.surfaceVisible && this.transparentSurface) {
+        this.surface.visible = true;
+        renderer.setRenderTarget(this.target); renderer.autoClear = false; this.scene.background = null;
+        renderer.render(this.scene, this.camera);
+      }
       renderer.setRenderTarget(target);
       renderer.autoClear = true;
       renderer.render(this.copyScene, this.copyCamera);
     } finally {
       if (mesh) { mesh.visible = false; mesh.geometry.dispose(); }
+      if (this.surface) this.surface.visible = this.surfaceVisible;
       this.scene.background = background;
       renderer.setRenderTarget(target); renderer.autoClear = autoClear;
     }

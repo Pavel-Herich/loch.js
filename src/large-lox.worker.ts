@@ -14,6 +14,7 @@ self.onmessage = async (event: MessageEvent<{ file?: File; acknowledge?: boolean
     const model = await streamLargeLox(event.data.file, {
       progress: progress => self.postMessage({ type: 'progress', ...progress }),
       ready: model => send({ type: 'ready', model }),
+      surface: surface => send({ type: 'surface', surface }, [surface.heights.buffer, ...(surface.bitmap ? [surface.bitmap.data.buffer] : [])]),
       batch: batch => send({ type: 'batch', batch }, [batch.positions.buffer as ArrayBuffer, ...(batch.indices ? [batch.indices.buffer as ArrayBuffer] : [])]),
     });
     self.postMessage({ type: 'done', model });

@@ -5,13 +5,17 @@ import { ProgressiveView } from '../src/progressive-view';
 import type { LargeModel } from '../src/large-lox';
 
 describe('stationary view refinement', () => {
-  it('draws every batch once into persistent color/depth storage and releases each GPU batch', () => {
+  it.each(['none', 'opaque', 'transparent', 'hidden'])('draws every wall batch once and composites terrain once (%s)', mode => {
     const scene = new THREE.Scene(), group = new THREE.Group();
     scene.add(group); scene.background = new THREE.Color('#09131c');
     const background = scene.background;
     const model: LargeModel = { min: [-1, -1, 0], max: [1, 1, 0], origin: [0, 0, 0], minZ: 0, maxZ: 0, scraps: 1, triangles: 3, points: 9, shots: [] };
     const walls = new LargeScene(group, new THREE.MeshBasicMaterial(), model);
     for (let i = 0; i < 3; i++) walls.add({ positions: new Float32Array([-1, -1, 0, 1, -1, 0, 0, 1, 0]), triangles: 1 });
+    const surface = new THREE.Group();
+    const terrain = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ transparent: mode !== 'opaque', opacity: .5 }));
+    if (mode !== 'none') surface.add(terrain);
+    surface.visible = mode !== 'hidden'; scene.add(surface);
     const meshes = group.children.filter(child => child instanceof THREE.Mesh);
     let disposed = 0;
     for (const mesh of meshes) mesh.geometry.addEventListener('dispose', () => disposed++);
@@ -31,22 +35,24 @@ describe('stationary view refinement', () => {
         passes.push({ target, clear: this.autoClear, background: value.background, meshes: visible });
       },
     };
-    const view = new ProgressiveView(renderer as unknown as THREE.WebGLRenderer, scene, camera, walls);
+    const view = new ProgressiveView(renderer as unknown as THREE.WebGLRenderer, scene, camera, walls, surface);
     expect(view.progress).toBe(0);
     while (!view.complete) view.step();
     view.step(); // Completion must not schedule another pass.
     expect(view.progress).toBe(1);
     const accumulated = passes.filter(pass => pass.target !== null);
-    expect(accumulated).toHaveLength(4);
+    expect(accumulated).toHaveLength(mode === 'transparent' ? 5 : 4);
     expect(accumulated[0].clear).toBe(true);
-    expect(accumulated[0].meshes).toHaveLength(0);
-    for (const pass of accumulated.slice(1)) {
+    expect(accumulated[0].meshes).toHaveLength(mode === 'opaque' ? 1 : 0);
+    for (const pass of accumulated.slice(1, 4)) {
       expect(pass.target).toBe(accumulated[0].target);
       expect(pass.clear).toBe(false);
       expect(pass.background).toBeNull();
       expect(pass.meshes).toHaveLength(1);
     }
-    expect(new Set(accumulated.slice(1).map(pass => pass.meshes[0]))).toEqual(new Set(meshes));
+    expect(new Set(accumulated.slice(1, 4).map(pass => pass.meshes[0]))).toEqual(new Set(meshes));
+    expect(accumulated.filter(pass => pass.meshes.includes(terrain))).toHaveLength(mode === 'opaque' || mode === 'transparent' ? 1 : 0);
+    expect(surface.visible).toBe(mode !== 'hidden');
     expect(disposed).toBe(3);
     expect(scene.background).toBe(background);
     expect(renderer.autoClear).toBe(true);
