@@ -1,6 +1,6 @@
 # Limestone wall texture
 
-`limestone.webp` is an original limestone base-color texture generated with the built-in imagegen tool on 2026-10-17. The generated 1254 × 1254 PNG was encoded as WebP (quality 88) for the application, without resizing or retouching. It is mapped at one tile per model metre, using triplanar blending and subtle GPU relief; it does not represent measured surface colors from the LOX file.
+`limestone.webp` is an original limestone base-color texture generated with the built-in imagegen tool on 2026-10-17. The generated 1254 × 1254 PNG was encoded as WebP (quality 88) for the application, without resizing or retouching. It is mapped at one tile per two model metres, using triplanar blending and subtle GPU relief; it does not represent measured surface colors from the LOX file.
 
 Final generation prompt:
 

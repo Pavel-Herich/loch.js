@@ -48,7 +48,8 @@ export function wallMaterial<T extends THREE.Material>(material: T, model?: Alti
       vec3 wallRockColor(vec3 position, vec3 surfaceNormal) {
         vec3 weights = pow(abs(normalize(surfaceNormal)), vec3(4.0));
         weights /= max(weights.x + weights.y + weights.z, 0.00001);
-        // One tile per metre, consistent across scraps, LOD batches, and views.
+        // One tile per two metres, consistent across scraps, LOD batches, and views.
+        position *= 0.5;
         return texture2D(rockMap, position.yz).rgb * weights.x
           + texture2D(rockMap, position.xz).rgb * weights.y
           + texture2D(rockMap, position.xy).rgb * weights.z;
