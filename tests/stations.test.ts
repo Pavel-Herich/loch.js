@@ -68,7 +68,8 @@ describe('station metadata, dots and labels', () => {
   it('batches white/gray fixed-size station dots, recenters coordinates and disposes old resources', () => {
     const group = new THREE.Group(), scene = new StationScene(group), stations = parseLox(fixture()).stationDetails;
     scene.setModel(stations, new THREE.Vector3(1000, 2000, 100));
-    expect(group.children).toHaveLength(3);
+    expect(group.children).toHaveLength(2);
+    expect(group.children.reduce((count, child) => count + (child as THREE.Points).geometry.getAttribute('position').count, 0)).toBe(2);
     const underground = group.children.find(p => p.name === 'Stations 0') as THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
     const surface = group.children.find(p => p.name === 'Stations 1') as typeof underground;
     expect(Array.from(underground.geometry.getAttribute('position').array)).toEqual([0, 0, expect.closeTo(23.4)]);
@@ -83,10 +84,12 @@ describe('station metadata, dots and labels', () => {
 
   it('respects surface, underground, splay and station visibility', () => {
     const stations = parseLox(fixture()).stationDetails;
-    expect(stations.every(station => stationVisible(station, options))).toBe(true);
+    expect(stations.map(station => stationVisible(station, options))).toEqual([true, true, false, false]);
     expect(stationVisible(stations[0], { ...options, underground: false })).toBe(false);
     expect(stationVisible(stations[1], { ...options, surface: false })).toBe(false);
     expect(stationVisible(stations[2], { ...options, splay: false })).toBe(false);
+    expect(stationVisible(stations[3], { ...options, splay: true })).toBe(false);
+    expect(stationVisible(stations[0], { ...options, splay: false })).toBe(true);
     expect(stations.some(station => stationVisible(station, { ...options, stations: false }))).toBe(false);
   });
 

@@ -2,10 +2,10 @@ import * as THREE from 'three';
 import { STATION_SURFACE, stationLabel, temporaryStation, type Station, type StationLabel } from './lox-stations';
 
 export type StationOptions = { stations: boolean; label: StationLabel; surface: boolean; underground: boolean; splay: boolean };
-type Entry = { surface: boolean; temporary: boolean; points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> };
+type Entry = { surface: boolean; points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> };
 export function stationVisible(station: Station, options: StationOptions) {
   return options.stations && (station.flags & STATION_SURFACE ? options.surface : options.underground)
-    && (!temporaryStation(station) || options.splay);
+    && !temporaryStation(station);
 }
 
 /** One point draw per station type and one screen canvas for labels, regardless of station count. */
@@ -20,7 +20,8 @@ export class StationScene {
     this.clear(); this.stations = stations; this.origin.copy(origin);
     const buckets = new Map<number, Station[]>();
     for (const station of stations) {
-      const key = (station.flags & STATION_SURFACE ? 1 : 0) | (temporaryStation(station) ? 2 : 0);
+      if (temporaryStation(station)) continue;
+      const key = station.flags & STATION_SURFACE ? 1 : 0;
       const bucket = buckets.get(key);
       if (bucket) bucket.push(station); else buckets.set(key, [station]);
     }
@@ -34,7 +35,7 @@ export class StationScene {
           '#include <clipping_planes_fragment>\nif (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;');
       };
       const points = new THREE.Points(geometry, material); points.name = `Stations ${key}`;
-      this.group.add(points); this.entries.push({ surface: Boolean(key & 1), temporary: Boolean(key & 2), points });
+      this.group.add(points); this.entries.push({ surface: Boolean(key & 1), points });
     }
     this.setOptions(this.options);
   }
@@ -42,7 +43,7 @@ export class StationScene {
   setOptions(options: StationOptions) {
     this.options = { ...options };
     for (const entry of this.entries) entry.points.visible = options.stations
-      && (entry.surface ? options.surface : options.underground) && (!entry.temporary || options.splay);
+      && (entry.surface ? options.surface : options.underground);
     if (this.canvas) this.canvas.hidden = !this.group.visible || !options.stations || options.label === 'none';
   }
 
