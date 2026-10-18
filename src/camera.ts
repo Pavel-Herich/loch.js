@@ -12,10 +12,27 @@ export function createCameraControls(camera: ViewCamera, canvas: HTMLElement): O
   controls.enableDamping = false;
   controls.screenSpacePanning = true;
   const zoomSpeed = controls.zoomSpeed;
-  canvas.addEventListener('pointerdown', event => {
+  const preventMiddleDefault = (event: MouseEvent) => { if (event.button === 1) event.preventDefault(); };
+  const mouseOptions = { capture: true, passive: false };
+  // WebView2/Windows can take middle-drag for native autoscroll. Cancel both
+  // pointer and compatibility mouse defaults without stopping camera handlers.
+  canvas.addEventListener('mousedown', preventMiddleDefault, mouseOptions);
+  canvas.addEventListener('auxclick', preventMiddleDefault, mouseOptions);
+  const pointerDown = (event: PointerEvent) => {
+    if (event.pointerType !== 'touch') preventMiddleDefault(event);
     controls.zoomSpeed = event.pointerType !== 'touch' && event.button === 1 ? zoomSpeed * 10 : zoomSpeed;
-  });
-  controls.addEventListener('end', () => { controls.zoomSpeed = zoomSpeed; });
+  };
+  const resetZoom = () => { controls.zoomSpeed = zoomSpeed; };
+  canvas.addEventListener('pointerdown', pointerDown, { passive: false });
+  controls.addEventListener('end', resetZoom);
+  const dispose = controls.dispose.bind(controls);
+  controls.dispose = () => {
+    canvas.removeEventListener('mousedown', preventMiddleDefault, mouseOptions);
+    canvas.removeEventListener('auxclick', preventMiddleDefault, mouseOptions);
+    canvas.removeEventListener('pointerdown', pointerDown);
+    controls.removeEventListener('end', resetZoom);
+    dispose();
+  };
   controls.update();
   return controls;
 }

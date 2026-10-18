@@ -26,6 +26,28 @@ function expectUpright(camera: PerspectiveCamera) {
 }
 
 describe('Z-up camera controls', () => {
+  it('suppresses native middle-click actions without swallowing camera input, and cleans up on disposal', () => {
+    const canvas = new Canvas(), camera = new PerspectiveCamera();
+    const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+    for (const type of ['mousedown', 'auxclick']) for (const button of [0, 1, 2]) {
+      const event = new Event(type, { cancelable: true }); Object.assign(event, { button });
+      let delivered = false; canvas.addEventListener(type, () => { delivered = true; }, { once: true });
+      canvas.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(button === 1); expect(delivered).toBe(true);
+    }
+    const down = new Event('pointerdown', { cancelable: true });
+    Object.assign(down, { pointerId: 1, pointerType: 'mouse', clientX: 400, clientY: 300, button: 1 });
+    canvas.dispatchEvent(down); expect(down.defaultPrevented).toBe(true);
+    const before = camera.position.clone();
+    pointer(canvas, 'pointermove', 400, 320, 1); pointer(canvas, 'pointerup', 400, 320, 1);
+    expect(camera.position.distanceTo(before)).toBeGreaterThan(.01);
+    controls.dispose();
+    for (const type of ['mousedown', 'auxclick']) {
+      const event = new Event(type, { cancelable: true }); Object.assign(event, { button: 1 });
+      canvas.dispatchEvent(event); expect(event.defaultPrevented).toBe(false);
+    }
+  });
+
   it.each([false, true])('zooms 10× faster on middle drag while keeping wheel zoom unchanged (orthographic: %s)', orthographic => {
     const canvas = new Canvas();
     let camera: ViewCamera = new PerspectiveCamera();
