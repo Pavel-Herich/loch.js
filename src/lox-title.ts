@@ -14,5 +14,5 @@ export function decodeSurveyText(bytes: Uint8Array) {
   return new TextDecoder().decode(end < 0 ? prefix : prefix.subarray(0, end)).trim();
 }
 export function displayProjectTitle(title: string | undefined, filename: string) {
-  return title?.trim() || filename.replace(/\.lox$/i, '');
+  return title?.trim() || filename.replace(/\.(?:lox|3d|plt)$/i, '');
 }

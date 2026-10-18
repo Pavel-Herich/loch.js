@@ -1,0 +1,17 @@
+Z 100 170 200 270 250 1000
+SCompass import cave
+Nmain D 1 2 2024 CMain passage
+M 100 200 300 S1 P 1 2 3 4
+D 110 220 290 S2 P 1 2 3 4 I 10 F "P and FS inside a comment are not flags"
+d 150 250 1000 S3 FP
+M 110 220 290 S2
+D 120 230 280 S4 FL
+D 130 235 260 Swall FS
+M 110 220 290 S2
+D 150 250 2000 Shidden FX
+Fwater R 0 100
+L 9999 9999 9999 Sfeature V 99
+D 9999 9999 9999 Sfeature2
+Nother
+M 160 260 270 SA
+D 170 270 250 SB

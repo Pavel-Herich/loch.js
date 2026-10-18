@@ -18,6 +18,7 @@ import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators } from './indicators';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
+import { modelFileFormat, parseModelFile } from './model-file';
 import './style.css';
 
 initializeAbout();
@@ -199,11 +200,11 @@ async function loadFile(file: File) {
   setStatusText(status, `Opening ${file.name}…`); setStatusProgress(status, 0);
   let phase = 'Reading file';
   try {
-    if (file.size > 32 * 1024 * 1024) { loadLargeFile(file, id); return; }
+    if (modelFileFormat(file.name) === 'lox' && file.size > 32 * 1024 * 1024) { loadLargeFile(file, id); return; }
     const buffer = await file.arrayBuffer();
     if (id !== loadId) return;
-    phase = 'Parsing LOX';
-    const model = parseLox(buffer);
+    phase = `Parsing ${modelFileFormat(file.name)?.toUpperCase() ?? 'survey file'}`;
+    const model = parseModelFile(buffer, file.name);
     phase = 'Rendering model';
     draw(model, file.name);
     collapseAfterRender = true;
@@ -301,7 +302,7 @@ document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('cha
   invalidateView();
 });
 window.addEventListener('dragover', e => e.preventDefault());
-window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file?.name.toLowerCase().endsWith('.lox')) void loadFile(file); });
+window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file && modelFileFormat(file.name)) void loadFile(file); });
 const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); resizeCamera(camera, w / h); invalidateView(); };
 new ResizeObserver(resize).observe(canvas); resize();
 function frame(time = performance.now()) {

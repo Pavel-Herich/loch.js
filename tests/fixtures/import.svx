@@ -1,0 +1,21 @@
+*title "Import test cave"
+*begin root
+*begin branch
+*fix 1 1000 2000 100
+*date 2024.01.02
+*data cartesian from to dx dy dz
+1 2 10 0 -5
+*flags surface
+2 3 0 20 30
+*flags not surface
+*flags duplicate
+2 4 -10 0 -5
+*flags not duplicate
+*flags splay
+2 - 0 4 -8
+*flags not splay
+*data passage station left right up down
+1 1 2 3 4
+2 2 3 4 5
+*end branch
+*end root
