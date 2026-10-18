@@ -1,5 +1,6 @@
 import type { Point } from './lox';
 import { SurveyModel, surveyText, survexShotFlags } from './survey-model';
+import type { LRUD } from './lrud';
 
 /** Survex binary .3d versions 3–8; https://survex.com/docs/3dformat.htm */
 export function parseSurvex(buffer: ArrayBuffer) {
@@ -27,6 +28,8 @@ export function parseSurvex(buffer: ArrayBuffer) {
   line(); // File generation timestamp.
   if (version === 8) byte(); // File-wide flags (including extended elevation).
   let label: Uint8Array<ArrayBufferLike> = new Uint8Array(0), current: Point | undefined, style = -1, stopped = false;
+  const stationPositions = new Map<string, Point>();
+  let previousSection: { point: Point; dimensions: LRUD } | undefined, passage = 0;
   function append(remove: number, add: number) {
     if (remove > label.length) throw new Error('Invalid Survex label prefix');
     check(add);
@@ -47,9 +50,22 @@ export function parseSurvex(buffer: ArrayBuffer) {
   function addLabel(code: number) {
     readLabel();
     const position = point(), parts = surveyText(label).split(separator), name = parts.pop() ?? '';
+    stationPositions.set(surveyText(label), position);
     // Underground wins at entrances which belong to both surface and cave legs.
     const flags = (code & 1 && !(code & 2) ? 1 : 0) | (code & 4 ? 2 : 0) | (code & 16 ? 4 : 0);
     model.station(version === 8 && code & 0x60 ? '-' : name, position, parts, flags);
+  }
+  function crossSection(code: number) {
+    readLabel(); const width = code < 0x32 ? 2 : 4;
+    check(width * 4);
+    const dimensions = Array.from({ length: 4 }, (_, i) => (width === 2
+      ? view.getInt16(offset + i * width, true) : view.getInt32(offset + i * width, true)) / 100) as LRUD;
+    offset += width * 4;
+    const name = surveyText(label), position = stationPositions.get(name);
+    if (!position) throw new Error(`Survex cross-section references an unknown station: ${name}`);
+    if (previousSection) model.passage(previousSection.point, position, previousSection.dimensions, dimensions, `survex:${passage}`);
+    previousSection = code & 1 ? undefined : { point: position, dimensions };
+    if (code & 1) passage++;
   }
   while (offset < bytes.length && !stopped) {
     const code = byte();
@@ -59,7 +75,7 @@ export function parseSurvex(buffer: ArrayBuffer) {
       else if (code === 0x10) { /* No date. */ }
       else if (code >= 0x11 && code <= 0x13) skip(code - 0x0f);
       else if (code === 0x1f) skip(20);
-      else if (code >= 0x30 && code <= 0x33) { readLabel(); skip(code < 0x32 ? 8 : 16); }
+      else if (code >= 0x30 && code <= 0x33) crossSection(code);
       else if (code >= 0x80) addLabel(code);
       else if (code >= 0x40) {
         if (!(code & 0x20)) readLabel();
@@ -83,7 +99,7 @@ export function parseSurvex(buffer: ArrayBuffer) {
       else if (code === 0x22 && version >= 6) skip(20);
       else if (code === 0x23 && version >= 7) skip(4);
       else if (code === 0x24 && version >= 7) { /* No date. */ }
-      else if (code >= 0x30 && code <= 0x33 && version >= 5) { readLabel(); skip(code < 0x32 ? 8 : 16); }
+      else if (code >= 0x30 && code <= 0x33 && version >= 5) crossSection(code);
       else if (code >= 0x40 && code <= 0x7f) addLabel(code);
       else if (code >= 0x80 && code <= 0xbf) {
         readLabel(); const next = point();

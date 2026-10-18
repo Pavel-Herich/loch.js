@@ -1,11 +1,13 @@
 import type { Point } from './lox';
+import type { LRUDSection } from './lrud';
 
 export const SHOT_SURFACE = 1;
 export const SHOT_DUPLICATE = 2;
 export const SHOT_NOT_VISIBLE = 4;
+export const SHOT_NOT_LRUD = 8;
 export const SHOT_SPLAY = 16;
 export type Shot = { from: Point; to: Point; flags: number };
-export type ShotReference = { from: number; to: number; flags: number };
+export type ShotReference = { from: number; to: number; flags: number; section?: LRUDSection };
 
 export function undergroundShotRange(shots: Shot[]) {
   let minZ = Infinity, maxZ = -Infinity;

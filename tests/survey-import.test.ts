@@ -31,7 +31,7 @@ describe('Survex .3d import', () => {
     expect(model.shots).toHaveLength(4);
     expect(model.shots.map(shot => shot.flags)).toEqual([0, SHOT_SURFACE, SHOT_DUPLICATE, SHOT_SPLAY]);
     expect(model.shots[0]).toEqual({ from: [1000, 2000, 100], to: [1010, 2000, 95], flags: 0 });
-    expect([model.minZ, model.maxZ]).toEqual([87, 100]);
+    expect([model.minZ, model.maxZ]).toEqual([87, version >= 5 ? 103 : 100]);
     const stations = model.stationDetails;
     for (const station of stations) expect(model.stations.get(station.id)).toEqual(station.position);
     expect(stations).toHaveLength(5);
@@ -41,7 +41,7 @@ describe('Survex .3d import', () => {
     expect(stations.find(station => station.name === '3')!.flags).toBe(1);
     expect(stations.find(station => station.name === '2')!.flags).toBe(0);
     expect(stations.some(station => station.name === '-')).toBe(true);
-    expect(model.scraps).toEqual([]); expect(model.surfaces).toEqual([]);
+    expect(model.scraps).toHaveLength(version >= 5 ? 1 : 0); expect(model.surfaces).toEqual([]);
   });
 
   it('decodes byte-based UTF-8 prefix compression, extended lengths and custom hierarchy separators', () => {
@@ -77,7 +77,7 @@ describe('Compass .plt import', () => {
     expect(model.title).toBe('Compass import cave'); expect(model.shots).toHaveLength(5);
     expect(model.shots.map(shot => shot.flags)).toEqual([0, SHOT_SURFACE, SHOT_DUPLICATE, SHOT_SPLAY, 0]);
     [60.96, 30.48, 91.44].forEach((value, axis) => expect(model.shots[0].from[axis]).toBeCloseTo(value));
-    expect(model.minZ).toBeCloseTo(250 * .3048); expect(model.maxZ).toBeCloseTo(300 * .3048);
+    expect(model.minZ).toBeCloseTo(250 * .3048); expect(model.maxZ).toBeCloseTo(302 * .3048);
     const one = model.stationDetails.find(station => station.name === '1')!;
     for (const station of model.stationDetails) expect(model.stations.get(station.id)).toEqual(station.position);
     expect(stationLabel(one, 'short')).toBe('1@main'); expect(stationLabel(one, 'full')).toBe('1@main.Compass import cave');

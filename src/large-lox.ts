@@ -3,6 +3,7 @@ import { resolveShots, undergroundShotRange, SHOT_NOT_VISIBLE, type Shot, type S
 import { bitmapRecord, surfaceRecord, surfacePoint, type Surface, type SurfaceRecord, type BitmapRecord } from './lox-surface';
 import type { Point } from './lox';
 import { resolveStationSurveys, stationNameReference, type Station, type Survey } from './lox-stations';
+import { generateLRUDWalls, loxLRUDLegs, readLoxLRUD } from './lrud';
 
 export const READ_BYTES = 8 * 1024 * 1024;
 export const BATCH_TRIANGLES = 65_536;
@@ -95,7 +96,8 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
               name: await readText(dataStart + ref.offset, ref.size), survey: '', fullSurvey: '' });
           } else if (kind === 3) {
             const flags = records.getUint32(p + 72, true);
-            if (!(flags & SHOT_NOT_VISIBLE)) shotIds.push({ from: records.getUint32(p, true), to: records.getUint32(p + 4, true), flags });
+            const section = readLoxLRUD(records, p);
+            if (!(flags & SHOT_NOT_VISIBLE)) shotIds.push({ from: records.getUint32(p, true), to: records.getUint32(p + 4, true), flags, ...(section ? { section } : {}) });
           } else if (kind === 4) {
             const points = records.getUint32(p + 8, true), po = records.getUint32(p + 12, true), ps = records.getUint32(p + 16, true);
             const triangles = records.getUint32(p + 20, true), to = records.getUint32(p + 24, true), ts = records.getUint32(p + 28, true);
@@ -121,6 +123,16 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
   // conversion to Float32 preserves detail at large survey coordinate offsets.
   const shots = resolveShots(shotIds, stations);
   let { minZ, maxZ } = undergroundShotRange(shots);
+  const lrud = loxLRUDLegs(shotIds, stations);
+  let lrudScraps = 0;
+  if (lrud.length) {
+    callbacks.progress({ phase: 'Generating LRUD walls', completed: 0, total: lrud.length });
+    for (const mesh of generateLRUDWalls(lrud)) {
+      lrudScraps++; totalPoints += mesh.points.length; totalTriangles += mesh.triangles.length;
+      for (const point of mesh.points) { bounds(...point); minZ = Math.min(minZ, point[2]); maxZ = Math.max(maxZ, point[2]); }
+    }
+    callbacks.progress({ phase: 'Generating LRUD walls', completed: lrud.length, total: lrud.length });
+  }
   const pointsPerRead = Math.floor(READ_BYTES / 24);
   let scanned = 0;
   for (const scrap of scraps) {
@@ -150,7 +162,7 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
   if (!Number.isFinite(min[0])) throw new Error('No cave geometry in LOX file');
   const origin = min.map((value, axis) => value + (max[axis] - value) / 2) as Point;
   if (!Number.isFinite(minZ)) { minZ = 0; maxZ = 0; }
-  const model: LargeModel = { title: projectTitle || projectName || undefined, min, max, origin, minZ, maxZ, scraps: scraps.length, triangles: totalTriangles, points: totalPoints, shots };
+  const model: LargeModel = { title: projectTitle || projectName || undefined, min, max, origin, minZ, maxZ, scraps: scraps.length + lrudScraps, triangles: totalTriangles, points: totalPoints, shots };
   model.stationDetails = resolveStationSurveys(stationDetails, surveys);
   await callbacks.ready(model);
   for (const surface of surfaces) {
@@ -225,6 +237,14 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
       decoded += count;
       callbacks.progress({ phase: 'Loading full-detail walls', completed: decoded, total: totalTriangles });
     }
+  }
+  for (const mesh of generateLRUDWalls(lrud)) {
+    const positions = new Float32Array(mesh.points.length * 3), indices = new Uint32Array(mesh.triangles.length * 3);
+    mesh.points.forEach((point, index) => point.forEach((value, axis) => { positions[index * 3 + axis] = value - origin[axis]; }));
+    mesh.triangles.forEach((triangle, index) => indices.set(triangle, index * 3));
+    await callbacks.batch({ positions, indices, triangles: mesh.triangles.length });
+    decoded += mesh.triangles.length;
+    callbacks.progress({ phase: 'Loading full-detail walls', completed: decoded, total: totalTriangles });
   }
   return model;
 }

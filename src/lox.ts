@@ -2,6 +2,7 @@ import { decodeSurveyText, surveyTextReferences, SURVEY_TEXT_BYTES } from './lox
 import { resolveShots, undergroundShotRange, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, type Surface, type SurfaceBitmap } from './lox-surface';
 import { resolveStationSurveys, stationNameReference, type Station, type Survey } from './lox-stations';
+import { generateLRUDWalls, loxLRUDLegs, readLoxLRUD } from './lrud';
 /** Therion lxFile chunks, matching loch/lxFile.{h,cxx} (little endian). */
 export type Point = [number, number, number];
 export type Scrap = { points: Point[]; triangles: [number, number, number][] };
@@ -53,10 +54,11 @@ export function parseLox(buffer: ArrayBuffer): Model {
       // from, to, 8 LRUD doubles, flags, section type, surveyId, threshold = 92 bytes
       if (recordBytes !== count * 92) throw new Error('Invalid shot chunk');
       for (let i = 0; i < count; i++) {
+        const section = readLoxLRUD(d, p);
         const from = u(recordsEnd), to = u(recordsEnd);
         for (let j = 0; j < 8; j++) f(recordsEnd);
         const flags = u(recordsEnd); u(recordsEnd); u(recordsEnd); f(recordsEnd);
-        if (!(flags & SHOT_NOT_VISIBLE)) shotIds.push({ from, to, flags });
+        if (!(flags & SHOT_NOT_VISIBLE)) shotIds.push({ from, to, flags, ...(section ? { section } : {}) });
       }
     } else if (kind === 4) {
       // id, surveyId, numPoints, pointDataPtr, numTriangles, triangleDataPtr = 36 bytes
@@ -100,6 +102,7 @@ export function parseLox(buffer: ArrayBuffer): Model {
     p = dataStart + dataSize;
   }
   const shots = resolveShots(shotIds, stations);
+  for (const walls of generateLRUDWalls(loxLRUDLegs(shotIds, stations))) scraps.push(walls);
   let { minZ, maxZ } = undergroundShotRange(shots);
   const addHeight = (z: number) => { if (!Number.isFinite(z)) throw new Error('Invalid geometry coordinate'); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); };
   for (const s of scraps) for (const point of s.points) addHeight(point[2]);
