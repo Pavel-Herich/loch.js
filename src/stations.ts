@@ -9,20 +9,16 @@ export function stationVisible(station: Station, options: StationOptions) {
     && !temporaryStation(station);
 }
 
-/** Batched station dots and depth-tested labels. */
+/** One point draw per station type and one screen canvas for labels, regardless of station count. */
 export class StationScene {
   private entries: Entry[] = [];
-  private stations: Station[] = [];
   private origin = new THREE.Vector3();
   private options: StationOptions = { stations: false, label: 'none', surface: true, underground: true, splay: true };
   private labels: StationLabels;
-  private labelsDirty = true;
-  constructor(private group: THREE.Group, createCanvas?: () => HTMLCanvasElement) {
-    this.labels = new StationLabels(group, createCanvas);
-  }
+  constructor(private group: THREE.Group, canvas?: HTMLCanvasElement) { this.labels = new StationLabels(canvas); }
 
   setModel(stations: Station[], origin: THREE.Vector3) {
-    this.clear(); this.stations = stations; this.origin.copy(origin);
+    this.clear(); this.labels.setStations(stations); this.origin.copy(origin);
     const buckets = new Map<number, Station[]>();
     for (const station of stations) {
       if (temporaryStation(station)) continue;
@@ -49,24 +45,18 @@ export class StationScene {
     this.options = { ...options };
     for (const entry of this.entries) entry.points.visible = options.stations
       && (entry.surface ? options.surface : options.underground);
-    this.labelsDirty = true;
     this.labels.setVisible(this.group.visible && options.stations && options.label !== 'none');
   }
 
   updateLabels(camera: THREE.Camera, width: number, height: number) {
     const visible = this.group.visible && this.options.stations && this.options.label !== 'none';
     this.labels.setVisible(visible);
-    if (!visible || !width || !height) return;
-    if (this.labelsDirty) {
-      this.labels.rebuild(this.stations.filter(station => stationVisible(station, this.options)), this.options.label, this.origin);
-      this.labelsDirty = false;
-    }
-    this.labels.update(camera, width, height);
+    if (visible) this.labels.draw(camera, width, height, this.origin, this.options.label, station => stationVisible(station, this.options));
   }
 
   clear() {
     for (const { points } of this.entries) { this.group.remove(points); points.geometry.dispose(); points.material.dispose(); }
-    this.entries = []; this.stations = [];
-    this.labels.clear(); this.labelsDirty = true;
+    this.entries = [];
+    this.labels.clear();
   }
 }

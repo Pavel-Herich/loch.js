@@ -1,7 +1,7 @@
 import { decodeSurveyText, surveyTextReferences, SURVEY_TEXT_BYTES } from './lox-title';
 import { resolveShots, undergroundShotRange, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, type Surface, type SurfaceBitmap } from './lox-surface';
-import { resolveStationSurveys, stationNameReference, type Station, type Survey } from './lox-stations';
+import { resolveStationSurveys, stationNameReference, stationCommentReference, type Station, type Survey } from './lox-stations';
 import { generateLRUDWalls, loxLRUDLegs, readLoxLRUD } from './lrud';
 /** Therion lxFile chunks, matching loch/lxFile.{h,cxx} (little endian). */
 export type Point = [number, number, number];
@@ -44,11 +44,13 @@ export function parseLox(buffer: ArrayBuffer): Model {
       if (recordBytes !== count * 52) throw new Error('Invalid station chunk');
       for (let i = 0; i < count; i++) {
         const ref = stationNameReference(d, p, dataSize);
+        const commentRef = stationCommentReference(d, p, dataSize);
         const id = u(recordsEnd), surveyId = u(recordsEnd); ptr(recordsEnd); ptr(recordsEnd); const flags = u(recordsEnd);
         const position = point(recordsEnd);
         const name = decodeSurveyText(new Uint8Array(buffer, dataStart + ref.offset, Math.min(ref.size, SURVEY_TEXT_BYTES)));
+        const comment = decodeSurveyText(new Uint8Array(buffer, dataStart + commentRef.offset, Math.min(commentRef.size, SURVEY_TEXT_BYTES)));
         stations.set(id, position);
-        stationDetails.push({ id, surveyId, name, flags, position, survey: '', fullSurvey: '' });
+        stationDetails.push({ id, surveyId, name, flags, position, survey: '', fullSurvey: '', ...(comment ? { comment } : {}) });
       }
     } else if (kind === 3) {
       // from, to, 8 LRUD doubles, flags, section type, surveyId, threshold = 92 bytes

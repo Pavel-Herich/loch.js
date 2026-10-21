@@ -2,7 +2,7 @@ import { decodeSurveyText, surveyTextReferences, SURVEY_TEXT_BYTES } from './lox
 import { resolveShots, undergroundShotRange, SHOT_NOT_VISIBLE, type Shot, type ShotReference } from './lox-shots';
 import { bitmapRecord, surfaceRecord, surfacePoint, type Surface, type SurfaceRecord, type BitmapRecord } from './lox-surface';
 import type { Point } from './lox';
-import { resolveStationSurveys, stationNameReference, type Station, type Survey } from './lox-stations';
+import { resolveStationSurveys, stationNameReference, stationCommentReference, type Station, type Survey } from './lox-stations';
 import { generateLRUDWalls, loxLRUDLegs, readLoxLRUD } from './lrud';
 
 export const READ_BYTES = 8 * 1024 * 1024;
@@ -91,9 +91,12 @@ export async function streamLargeLox(source: Source, callbacks: LargeLoadCallbac
             const point: Point = [records.getFloat64(p + 28, true), records.getFloat64(p + 36, true), records.getFloat64(p + 44, true)];
             bounds(...point); stations.set(records.getUint32(p, true), point);
             const ref = stationNameReference(records, p, dataBytes);
+            const commentRef = stationCommentReference(records, p, dataBytes);
+            const name = await readText(dataStart + ref.offset, ref.size);
+            const comment = await readText(dataStart + commentRef.offset, commentRef.size);
             stationDetails.push({ id: records.getUint32(p, true), surveyId: records.getUint32(p + 4, true),
               flags: records.getUint32(p + 24, true), position: point,
-              name: await readText(dataStart + ref.offset, ref.size), survey: '', fullSurvey: '' });
+              name, survey: '', fullSurvey: '', ...(comment ? { comment } : {}) });
           } else if (kind === 3) {
             const flags = records.getUint32(p + 72, true);
             const section = readLoxLRUD(records, p);

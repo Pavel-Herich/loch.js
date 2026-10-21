@@ -42,13 +42,15 @@ export class SurveyModel {
     this.surveyStations.add(from.join(','));
     if (flags & SHOT_SPLAY) this.splayEnds.add(to.join(',')); else this.surveyStations.add(to.join(','));
   }
-  station(name: string, point: Point, surveyPath: string[] = [], flags?: number) {
+  station(name: string, point: Point, surveyPath: string[] = [], flags?: number, comment?: string) {
     point = this.point(point);
     const key = JSON.stringify([surveyPath, name, point]);
-    if (this.labels.has(key)) return;
+    const existing = this.labels.get(key);
+    if (existing) { if (comment?.trim()) existing.station.comment ||= comment.trim(); return; }
     this.labels.set(key, { flags, station: {
       id: this.positions.get(point.join(','))!.id, surveyId: 0, name, position: point, flags: flags ?? 0,
       survey: surveyPath.at(-1) ?? '', fullSurvey: [...surveyPath].reverse().filter(Boolean).join('.'),
+      ...(comment?.trim() ? { comment: comment.trim() } : {}),
     } });
   }
   finish(title?: string): Model {

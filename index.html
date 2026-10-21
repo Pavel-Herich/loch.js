@@ -17,7 +17,7 @@
         <label><input id="centreline-splay" type="checkbox" checked/> Splay</label>
         <label><input id="centreline-duplicate" type="checkbox" checked/> Duplicate</label>
         <label><input id="centreline-stations" type="checkbox"/> Stations</label>
-        <label>Label <select id="station-label" aria-label="Station label"><option value="none" selected>(None)</option><option value="number">Number</option><option value="short">Short</option><option value="full">Full</option><option value="altitude">Altitude</option></select></label>
+        <label>Label <select id="station-label" aria-label="Station label"><option value="none" selected>(None)</option><option value="number">Number</option><option value="short">Short</option><option value="full">Full</option><option value="altitude">Altitude</option><option value="comments">Comments</option></select></label>
       </div></details>
       <details class="control-group"><summary>Walls</summary><div class="group-items">
         <label><input id="walls-culling" type="checkbox"/> Culling</label>
@@ -60,7 +60,7 @@
   </svg></button>
   <button id="autorotate-toggle" type="button" aria-label="Start autorotation" aria-pressed="false" title="Start autorotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="autorotate-symbol" fill="currentColor" d="M8 5v14l11-7z"/></svg></button>
   <input id="file" type="file" accept=".lox,.3d,.plt" aria-label="Open cave model file" hidden/>
-</header><main><canvas id="view" aria-label="3D cave model"></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
+</header><main><canvas id="view" aria-label="3D cave model"></canvas><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
   <div id="legend"></div>
   <div class="orientation-indicators">
     <div id="compass-indicator" class="orientation-indicator" role="img" aria-label="Compass">

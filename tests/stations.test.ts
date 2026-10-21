@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
+import { parseCompass } from '../src/compass';
 import { parseLox } from '../src/lox';
 import { streamLargeLox } from '../src/large-lox';
 import { resolveStationSurveys, stationLabel, type Station, type StationLabel } from '../src/lox-stations';
@@ -18,14 +19,15 @@ function chunk(kind: number, width: number, rows: ((view: DataView, p: number, t
   for (const text of strings) { result.set(text, offset); offset += text.length; }
   return result;
 }
-function fixture() {
+function fixture(comments = false) {
   const surveys = chunk(1, 24, [[30, 20, 'branch'], [10, 10, 'world'], [20, 10, 'part']].map(([id, parent, name]) => (v, p, text) => {
     const [offset, size] = text(String(name));
     [Number(id), offset, size, Number(parent), 0, 0].forEach((value, index) => v.setUint32(p + index * 4, value, true));
   }));
   const stations = chunk(2, 52, ['1', 'ž2', '.', '-'].map((name, index) => (v, p, text) => {
     const [offset, size] = text(name);
-    [101 + index, 30, offset, size, 0, 0, index === 1 ? 1 : 0].forEach((value, i) => v.setUint32(p + i * 4, value, true));
+    const [commentOffset, commentSize] = comments && index === 0 ? text('Entrance — waterfall') : [0, 0];
+    [101 + index, 30, offset, size, commentOffset, commentSize, index === 1 ? 1 : 0].forEach((value, i) => v.setUint32(p + i * 4, value, true));
     [1000 + index * 10, 2000, 123.4 + index].forEach((value, axis) => v.setFloat64(p + 28 + axis * 8, value, true));
   }));
   // Stations may precede their survey records.
@@ -56,6 +58,28 @@ describe('station metadata, dots and labels', () => {
     const data = fixture(); new DataView(data).setUint32(16 + 8, 0xffffffff, true);
     expect(() => parseLox(data)).toThrow('station name pointer');
     await expect(large(data)).rejects.toThrow('station name pointer');
+  });
+
+  it('preserves comments in both LOX loaders and offers a comments-only label mode', async () => {
+    const small = parseLox(fixture(true)), streamed = await large(fixture(true));
+    expect(streamed.stationDetails).toEqual(small.stationDetails);
+    expect(stationLabel(small.stationDetails[0], 'comments')).toBe('Entrance — waterfall');
+    expect(stationLabel(small.stationDetails[1], 'comments')).toBe('');
+    expect(stationLabel({ ...small.stationDetails[2], comment: 'temporary' }, 'comments')).toBe('');
+  });
+
+  it('rejects corrupt comment pointers in both LOX loaders', async () => {
+    const data = fixture(true); new DataView(data).setUint32(16 + 16, 0xffffffff, true);
+    expect(() => parseLox(data)).toThrow('station comment pointer');
+    await expect(large(data)).rejects.toThrow('station comment pointer');
+  });
+
+  it('keeps a comment added on a repeated Compass station without treating its contents as shot flags', () => {
+    const data = new TextEncoder().encode('Nsurvey\nM0 0 0 SA\nD1 0 0 SB\nM0 0 0 SA "Entrance FS"\n');
+    const model = parseCompass(data.buffer);
+    expect(model.stationDetails).toHaveLength(2);
+    expect(model.stationDetails.find(station => station.name === 'A')?.comment).toBe('Entrance FS');
+    expect(model.shots[0].flags).toBe(0);
   });
 
   it('handles missing surveys and cycles without looping or inventing a survey path', () => {
@@ -95,33 +119,21 @@ describe('station metadata, dots and labels', () => {
     expect(stations.some(station => stationVisible(station, { ...options, stations: false }))).toBe(false);
   });
 
-  it('batches depth-tested labels, keeps pixel size on camera changes and disposes replaced atlases', () => {
-    const context = { measureText: (text: string) => ({ width: text.length * 14 }), strokeText: vi.fn(), fillText: vi.fn() };
-    const createCanvas = vi.fn(() => ({ width: 0, height: 0, getContext: () => context }) as unknown as HTMLCanvasElement);
-    const group = new THREE.Group(), scene = new StationScene(group, createCanvas);
-    const station: Station = { id: 1, surveyId: 0, name: '1', flags: 0, position: [1000, 2000, 90], survey: '', fullSurvey: '' };
+  it('projects labels with the camera, skips points behind it and hides them with master visibility', () => {
+    const context = { setTransform: vi.fn(), clearRect: vi.fn(), strokeText: vi.fn(), fillText: vi.fn(), measureText: vi.fn((text: string) => ({ width: text.length * 7 })) };
+    const canvas = { hidden: true, width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
+    const group = new THREE.Group(), scene = new StationScene(group, canvas);
+    const station: Station = { id: 1, surveyId: 0, name: '1', flags: 0, position: [0, 0, -10], survey: '', fullSurvey: '' };
     const camera = new THREE.PerspectiveCamera(45, 4 / 3, .1, 100);
-    scene.setModel([station, { ...station, name: '2', position: [1010, 2000, 80] }], new THREE.Vector3(1000, 2000, 100));
-    scene.setOptions({ ...options, label: 'number' }); scene.updateLabels(camera, 800, 600);
-    const labels = group.children.find(child => child.name === 'Station labels') as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
-    expect(labels).toBeDefined(); expect(createCanvas).toHaveBeenCalledOnce();
-    expect(labels.geometry.getAttribute('position').count).toBe(8);
-    expect(Array.from(labels.geometry.getAttribute('position').array).slice(0, 12)).toEqual([0, 0, -10, 0, 0, -10, 0, 0, -10, 0, 0, -10]);
-    expect(context.fillText.mock.calls.map(call => call[0])).toEqual(['1', '2']);
-    expect(labels.material.depthTest).toBe(true); expect(labels.material.depthWrite).toBe(true);
-    expect(labels.material.transparent).toBe(false);
-    expect(labels.material.uniforms.viewport.value.toArray()).toEqual([800, 600]);
-    expect(labels.material.uniforms.orthographic.value).toBe(false);
-    const geometry = labels.geometry;
-    scene.updateLabels(new THREE.OrthographicCamera(-10, 10, 10, -10, .1, 100), 400, 300);
-    expect(labels.geometry).toBe(geometry); expect(createCanvas).toHaveBeenCalledOnce();
-    expect(labels.material.uniforms.viewport.value.toArray()).toEqual([400, 300]);
-    expect(labels.material.uniforms.orthographic.value).toBe(true);
-    group.visible = false; scene.updateLabels(camera, 800, 600); expect(labels.visible).toBe(false);
-    group.visible = true; scene.updateLabels(camera, 800, 600); expect(labels.visible).toBe(true);
-    scene.setOptions({ ...options, label: 'none' }); expect(labels.visible).toBe(false);
-    const dispose = vi.fn(); geometry.addEventListener('dispose', dispose); labels.material.addEventListener('dispose', dispose);
-    labels.material.uniforms.atlas.value.addEventListener('dispose', dispose);
-    scene.clear(); expect(dispose).toHaveBeenCalledTimes(3); expect(group.children).toHaveLength(0);
+    vi.stubGlobal('devicePixelRatio', 2);
+    try {
+      scene.setModel([station, { ...station, name: 'behind', position: [0, 0, 10] }], new THREE.Vector3());
+      scene.setOptions({ ...options, label: 'number' }); scene.updateLabels(camera, 800, 600);
+      expect(canvas.hidden).toBe(false); expect(canvas.width).toBe(1600);
+      expect(context.fillText).toHaveBeenCalledExactlyOnceWith('1', 405, 300);
+      group.visible = false; scene.updateLabels(camera, 800, 600); expect(canvas.hidden).toBe(true);
+      group.visible = true; scene.setOptions({ ...options, label: 'none' }); expect(canvas.hidden).toBe(true);
+      scene.clear();
+    } finally { vi.unstubAllGlobals(); }
   });
 });

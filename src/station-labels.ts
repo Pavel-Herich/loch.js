@@ -1,100 +1,101 @@
-import * as THREE from 'three';
+import { Matrix4, type Camera, type Vector3 } from 'three';
 import { STATION_SURFACE, stationLabel, type Station, type StationLabel } from './lox-stations';
 
-const ATLAS_SIZE = 1024;
-const TEXT_SCALE = 2;
-const ROW_HEIGHT = 36;
+const CELL = 4;
+const HEIGHT = 20;
+const MAX_TEXT_WIDTH = 360;
 
-/** Batched screen-sized text quads sharing the model's depth buffer. */
-export class StationLabels {
-  private meshes: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>[] = [];
-  constructor(private group: THREE.Group, private createCanvas = () => document.createElement('canvas')) {}
-
-  rebuild(stations: Station[], mode: StationLabel, origin: THREE.Vector3) {
-    this.clear();
-    let canvas: HTMLCanvasElement | undefined, context: CanvasRenderingContext2D | null = null;
-    let x = 0, y = 0;
-    let positions: number[] = [], offsets: number[] = [], uvs: number[] = [], indices: number[] = [];
-    const flush = () => {
-      if (!canvas || !positions.length) return;
-      const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-      texture.generateMipmaps = false; texture.minFilter = THREE.LinearFilter;
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-      geometry.setAttribute('pixelOffset', new THREE.Float32BufferAttribute(offsets, 2));
-      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2)); geometry.setIndex(indices);
-      const material = new THREE.ShaderMaterial({
-        uniforms: { atlas: { value: texture }, viewport: { value: new THREE.Vector2(1, 1) }, orthographic: { value: false } },
-        depthTest: true, depthWrite: true, toneMapped: false,
-        vertexShader: `attribute vec2 pixelOffset;
-          uniform vec2 viewport;
-          uniform bool orthographic;
-          varying vec2 labelUV;
-          void main() {
-            labelUV = uv;
-            vec4 viewPosition = modelViewMatrix * vec4(position, 1.0);
-            // Move along the viewing ray, preserving the station's screen anchor.
-            if (orthographic) viewPosition.z *= 0.9;
-            else viewPosition.xyz *= 0.9;
-            gl_Position = projectionMatrix * viewPosition;
-            gl_Position.xy += pixelOffset * 2.0 / viewport * gl_Position.w;
-          }`,
-        fragmentShader: `uniform sampler2D atlas;
-          varying vec2 labelUV;
-          void main() {
-            vec4 text = texture2D(atlas, labelUV);
-            if (text.a < 0.2) discard;
-            gl_FragColor = vec4(text.rgb, 1.0);
-            #include <colorspace_fragment>
-          }`,
-      });
-      // Opaque text pixels also preserve label depth across progressive wall batches.
-      const mesh = new THREE.Mesh(geometry, material); mesh.name = 'Station labels'; mesh.frustumCulled = false;
-      this.group.add(mesh); this.meshes.push(mesh);
-    };
-    const startPage = () => {
-      canvas = this.createCanvas(); canvas.width = ATLAS_SIZE; canvas.height = ATLAS_SIZE;
-      context = canvas.getContext('2d');
-      if (!context) throw new Error('Could not create station label texture.');
-      context.font = '24px system-ui, sans-serif'; context.textBaseline = 'middle';
-      context.lineWidth = 6; context.strokeStyle = '#09131c'; context.lineJoin = 'round';
-      x = 0; y = 0; positions = []; offsets = []; uvs = []; indices = [];
-    };
-    for (const station of stations) {
-      const text = stationLabel(station, mode);
-      if (!text) continue;
-      if (!context) startPage();
-      const width = Math.min(ATLAS_SIZE, Math.ceil(context!.measureText(text).width) + 12);
-      if (x + width > ATLAS_SIZE) { x = 0; y += ROW_HEIGHT; }
-      if (y + ROW_HEIGHT > ATLAS_SIZE) { flush(); startPage(); }
-      context!.fillStyle = station.flags & STATION_SURFACE ? '#808080' : '#ffffff';
-      context!.strokeText(text, x + 6, y + ROW_HEIGHT / 2, width - 12);
-      context!.fillText(text, x + 6, y + ROW_HEIGHT / 2, width - 12);
-      const first = positions.length / 3;
-      const point = station.position.map((value, axis) => value - origin.getComponent(axis));
-      for (const [u, v] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
-        positions.push(...point);
-        offsets.push(2 + u * width / TEXT_SCALE, (0.5 - v) * ROW_HEIGHT / TEXT_SCALE);
-        uvs.push((x + u * width) / ATLAS_SIZE, 1 - (y + v * ROW_HEIGHT) / ATLAS_SIZE);
-      }
-      indices.push(first, first + 3, first + 2, first, first + 2, first + 1);
-      x += width;
-    }
-    flush();
+/** Conservative screen-space occupancy, bounded by viewport size rather than station count. */
+export class LabelOccupancy {
+  private cells = new Uint8Array(0);
+  private columns = 0;
+  reset(width: number, height: number) {
+    this.columns = Math.ceil(width / CELL);
+    const size = this.columns * Math.ceil(height / CELL);
+    if (this.cells.length !== size) this.cells = new Uint8Array(size); else this.cells.fill(0);
   }
-
-  setVisible(visible: boolean) { for (const mesh of this.meshes) mesh.visible = visible; }
-  update(camera: THREE.Camera, width: number, height: number) {
-    for (const { material } of this.meshes) {
-      material.uniforms.viewport.value.set(width, height);
-      material.uniforms.orthographic.value = Boolean((camera as THREE.OrthographicCamera).isOrthographicCamera);
+  overlaps(x: number, y: number, width: number, height: number) {
+    for (let row = Math.floor(y / CELL); row < Math.ceil((y + height) / CELL); row++) {
+      for (let col = Math.floor(x / CELL); col < Math.ceil((x + width) / CELL); col++) {
+        if (this.cells[row * this.columns + col]) return true;
+      }
     }
+    return false;
+  }
+  reserve(x: number, y: number, width: number, height: number) {
+    for (let row = Math.floor(y / CELL); row < Math.ceil((y + height) / CELL); row++) {
+      this.cells.fill(1, row * this.columns + Math.floor(x / CELL), row * this.columns + Math.ceil((x + width) / CELL));
+    }
+  }
+}
+
+/** One viewport-sized canvas; allocate no label textures or text geometry. */
+export class StationLabels {
+  private commented: Station[] = [];
+  private ordinary: Station[] = [];
+  private occupancy = new LabelOccupancy();
+  private matrix = new Matrix4();
+  constructor(private canvas?: HTMLCanvasElement) {}
+
+  setStations(stations: Station[]) {
+    this.commented = []; this.ordinary = [];
+    for (const station of stations) (station.comment?.trim() ? this.commented : this.ordinary).push(station);
+  }
+  setVisible(visible: boolean) { if (this.canvas) this.canvas.hidden = !visible; }
+
+  draw(camera: Camera, width: number, height: number, origin: Vector3, mode: StationLabel, visible: (station: Station) => boolean) {
+    const canvas = this.canvas;
+    if (!canvas || canvas.hidden || width <= 0 || height <= 0) return;
+    const ratio = Math.min(globalThis.devicePixelRatio || 1, 2, Math.sqrt(8_388_608 / (width * height)));
+    if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
+      canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
+    }
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height);
+    context.font = '12px system-ui, sans-serif'; context.textBaseline = 'middle';
+    context.lineWidth = 3; context.strokeStyle = '#09131c'; context.lineJoin = 'round';
+    this.occupancy.reset(width, height);
+    camera.updateMatrixWorld();
+    const m = this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
+    const draw = (station: Station) => {
+      if (!visible(station)) return;
+      const x = station.position[0] - origin.x, y = station.position[1] - origin.y, z = station.position[2] - origin.z;
+      const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+      if (w <= 0) return;
+      const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
+      const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
+      const cz = m[2] * x + m[6] * y + m[10] * z + m[14];
+      if (Math.abs(cx) > w || Math.abs(cy) > w || Math.abs(cz) > w) return;
+      const left = (cx / w + 1) * width / 2 + 3, top = (1 - cy / w) * height / 2 - HEIGHT / 2;
+      if (left < 0 || top < 0 || left + 10 > width || top + HEIGHT > height
+        || this.occupancy.overlaps(left, top, 10, HEIGHT)) return;
+      let text = stationLabel(station, mode);
+      if (!text) return;
+      // Bound measurement work for long survey paths and comments.
+      if (text.length > 256) text = text.slice(0, 255).replace(/[\uD800-\uDBFF]$/, '') + '…';
+      text = text.replace(/\s+/g, ' ');
+      const maximum = Math.min(MAX_TEXT_WIDTH, width - left - 5);
+      let textWidth = context.measureText(text).width;
+      if (textWidth > maximum) {
+        let low = 0, high = text.length;
+        while (low < high) {
+          const mid = Math.ceil((low + high) / 2);
+          if (context.measureText(text.slice(0, mid) + '…').width <= maximum) low = mid; else high = mid - 1;
+        }
+        text = text.slice(0, low).replace(/[\uD800-\uDBFF]$/, '') + '…'; textWidth = context.measureText(text).width;
+      }
+      const labelWidth = Math.max(10, textWidth + 5);
+      if (left + labelWidth > width || this.occupancy.overlaps(left, top, labelWidth, HEIGHT)) return;
+      this.occupancy.reserve(left, top, labelWidth, HEIGHT);
+      context.fillStyle = station.flags & STATION_SURFACE ? '#808080' : '#ffffff';
+      context.strokeText(text, left + 2, top + HEIGHT / 2); context.fillText(text, left + 2, top + HEIGHT / 2);
+    };
+    for (const station of this.commented) draw(station);
+    if (mode !== 'comments') for (const station of this.ordinary) draw(station);
   }
   clear() {
-    for (const mesh of this.meshes) {
-      this.group.remove(mesh); mesh.geometry.dispose();
-      (mesh.material.uniforms.atlas.value as THREE.Texture).dispose(); mesh.material.dispose();
-    }
-    this.meshes = [];
+    this.commented = []; this.ordinary = [];
+    if (this.canvas) { this.canvas.hidden = true; this.canvas.width = 0; this.canvas.height = 0; }
   }
 }

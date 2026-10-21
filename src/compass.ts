@@ -39,7 +39,8 @@ export function parseCompass(buffer: ArrayBuffer) {
     const lrud = dimensions ? [dimensions[1], dimensions[4], dimensions[2], dimensions[3]].map(text => {
       const value = Number(text); return value < 0 || value > 900 ? -1 : value * METRES_PER_FOOT;
     }) as LRUD : undefined;
-    model.station(name, point, [section, survey].filter(Boolean));
+    const comment = /"((?:\\.|[^"\\])*)"/.exec(match[4] ?? '')?.[1].replace(/\\(.)/g, '$1');
+    model.station(name, point, [section, survey].filter(Boolean), undefined, comment);
     // The P shot flag and lowercase d represent plot-excluded (conventionally surface) shots, matching Survex img.
     if (command !== 'M' && current && !flags.includes('X')) {
       model.shot(current, point, shotFlags);
