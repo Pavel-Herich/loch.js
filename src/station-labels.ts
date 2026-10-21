@@ -6,7 +6,7 @@ const HEIGHT = 20;
 const MAX_TEXT_WIDTH = 360;
 
 export type StationMarker = 'entrance' | 'fixed' | 'continuation';
-const markerScale = (marker: StationMarker) => marker === 'fixed' ? 1 / 3 : 1 / 2;
+const markerScale = (marker: StationMarker) => marker === 'fixed' ? 1 / 3 : .7;
 
 /** Fixed-size symbols drawn directly on the shared overlay, centred on the station. */
 export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number) {
@@ -118,7 +118,7 @@ export class StationLabels {
     const draw = (station: Station) => {
       if (!visible(station) || !project(station)) return;
       const symbol = marker?.(station);
-      const left = screenX + (symbol ? 10 * markerScale(symbol) + 6 : 3), top = screenY - HEIGHT / 2;
+      const left = screenX + (symbol ? 10 * markerScale(symbol) + 4 : 3), top = screenY - HEIGHT / 2;
       if (left < 0 || top < 0 || left + 10 > width || top + HEIGHT > height
         || this.occupancy.overlaps(left, top, 10, HEIGHT)) return;
       let text = stationLabel(station, mode);
@@ -140,7 +140,8 @@ export class StationLabels {
       if (left + labelWidth > width || this.occupancy.overlaps(left, top, labelWidth, HEIGHT)) return;
       this.occupancy.reserve(left, top, labelWidth, HEIGHT);
       context.fillStyle = '#ffffff';
-      context.strokeText(text, left + 2, top + HEIGHT / 2); context.fillText(text, left + 2, top + HEIGHT / 2);
+      const textX = left + (symbol ? 0 : 2);
+      context.strokeText(text, textX, top + HEIGHT / 2); context.fillText(text, textX, top + HEIGHT / 2);
     };
     for (const station of this.commented) draw(station);
     if (mode !== 'comments') for (const station of this.ordinary) draw(station);

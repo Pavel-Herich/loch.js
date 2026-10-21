@@ -76,7 +76,7 @@ describe('bounded, non-overlapping station labels', () => {
     const { labels, context } = setup([station('special'), station('neighbour', -.1)]);
     labels.draw(new PerspectiveCamera(45, 4 / 3, .1, 100), 800, 600, new Vector3(), 'number', () => true,
       s => s.name === 'special' ? 'entrance' : undefined);
-    expect(context.fillText).toHaveBeenCalledExactlyOnceWith('special', 413, 300);
+    expect(context.fillText).toHaveBeenCalledExactlyOnceWith('special', 411, 300);
   });
 
   it('caps the backing canvas on very large displays', () => {
