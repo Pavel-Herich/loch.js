@@ -1,5 +1,5 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
-import { STATION_SURFACE, stationLabel, type Station, type StationLabel } from './lox-stations';
+import { stationLabel, type Station, type StationLabel } from './lox-stations';
 
 const CELL = 4;
 const HEIGHT = 20;
@@ -88,7 +88,7 @@ export class StationLabels {
       const labelWidth = Math.max(10, textWidth + 5);
       if (left + labelWidth > width || this.occupancy.overlaps(left, top, labelWidth, HEIGHT)) return;
       this.occupancy.reserve(left, top, labelWidth, HEIGHT);
-      context.fillStyle = station.flags & STATION_SURFACE ? '#808080' : '#ffffff';
+      context.fillStyle = '#ffffff';
       context.strokeText(text, left + 2, top + HEIGHT / 2); context.fillText(text, left + 2, top + HEIGHT / 2);
     };
     for (const station of this.commented) draw(station);
