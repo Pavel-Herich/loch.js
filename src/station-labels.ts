@@ -14,10 +14,16 @@ export function drawStationMarker(context: CanvasRenderingContext2D, marker: Sta
   if (marker === 'entrance') {
     context.beginPath(); context.arc(0, 0, 9, 0, Math.PI * 2);
     context.fillStyle = '#ffffff'; context.fill(); context.stroke();
-    // Black cave-mouth arch inside the white circular sign.
-    context.beginPath(); context.moveTo(-5, 5); context.lineTo(-5, 0);
-    context.arc(0, 0, 5, Math.PI, 0); context.lineTo(5, 5); context.closePath();
-    context.fillStyle = '#000000'; context.fill();
+    // Same omega outline as public/icon.svg, scaled to fit the circular sign.
+    context.transform(.13, 0, 0, .13, -64 * .13, -64 * .13);
+    context.strokeStyle = '#000000'; context.lineWidth = 16;
+    context.lineCap = 'round'; context.lineJoin = 'round';
+    context.beginPath(); context.moveTo(20, 102); context.lineTo(48, 102);
+    context.bezierCurveTo(48, 90, 29, 84, 29, 63);
+    context.bezierCurveTo(29, 38, 49, 22, 69, 22);
+    context.bezierCurveTo(91, 22, 104, 39, 102, 60);
+    context.bezierCurveTo(100, 79, 90, 90, 80, 99);
+    context.lineTo(80, 102); context.lineTo(109, 102); context.stroke();
   } else if (marker === 'fixed') {
     context.beginPath(); context.moveTo(0, -9); context.lineTo(8, 7); context.lineTo(-8, 7); context.closePath();
     context.fillStyle = '#ff3030'; context.fill(); context.stroke();

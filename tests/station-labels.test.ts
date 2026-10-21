@@ -9,7 +9,7 @@ function station(name: string, x = 0, comment?: string): Station {
 function setup(stations: Station[]) {
   const context = { setTransform: vi.fn(), clearRect: vi.fn(), strokeText: vi.fn(), fillText: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
-    save: vi.fn(), restore: vi.fn(), translate: vi.fn(), beginPath: vi.fn(), arc: vi.fn(),
+    transform: vi.fn(), bezierCurveTo: vi.fn(), save: vi.fn(), restore: vi.fn(), translate: vi.fn(), beginPath: vi.fn(), arc: vi.fn(),
     moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), stroke: vi.fn() };
   const canvas = { hidden: true, width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
   const labels = new StationLabels(canvas);
