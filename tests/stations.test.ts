@@ -89,7 +89,7 @@ describe('station metadata, dots and labels', () => {
     expect(resolveStationSurveys(stations, new Map())[0].fullSurvey).toBe('');
   });
 
-  it('batches white/gray fixed-size station dots, recenters coordinates and disposes old resources', () => {
+  it('batches white fixed-size station dots, recenters coordinates and disposes old resources', () => {
     const group = new THREE.Group(), scene = new StationScene(group), stations = parseLox(fixture()).stationDetails;
     scene.setModel(stations, new THREE.Vector3(1000, 2000, 100));
     expect(group.children).toHaveLength(2);
@@ -99,7 +99,7 @@ describe('station metadata, dots and labels', () => {
     const underground = group.children.find(p => p.name === 'Stations 0') as THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
     const surface = group.children.find(p => p.name === 'Stations 1') as typeof underground;
     expect(Array.from(underground.geometry.getAttribute('position').array)).toEqual([0, 0, expect.closeTo(23.4)]);
-    expect(underground.material.color.getHex()).toBe(0xffffff); expect(surface.material.color.getHex()).toBe(0x808080);
+    expect(underground.material.color.getHex()).toBe(0xffffff); expect(surface.material.color.getHex()).toBe(0xffffff);
     expect(underground.material.size).toBe(3); expect(underground.material.sizeAttenuation).toBe(false);
     scene.setOptions({ ...options, surface: false, splay: false });
     expect(group.children.filter(p => p.visible)).toEqual([underground]);

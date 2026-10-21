@@ -30,7 +30,7 @@ export class StationScene {
       const positions = new Float32Array(stations.length * 3);
       stations.forEach((station, index) => positions.set(station.position.map((value, axis) => value - origin.getComponent(axis)), index * 3));
       const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      const material = new THREE.PointsMaterial({ color: key & 1 ? 0x808080 : 0xffffff, size: 3, sizeAttenuation: false, toneMapped: false });
+      const material = new THREE.PointsMaterial({ color: 0xffffff, size: 3, sizeAttenuation: false, toneMapped: false });
       material.onBeforeCompile = shader => {
         shader.fragmentShader = shader.fragmentShader.replace('#include <clipping_planes_fragment>',
           '#include <clipping_planes_fragment>\nif (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;');
