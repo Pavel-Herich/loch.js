@@ -9,7 +9,7 @@ function station(name: string, x = 0, comment?: string): Station {
 function setup(stations: Station[]) {
   const context = { setTransform: vi.fn(), clearRect: vi.fn(), strokeText: vi.fn(), fillText: vi.fn(),
     measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
-    transform: vi.fn(), bezierCurveTo: vi.fn(), save: vi.fn(), restore: vi.fn(), translate: vi.fn(), beginPath: vi.fn(), arc: vi.fn(),
+    scale: vi.fn(), transform: vi.fn(), bezierCurveTo: vi.fn(), save: vi.fn(), restore: vi.fn(), translate: vi.fn(), beginPath: vi.fn(), arc: vi.fn(),
     moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), stroke: vi.fn() };
   const canvas = { hidden: true, width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
   const labels = new StationLabels(canvas);
@@ -76,7 +76,7 @@ describe('bounded, non-overlapping station labels', () => {
     const { labels, context } = setup([station('special'), station('neighbour', -.1)]);
     labels.draw(new PerspectiveCamera(45, 4 / 3, .1, 100), 800, 600, new Vector3(), 'number', () => true,
       s => s.name === 'special' ? 'entrance' : undefined);
-    expect(context.fillText).toHaveBeenCalledExactlyOnceWith('special', 418, 300);
+    expect(context.fillText).toHaveBeenCalledExactlyOnceWith('special', 413, 300);
   });
 
   it('caps the backing canvas on very large displays', () => {

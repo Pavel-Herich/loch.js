@@ -6,10 +6,12 @@ const HEIGHT = 20;
 const MAX_TEXT_WIDTH = 360;
 
 export type StationMarker = 'entrance' | 'fixed' | 'continuation';
+const markerScale = (marker: StationMarker) => marker === 'fixed' ? 1 / 3 : 1 / 2;
 
 /** Fixed-size symbols drawn directly on the shared overlay, centred on the station. */
 export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number) {
   context.save(); context.translate(x, y);
+  const scale = markerScale(marker); context.scale(scale, scale);
   context.lineWidth = 1.5; context.strokeStyle = '#09131c';
   if (marker === 'entrance') {
     context.beginPath(); context.arc(0, 0, 9, 0, Math.PI * 2);
@@ -105,8 +107,9 @@ export class StationLabels {
         const symbol = marker(station);
         if (!symbol || !visible(station) || !project(station)) return;
         drawStationMarker(context, symbol, screenX, screenY);
-        const x = Math.max(0, screenX - 10), y = Math.max(0, screenY - 10);
-        this.occupancy.reserve(x, y, Math.min(width, screenX + 10) - x, Math.min(height, screenY + 10) - y);
+        const radius = 10 * markerScale(symbol);
+        const x = Math.max(0, screenX - radius), y = Math.max(0, screenY - radius);
+        this.occupancy.reserve(x, y, Math.min(width, screenX + radius) - x, Math.min(height, screenY + radius) - y);
       };
       for (const station of this.commented) mark(station);
       for (const station of this.ordinary) mark(station);
@@ -114,7 +117,8 @@ export class StationLabels {
     if (mode === 'none') return;
     const draw = (station: Station) => {
       if (!visible(station) || !project(station)) return;
-      const left = screenX + (marker?.(station) ? 16 : 3), top = screenY - HEIGHT / 2;
+      const symbol = marker?.(station);
+      const left = screenX + (symbol ? 10 * markerScale(symbol) + 6 : 3), top = screenY - HEIGHT / 2;
       if (left < 0 || top < 0 || left + 10 > width || top + HEIGHT > height
         || this.occupancy.overlaps(left, top, 10, HEIGHT)) return;
       let text = stationLabel(station, mode);
