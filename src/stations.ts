@@ -1,19 +1,29 @@
 import * as THREE from 'three';
-import { StationLabels } from './station-labels';
-import { STATION_SURFACE, temporaryStation, type Station, type StationLabel } from './lox-stations';
+import { StationLabels, type StationMarker } from './station-labels';
+import { STATION_SURFACE, STATION_ENTRANCE, STATION_FIXED, STATION_CONTINUATION, temporaryStation, type Station, type StationLabel } from './lox-stations';
 
-export type StationOptions = { stations: boolean; label: StationLabel; surface: boolean; underground: boolean; splay: boolean };
-type Entry = { surface: boolean; points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> };
+export type StationOptions = { stations: boolean; entrance: boolean; fixed: boolean; continuation: boolean; label: StationLabel; surface: boolean; underground: boolean; splay: boolean };
+type Entry = { independent: boolean; points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> };
+export function stationMarker(station: Station, options: StationOptions): StationMarker | undefined {
+  if (temporaryStation(station)) return;
+  if (options.entrance && station.flags & STATION_ENTRANCE) return 'entrance';
+  if (options.fixed && station.flags & STATION_FIXED) return 'fixed';
+  if (options.continuation && station.flags & STATION_CONTINUATION
+    && (station.flags & (STATION_SURFACE | STATION_ENTRANCE | STATION_FIXED) || options.underground)) return 'continuation';
+}
 export function stationVisible(station: Station, options: StationOptions) {
-  return options.stations && (station.flags & STATION_SURFACE ? options.surface : options.underground)
-    && !temporaryStation(station);
+  return !temporaryStation(station) && Boolean(stationMarker(station, options)
+    || options.stations && (station.flags & (STATION_SURFACE | STATION_ENTRANCE | STATION_FIXED) || options.underground));
+}
+function overlayVisible(options: StationOptions) {
+  return options.entrance || options.fixed || options.continuation || options.stations && options.label !== 'none';
 }
 
 /** One point draw per station type and one screen canvas for labels, regardless of station count. */
 export class StationScene {
   private entries: Entry[] = [];
   private origin = new THREE.Vector3();
-  private options: StationOptions = { stations: false, label: 'none', surface: true, underground: true, splay: true };
+  private options: StationOptions = { stations: false, entrance: false, fixed: false, continuation: false, label: 'none', surface: true, underground: true, splay: true };
   private labels: StationLabels;
   constructor(private group: THREE.Group, canvas?: HTMLCanvasElement) { this.labels = new StationLabels(canvas); }
 
@@ -22,7 +32,7 @@ export class StationScene {
     const buckets = new Map<number, Station[]>();
     for (const station of stations) {
       if (temporaryStation(station)) continue;
-      const key = station.flags & STATION_SURFACE ? 1 : 0;
+      const key = station.flags & (STATION_SURFACE | STATION_ENTRANCE | STATION_FIXED);
       const bucket = buckets.get(key);
       if (bucket) bucket.push(station); else buckets.set(key, [station]);
     }
@@ -36,7 +46,7 @@ export class StationScene {
           '#include <clipping_planes_fragment>\nif (length(gl_PointCoord - vec2(0.5)) > 0.5) discard;');
       };
       const points = new THREE.Points(geometry, material); points.name = `Stations ${key}`;
-      this.group.add(points); this.entries.push({ surface: Boolean(key & 1), points });
+      this.group.add(points); this.entries.push({ independent: Boolean(key), points });
     }
     this.setOptions(this.options);
   }
@@ -44,14 +54,14 @@ export class StationScene {
   setOptions(options: StationOptions) {
     this.options = { ...options };
     for (const entry of this.entries) entry.points.visible = options.stations
-      && (entry.surface ? options.surface : options.underground);
-    this.labels.setVisible(this.group.visible && options.stations && options.label !== 'none');
+      && (entry.independent || options.underground);
+    this.labels.setVisible(this.group.visible && overlayVisible(options));
   }
 
   updateLabels(camera: THREE.Camera, width: number, height: number) {
-    const visible = this.group.visible && this.options.stations && this.options.label !== 'none';
+    const visible = this.group.visible && overlayVisible(this.options);
     this.labels.setVisible(visible);
-    if (visible) this.labels.draw(camera, width, height, this.origin, this.options.label, station => stationVisible(station, this.options));
+    if (visible) this.labels.draw(camera, width, height, this.origin, this.options.label, station => stationVisible(station, this.options), (this.options.entrance || this.options.fixed || this.options.continuation) ? station => stationMarker(station, this.options) : undefined);
   }
 
   clear() {

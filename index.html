@@ -16,7 +16,12 @@
         <label>Color <select id="centreline-color" aria-label="Centreline color"><option value="altitude" selected>Altitude</option><option value="default">Default</option></select></label>
         <label><input id="centreline-splay" type="checkbox" checked/> Splay</label>
         <label><input id="centreline-duplicate" type="checkbox" checked/> Duplicate</label>
-        <label><input id="centreline-stations" type="checkbox"/> Stations</label>
+        <details class="control-group"><summary>Stations</summary><div class="group-items">
+          <label><input id="station-entrance" type="checkbox"/> Entrance</label>
+          <label><input id="station-fixed" type="checkbox"/> Fixed</label>
+          <label><input id="station-continuation" type="checkbox"/> Continuation</label>
+          <label><input id="station-all" type="checkbox"/> All</label>
+        </div></details>
         <label>Label <select id="station-label" aria-label="Station label"><option value="none" selected>(None)</option><option value="number">Number</option><option value="short">Short</option><option value="full">Full</option><option value="altitude">Altitude</option><option value="comments">Comments</option></select></label>
       </div></details>
       <details class="control-group"><summary>Walls</summary><div class="group-items">

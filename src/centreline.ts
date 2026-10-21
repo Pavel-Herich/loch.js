@@ -5,7 +5,7 @@ import type { Station, StationLabel } from './lox-stations';
 
 type AltitudeRange = { minZ: number; maxZ: number };
 export type CentrelineOptions = StationOptions & { color: 'altitude' | 'default'; duplicate: boolean };
-export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true, stations: false, label: 'none' };
+export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true, stations: false, entrance: false, fixed: false, continuation: false, label: 'none' };
 
 export function centrelineVisible(flags: number, options: CentrelineOptions) {
   return Boolean((flags & SHOT_SURFACE ? options.surface : options.underground)
@@ -100,7 +100,10 @@ export function initializeCentrelineControls(centreline: CentrelineScene) {
     underground: document.querySelector<HTMLInputElement>('#centreline-underground')!,
     splay: document.querySelector<HTMLInputElement>('#centreline-splay')!,
     duplicate: document.querySelector<HTMLInputElement>('#centreline-duplicate')!,
-    stations: document.querySelector<HTMLInputElement>('#centreline-stations')!,
+    stations: document.querySelector<HTMLInputElement>('#station-all')!,
+    entrance: document.querySelector<HTMLInputElement>('#station-entrance')!,
+    fixed: document.querySelector<HTMLInputElement>('#station-fixed')!,
+    continuation: document.querySelector<HTMLInputElement>('#station-continuation')!,
   };
   const color = document.querySelector<HTMLSelectElement>('#centreline-color')!;
   const label = document.querySelector<HTMLSelectElement>('#station-label')!;
@@ -110,7 +113,8 @@ export function initializeCentrelineControls(centreline: CentrelineScene) {
   const update = () => centreline.setOptions({
     surface: controls.surface.checked, underground: controls.underground.checked,
     color: color.value === 'default' ? 'default' : 'altitude', splay: controls.splay.checked, duplicate: controls.duplicate.checked,
-    stations: controls.stations.checked, label: label.value as StationLabel,
+    stations: controls.stations.checked, entrance: controls.entrance.checked, fixed: controls.fixed.checked,
+    continuation: controls.continuation.checked, label: label.value as StationLabel,
   });
   for (const control of [...Object.values(controls), color, label]) control.addEventListener('change', update);
   update();

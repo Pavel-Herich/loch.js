@@ -5,6 +5,30 @@ const CELL = 4;
 const HEIGHT = 20;
 const MAX_TEXT_WIDTH = 360;
 
+export type StationMarker = 'entrance' | 'fixed' | 'continuation';
+
+/** Fixed-size symbols drawn directly on the shared overlay, centred on the station. */
+export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number) {
+  context.save(); context.translate(x, y);
+  context.lineWidth = 1.5; context.strokeStyle = '#09131c';
+  if (marker === 'entrance') {
+    context.beginPath(); context.arc(0, 0, 9, 0, Math.PI * 2);
+    context.fillStyle = '#ffffff'; context.fill(); context.stroke();
+    // Black cave-mouth arch inside the white circular sign.
+    context.beginPath(); context.moveTo(-5, 5); context.lineTo(-5, 0);
+    context.arc(0, 0, 5, Math.PI, 0); context.lineTo(5, 5); context.closePath();
+    context.fillStyle = '#000000'; context.fill();
+  } else if (marker === 'fixed') {
+    context.beginPath(); context.moveTo(0, -9); context.lineTo(8, 7); context.lineTo(-8, 7); context.closePath();
+    context.fillStyle = '#ff3030'; context.fill(); context.stroke();
+  } else {
+    context.font = 'bold 20px system-ui, sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle';
+    context.lineWidth = 3; context.fillStyle = '#ffffff';
+    context.strokeText('?', 0, 0); context.fillText('?', 0, 0);
+  }
+  context.restore();
+}
+
 /** Conservative screen-space occupancy, bounded by viewport size rather than station count. */
 export class LabelOccupancy {
   private cells = new Uint8Array(0);
@@ -43,7 +67,7 @@ export class StationLabels {
   }
   setVisible(visible: boolean) { if (this.canvas) this.canvas.hidden = !visible; }
 
-  draw(camera: Camera, width: number, height: number, origin: Vector3, mode: StationLabel, visible: (station: Station) => boolean) {
+  draw(camera: Camera, width: number, height: number, origin: Vector3, mode: StationLabel, visible: (station: Station) => boolean, marker?: (station: Station) => StationMarker | undefined) {
     const canvas = this.canvas;
     if (!canvas || canvas.hidden || width <= 0 || height <= 0) return;
     const ratio = Math.min(globalThis.devicePixelRatio || 1, 2, Math.sqrt(8_388_608 / (width * height)));
@@ -58,16 +82,33 @@ export class StationLabels {
     this.occupancy.reset(width, height);
     camera.updateMatrixWorld();
     const m = this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
-    const draw = (station: Station) => {
-      if (!visible(station)) return;
+    let screenX = 0, screenY = 0;
+    const project = (station: Station) => {
       const x = station.position[0] - origin.x, y = station.position[1] - origin.y, z = station.position[2] - origin.z;
       const w = m[3] * x + m[7] * y + m[11] * z + m[15];
-      if (w <= 0) return;
+      if (w <= 0) return false;
       const cx = m[0] * x + m[4] * y + m[8] * z + m[12];
       const cy = m[1] * x + m[5] * y + m[9] * z + m[13];
       const cz = m[2] * x + m[6] * y + m[10] * z + m[14];
-      if (Math.abs(cx) > w || Math.abs(cy) > w || Math.abs(cz) > w) return;
-      const left = (cx / w + 1) * width / 2 + 3, top = (1 - cy / w) * height / 2 - HEIGHT / 2;
+      if (Math.abs(cx) > w || Math.abs(cy) > w || Math.abs(cz) > w) return false;
+      screenX = (cx / w + 1) * width / 2; screenY = (1 - cy / w) * height / 2;
+      return true;
+    };
+    if (marker) {
+      const mark = (station: Station) => {
+        const symbol = marker(station);
+        if (!symbol || !visible(station) || !project(station)) return;
+        drawStationMarker(context, symbol, screenX, screenY);
+        const x = Math.max(0, screenX - 10), y = Math.max(0, screenY - 10);
+        this.occupancy.reserve(x, y, Math.min(width, screenX + 10) - x, Math.min(height, screenY + 10) - y);
+      };
+      for (const station of this.commented) mark(station);
+      for (const station of this.ordinary) mark(station);
+    }
+    if (mode === 'none') return;
+    const draw = (station: Station) => {
+      if (!visible(station) || !project(station)) return;
+      const left = screenX + (marker?.(station) ? 16 : 3), top = screenY - HEIGHT / 2;
       if (left < 0 || top < 0 || left + 10 > width || top + HEIGHT > height
         || this.occupancy.overlaps(left, top, 10, HEIGHT)) return;
       let text = stationLabel(station, mode);

@@ -8,7 +8,9 @@ function station(name: string, x = 0, comment?: string): Station {
 }
 function setup(stations: Station[]) {
   const context = { setTransform: vi.fn(), clearRect: vi.fn(), strokeText: vi.fn(), fillText: vi.fn(),
-    measureText: vi.fn((text: string) => ({ width: text.length * 7 })) };
+    measureText: vi.fn((text: string) => ({ width: text.length * 7 })),
+    save: vi.fn(), restore: vi.fn(), translate: vi.fn(), beginPath: vi.fn(), arc: vi.fn(),
+    moveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), stroke: vi.fn() };
   const canvas = { hidden: true, width: 0, height: 0, getContext: () => context } as unknown as HTMLCanvasElement;
   const labels = new StationLabels(canvas);
   labels.setStations(stations); labels.setVisible(true);
@@ -58,6 +60,23 @@ describe('bounded, non-overlapping station labels', () => {
     expect(text.endsWith('…')).toBe(true); expect(text.length * 7).toBeLessThanOrEqual(360);
     expect(x + text.length * 7).toBeLessThanOrEqual(800);
     expect(context.measureText.mock.calls.every(([text]) => text.length <= 257)).toBe(true);
+  });
+
+  it.each(['entrance', 'fixed', 'continuation'] as const)('draws a centred %s symbol even when text labels are off', symbol => {
+    const { labels, context } = setup([station('special')]);
+    labels.draw(new PerspectiveCamera(45, 4 / 3, .1, 100), 800, 600, new Vector3(), 'none', () => true, () => symbol);
+    expect(context.translate).toHaveBeenCalledExactlyOnceWith(400, 300);
+    expect(context.measureText).not.toHaveBeenCalled();
+    expect(context.save).toHaveBeenCalledTimes(1); expect(context.restore).toHaveBeenCalledTimes(1);
+    if (symbol === 'continuation') expect(context.fillText).toHaveBeenCalledExactlyOnceWith('?', 0, 0);
+    else expect(context.fill).toHaveBeenCalled();
+  });
+
+  it('keeps the station label beside its symbol and suppresses nearby overlapping text', () => {
+    const { labels, context } = setup([station('special'), station('neighbour', -.1)]);
+    labels.draw(new PerspectiveCamera(45, 4 / 3, .1, 100), 800, 600, new Vector3(), 'number', () => true,
+      s => s.name === 'special' ? 'entrance' : undefined);
+    expect(context.fillText).toHaveBeenCalledExactlyOnceWith('special', 418, 300);
   });
 
   it('caps the backing canvas on very large displays', () => {

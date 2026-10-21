@@ -1,6 +1,9 @@
 import type { Point } from './lox';
 
 export const STATION_SURFACE = 1;
+export const STATION_ENTRANCE = 2;
+export const STATION_FIXED = 4;
+export const STATION_CONTINUATION = 8;
 export type Survey = { id: number; parent: number; name: string };
 export type Station = { id: number; surveyId: number; name: string; comment?: string; flags: number; position: Point; survey: string; fullSurvey: string };
 export type StationLabel = 'none' | 'number' | 'short' | 'full' | 'altitude' | 'comments';
