@@ -37,12 +37,19 @@ button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid #8e
 .light-sliders .light-mode{display:flex}
 .light-sliders input:disabled{opacity:.4;cursor:default}
 #menu-toggle{width:36px;height:34px;display:grid;place-items:center;padding:7px;margin-left:auto;flex-shrink:0}
-#walker-toggle,#autorotate-toggle{position:absolute;right:1rem;width:36px;height:34px;padding:4px;display:grid;place-items:center}
+#walker-toggle,#autorotate-toggle,#pivot-toggle{position:absolute;right:1rem;width:36px;height:34px;padding:4px;display:grid;place-items:center}
 #walker-toggle{top:calc(100% + .4rem)}
 #autorotate-toggle{top:calc(100% + 34px + .8rem)}
-#walker-toggle svg,#autorotate-toggle svg{width:24px;height:24px}
-#walker-toggle[aria-pressed="true"],#autorotate-toggle[aria-pressed="true"]{background:#215a75;border-color:#8ed9ff;color:#8ed9ff}
-@media(max-width:650px){#walker-toggle,#autorotate-toggle{right:.75rem}}
+#walker-toggle svg,#autorotate-toggle svg,#pivot-toggle svg{width:24px;height:24px}
+#walker-toggle[aria-pressed="true"],#autorotate-toggle[aria-pressed="true"],#pivot-toggle[aria-pressed="true"]{background:#215a75;border-color:#8ed9ff;color:#8ed9ff}
+#pivot-toggle{top:calc(100% + 68px + 1.2rem)}
+@media(max-width:650px){#walker-toggle,#autorotate-toggle,#pivot-toggle{right:.75rem}}
+#pivot-hint{position:absolute;top:.75rem;left:50%;transform:translateX(-50%);z-index:2;width:max-content;max-width:calc(100% - 2rem);padding:.45rem .8rem;border:1px solid #8ed9ff;border-radius:8px;background:#162531e6;color:#eaf3ff;font-size:.85rem;text-align:center;pointer-events:none}
+#pivot-marker{position:absolute;left:50%;top:50%;width:28px;height:28px;margin:-14px 0 0 -14px;border:2px solid #8ed9ff;border-radius:50%;box-shadow:0 0 0 1px #09131c;pointer-events:none;z-index:2;animation:pivot-fade 1.4s ease-out forwards}
+#pivot-marker::after{content:"";position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:#8ed9ff}
+@media(max-width:650px){#pivot-hint{top:56px}}
+@keyframes pivot-fade{0%,60%{opacity:1}100%{opacity:0}}
+@media(prefers-reduced-motion:reduce){#pivot-marker{animation:none}}
 .hamburger,.hamburger::before,.hamburger::after{display:block;width:18px;height:2px;background:currentColor;border-radius:1px}
 .hamburger{position:relative}
 .hamburger::before,.hamburger::after{content:"";position:absolute;left:0}

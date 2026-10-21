@@ -18,6 +18,7 @@ import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators } from './indicators';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
+import { RotationCentrePicker } from './pivot';
 import { modelFileFormat, parseModelFile } from './model-file';
 import './style.css';
 
@@ -91,6 +92,7 @@ const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
 const walkerButton = document.querySelector<HTMLButtonElement>('#walker-toggle')!;
 walkerCheckbox.checked = false;
 function setWalker(enabled: boolean) {
+  pivotPicker.enabled = false;
   walker.enabled = enabled; walkerCheckbox.checked = enabled;
   walkerButton.setAttribute('aria-pressed', String(enabled));
   walkerButton.title = enabled ? 'Disable Walker mode' : 'Enable Walker mode';
@@ -98,6 +100,28 @@ function setWalker(enabled: boolean) {
 walkerCheckbox.addEventListener('change', () => setWalker(walkerCheckbox.checked));
 walkerButton.addEventListener('click', () => setWalker(!walker.enabled));
 controls.addEventListener('change', invalidateView);
+const pivotButton = document.querySelector<HTMLButtonElement>('#pivot-toggle')!;
+const pivotHint = document.querySelector<HTMLElement>('#pivot-hint')!;
+const pivotMarker = document.querySelector<HTMLElement>('#pivot-marker')!;
+let pivotMarkerTimer = 0;
+const pivotPicker = new RotationCentrePicker({
+  canvas, controls, getCamera: () => camera, getRoots: () => [walls, surfaceGroup, lines],
+  onModeChange: active => {
+    pivotButton.setAttribute('aria-pressed', String(active));
+    pivotButton.title = active ? 'Cancel setting the rotation centre' : 'Set rotation centre: click the model';
+    pivotHint.textContent = 'Click the model to set the rotation centre · Esc cancels';
+    pivotHint.hidden = !active;
+  },
+  onMiss: () => { pivotHint.textContent = 'Nothing there. Click a wall, the surface or a centreline shot · Esc cancels'; },
+  onPicked: () => {
+    // Restart the fade so repeated picks each show the marker.
+    pivotMarker.hidden = true; void pivotMarker.offsetWidth; pivotMarker.hidden = false;
+    clearTimeout(pivotMarkerTimer);
+    pivotMarkerTimer = window.setTimeout(() => { pivotMarker.hidden = true; }, 1500);
+  },
+});
+pivotButton.addEventListener('click', () => { pivotPicker.enabled = !pivotPicker.enabled; });
+document.querySelector<HTMLButtonElement>('#pivot-menu')!.addEventListener('click', () => { pivotPicker.enabled = true; });
 canvas.addEventListener('webglcontextrestored', invalidateView);
 const lockTilt = document.querySelector<HTMLInputElement>('#lock-tilt')!;
 // Start unlocked even when the browser restores previous checkbox values.
