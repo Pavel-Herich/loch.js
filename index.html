@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><div id="object-markers" aria-label="Field objects" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="toast" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="layer-points" aria-label="SHP layer points" hidden></canvas><div id="object-markers" aria-label="Field objects" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
   <div id="top-indicators">
     <div id="compass-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="Compass">
       <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="compass-index" d="m31 1 3 5 3-5z"/>
@@ -21,7 +21,7 @@
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
-    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button></div></details>
+    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-clear" type="button">Remove SHP layers</button></div></details>
     <details class="menu"><summary>Scene</summary><div class="menu-items">
       <details class="control-group"><summary>Visibility</summary><div class="group-items">
         <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
@@ -30,6 +30,7 @@
         <label><input id="surface" type="checkbox" checked/> Surface</label>
         <label><input id="indicators" type="checkbox" checked/> Indicators</label>
         <label><input id="objects-visible" type="checkbox" checked/> Field objects</label>
+        <label><input id="layers-visible" type="checkbox" checked/> SHP layers</label>
       </div></details>
       <details class="control-group"><summary>Centreline</summary><div class="group-items">
         <label><input id="centreline-surface" type="checkbox"/> Surface</label>
@@ -82,7 +83,7 @@
   </div>
   <div id="dock" role="toolbar" aria-label="Quick tools">
   <button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu-panel" title="Menu"><span class="hamburger" aria-hidden="true"></span></button>
-  <button id="open-toggle" type="button" aria-label="Open file" title="Open file (LOX, Survex .3d, Compass .plt)"><svg viewBox="0 0 24 24" aria-hidden="true">
+  <button id="open-toggle" type="button" aria-label="Open file" title="Open a model (LOX, Survex .3d, Compass .plt) or an SHP layer (.shp with .dbf, .prj)"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2h8.8A1.5 1.5 0 0 1 21 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
   </svg></button>
   <span class="dock-separator" aria-hidden="true"></span>
@@ -106,7 +107,7 @@
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="station-label-toggle" class="label-toggle" type="button" aria-label="Station labels: off" title="Station labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
   </div>
-  <input id="file" type="file" accept=".lox,.3d,.plt" aria-label="Open cave model file" hidden/>
+  <input id="file" type="file" accept=".lox,.3d,.plt,.shp,.dbf,.prj,.cpg" multiple aria-label="Open cave model or SHP layer" hidden/>
 </header></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="object-dialog" aria-labelledby="object-title-label"><form id="object-form" novalidate>
   <header class="object-head"><label id="object-title-label" for="object-title">Name</label><input id="object-title" type="text" autocomplete="off" enterkeyhint="done" placeholder="e.g. Zavrt pod hrebenom"/></header>
   <table class="object-table"><tbody>

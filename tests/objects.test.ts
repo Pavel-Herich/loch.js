@@ -22,7 +22,7 @@ describe('field objects for Therion', () => {
     expect(surveyTh(object(), 'P. Herich')).toBe(
       'encoding  utf-8\r\n\r\nsurvey zavrt_pod_hrebenom_26-10-22_11-44-05 -title "zavrt_pod_hrebenom_26-10-22_11-44-05"\r\n\r\n\r\ncentreline\r\n'
       + 'station gps_mob "zavrt_pod_hrebenom_26-10-22_11-44-05" entrance #Prievan citit, fotka na V\r\ncs ijtsk\r\n'
-      + 'fix gps_mob -372234.81 -1203810.66 1286.40\r\nexplo-date 0 \r\nexplo-team "Anonymus"\r\ndate 2026.10.22\r\nteam "P. Herich"\r\n'
+      + 'fix gps_mob -372235 -1203811 1286\r\nexplo-date 0 \r\nexplo-team "Anonymus"\r\ndate 2026.10.22\r\nteam "P. Herich"\r\n'
       + 'data normal from to compass clino tape\r\nflags surface\r\nflags not surface\r\nendcentreline\r\nendsurvey\r\n\r\n');
     expect(photoFileName(object(2), 1)).toBe('zavrt_pod_hrebenom_26-10-22_11-44-05_2.jpg');
   });

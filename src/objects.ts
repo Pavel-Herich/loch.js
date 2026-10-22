@@ -54,11 +54,11 @@ export function photoFileName(object: FieldObject, index: number) {
 /** One survey file per object in the j_mobil layout, fixed in the model's system (cs ijtsk, Bpv height). */
 export function surveyTh(object: FieldObject, team: string) {
   const position = object.position!, date = new Date(object.created);
-  const elevation = (position.height ?? position.gpsAltitude ?? 0).toFixed(2);
+  const elevation = Math.round(position.height ?? position.gpsAltitude ?? 0);
   const comment = removeDiacritics(object.note || object.title).replace(/\s+/g, ' ').trim();
   return `encoding  utf-8\r\n\r\nsurvey ${object.name} -title "${object.name}"\r\n\r\n\r\ncentreline\r\n`
     + `station gps_mob "${object.name}" entrance #${comment}\r\ncs ijtsk\r\n`
-    + `fix gps_mob ${position.east.toFixed(2)} ${position.north.toFixed(2)} ${elevation}\r\n`
+    + `fix gps_mob ${Math.round(position.east)} ${Math.round(position.north)} ${elevation}\r\n`
     + `explo-date 0 \r\nexplo-team "Anonymus"\r\ndate ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}\r\n`
     + `team "${removeDiacritics(team).replace(/"/g, '') || 'Kto zameral'}"\r\ndata normal from to compass clino tape\r\nflags surface\r\nflags not surface\r\nendcentreline\r\nendsurvey\r\n\r\n`;
 }

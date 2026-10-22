@@ -152,7 +152,7 @@ export function formatFix(fix: LocationFix) {
   return {
     accuracy: `±${fix.accuracy < 10 ? fix.accuracy.toFixed(1) : Math.round(fix.accuracy)} m`,
     // Same coordinate system as the model (Therion cs ijtsk / EPSG:5514).
-    coordinates: `x ${fix.east.toFixed(1)}  y ${fix.north.toFixed(1)}`,
+    coordinates: `x ${Math.round(fix.east)}  y ${Math.round(fix.north)}`,
     height,
     outside: fix.outside > 0 ? `${distance} outside the model` : '',
   };

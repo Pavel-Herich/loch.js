@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { errorMessage } from './location';
+import { entranceSize, symbolDepth } from './station-labels';
 import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
 
 type Options = {
@@ -23,7 +24,7 @@ export function formatPosition(position: FieldPosition) {
   const height = position.height === null ? '' : ` · ${Math.round(position.height)} m ${position.heightSource ? source[position.heightSource] : ''}`;
   const where = position.source === 'model' ? 'Picked in model'
     : `±${position.accuracy < 10 ? position.accuracy.toFixed(1) : Math.round(position.accuracy)} m`;
-  return `${where} · x ${position.east.toFixed(1)}  y ${position.north.toFixed(1)}${height}`;
+  return `${where} · x ${Math.round(position.east)}  y ${Math.round(position.north)}${height}`;
 }
 
 /** Replace text in a field without diacritics, keeping the caret where the user is typing. */
@@ -34,6 +35,8 @@ function stripField(field: HTMLInputElement | HTMLTextAreaElement) {
   field.value = clean;
   try { field.setSelectionRange(caret, caret); } catch { /* Not focusable right now. */ }
 }
+
+const roundOrNull = (value: number | null) => value === null ? null : Math.round(value);
 
 function newId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -119,8 +122,10 @@ export class FieldObjects {
       const [east, north] = wgs84ToSJTSK(coords.latitude, coords.longitude, coords.altitude ?? 0);
       const terrain = this.options.getOrigin() ? this.options.heightAt(east, north) : undefined;
       this.position = {
-        latitude: coords.latitude, longitude: coords.longitude, gpsAltitude: coords.altitude, accuracy: coords.accuracy, east, north,
-        height: terrain ?? coords.altitude, heightSource: terrain !== undefined ? 'surface' : coords.altitude !== null ? 'gps' : null,
+        // Positions taken in the app are kept to whole metres.
+        latitude: coords.latitude, longitude: coords.longitude, gpsAltitude: coords.altitude, accuracy: coords.accuracy,
+        east: Math.round(east), north: Math.round(north), height: roundOrNull(terrain ?? coords.altitude),
+        heightSource: terrain !== undefined ? 'surface' : coords.altitude !== null ? 'gps' : null,
         source: 'gps',
       };
       output.textContent = formatPosition(this.position);
@@ -138,7 +143,7 @@ export class FieldObjects {
       const local = await this.options.pickPoint();
       if (local) {
         this.stopGps();
-        const east = local.x + origin.x, north = local.y + origin.y, height = local.z + origin.z;
+        const east = Math.round(local.x + origin.x), north = Math.round(local.y + origin.y), height = Math.round(local.z + origin.z);
         const [latitude, longitude] = sjtskToWgs84(east, north, height);
         this.position = { latitude, longitude, gpsAltitude: null, accuracy: 0, east, north, height, heightSource: 'model', source: 'model' };
         $<HTMLElement>('#object-position').textContent = formatPosition(this.position);
@@ -255,7 +260,10 @@ export class FieldObjects {
       const position = object?.position;
       if (!position) { element.hidden = true; continue; }
       const z = this.options.heightAt(position.east, position.north) ?? position.height ?? origin.z;
-      point.set(position.east - origin.x, position.north - origin.y, z - origin.z).project(camera);
+      point.set(position.east - origin.x, position.north - origin.y, z - origin.z);
+      // Same distance scaling as entrance symbols.
+      element.style.setProperty('--s', entranceSize(symbolDepth(camera, point)).toFixed(3));
+      point.project(camera);
       const visible = point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
       element.hidden = !visible;
       if (visible) element.style.transform = `translate(${(point.x + 1) / 2 * width}px, ${(1 - point.y) / 2 * height}px)`;

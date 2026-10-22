@@ -22,6 +22,7 @@ import { ViewLocks } from './view-locks';
 import { FieldObjects } from './objects-ui';
 import { ObjectStore } from './objects';
 import { looksLikeSJTSK } from './geo';
+import { drawLayers, LayerStore, readShapefileLayer, type PointLayer } from './layers';
 import { animateRotationCentre, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
 import { modelFileFormat, parseModelFile } from './model-file';
@@ -418,12 +419,52 @@ function finishFileLoading() {
 }
 detail.addEventListener('change', () => { loadingError = false; invalidateView(); });
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
-chooser.addEventListener('change', () => { if (chooser.files?.[0]) void loadFile(chooser.files[0]); });
+chooser.addEventListener('change', () => { openFiles(Array.from(chooser.files ?? [])); });
+/** A model opens as before; files with a .shp are imported as a point layer instead. */
+function openFiles(files: File[]) {
+  if (files.some(file => file.name.toLowerCase().endsWith('.shp'))) { void importLayer(files); return; }
+  const model = files.find(file => modelFileFormat(file.name));
+  if (model) void loadFile(model);
+}
+const layerStore = new LayerStore();
+const layerCanvas = document.querySelector<HTMLCanvasElement>('#layer-points')!;
+const layersVisible = document.querySelector<HTMLInputElement>('#layers-visible')!;
+layersVisible.checked = true;
+layersVisible.addEventListener('change', invalidateView);
+let pointLayers: PointLayer[] = [];
+void layerStore.list().then(layers => { pointLayers = layers; invalidateView(); }).catch(() => { /* Storage unavailable: layers last for this session. */ });
+const toast = document.querySelector<HTMLElement>('#toast')!;
+let toastTimer = 0;
+/** Short message above the dock; the status line belongs to model loading. */
+function announce(text: string, error = false) {
+  toast.textContent = text; toast.classList.toggle('error', error); toast.hidden = false;
+  clearTimeout(toastTimer); toastTimer = window.setTimeout(() => { toast.hidden = true; }, 6000);
+}
+async function importLayer(files: File[]) {
+  try {
+    const { layer, summary } = await readShapefileLayer(files, pointLayers.length);
+    pointLayers = [...pointLayers, layer];
+    try { await layerStore.put(layer); } catch { /* Kept for this session only. */ }
+    const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
+    announce(georeferenced ? summary : `${summary}. Open a model in S-JTSK to see it.`);
+    invalidateView();
+  } catch (error) {
+    announce(`Cannot import SHP layer: ${exceptionMessage(error)}`, true);
+  }
+}
+document.querySelector<HTMLButtonElement>('#layers-clear')!.addEventListener('click', () => {
+  pointLayers = []; void layerStore.clear().catch(() => {}); announce('SHP layers removed'); invalidateView();
+});
+function updateLayers() {
+  const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
+  layerCanvas.hidden = !georeferenced || !layersVisible.checked || !pointLayers.length;
+  if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north));
+}
 document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
 document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
 document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('change', flashBoundingBox);
 window.addEventListener('dragover', e => e.preventDefault());
-window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file && modelFileFormat(file.name)) void loadFile(file); });
+window.addEventListener('drop', e => { e.preventDefault(); openFiles(Array.from(e.dataTransfer?.files ?? [])); });
 const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); resizeCamera(camera, w / h); invalidateView(); };
 new ResizeObserver(resize).observe(canvas); resize();
 function frame(time = performance.now()) {
@@ -433,6 +474,7 @@ function frame(time = performance.now()) {
     indicators.update();
     updateLocationDot();
     fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);
+    updateLayers();
     centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
   }
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {

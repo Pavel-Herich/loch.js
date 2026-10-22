@@ -17,6 +17,16 @@ export function entranceSize(depth: number) {
 }
 const OMEGA_SCALE = .18;
 
+/**
+ * Distance used to size symbols: depth in front of a perspective camera, or for
+ * orthographic views the distance a 45° perspective view would need for its zoom.
+ */
+export function symbolDepth(camera: Camera, point: Vector3) {
+  const ortho = camera as Camera & { isOrthographicCamera?: boolean; top?: number; bottom?: number; zoom?: number };
+  if (ortho.isOrthographicCamera) return (ortho.top! - ortho.bottom!) / ortho.zoom! / 2 / Math.tan(Math.PI / 8);
+  return -point.clone().applyMatrix4(camera.matrixWorldInverse).z;
+}
+
 /** Symbols drawn directly on the shared overlay, centred on the station; `size` scales them (1 = full). */
 export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number, size = 1) {
   context.save(); context.translate(x, y);
