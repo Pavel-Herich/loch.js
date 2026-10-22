@@ -60,11 +60,11 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     previous = state;
     rose.setAttribute('transform', `rotate(${-orientation.bearing} 34 34)`);
     bearingValue.textContent = `${String(bearing).padStart(3, '0')}°`;
-    compass.title = `Bearing ${bearing}° clockwise from north`;
+    compass.title = `Bearing ${bearing}° clockwise from north. ${compass.getAttribute('aria-pressed') === 'true' ? 'Click to return to the previous heading' : 'Click to face north and hold the heading'}`;
     compass.setAttribute('aria-label', compass.title);
     arrow.setAttribute('transform', `rotate(${-orientation.tilt} 34 34)`);
     tiltValue.textContent = `${angle > 0 ? '+' : ''}${angle}°`;
-    tilt.title = `View tilt ${angle}°; 0° horizontal, +90° up, −90° down`;
+    tilt.title = `View tilt ${angle}°; 0° horizontal, +90° up, −90° down. ${tilt.getAttribute('aria-pressed') === 'true' ? 'Click to return to the previous tilt' : 'Click for a level side view with tilt locked'}`;
     tilt.setAttribute('aria-label', tilt.title);
     if (size) {
       scaleValue.textContent = size.label; ruler.style.width = `${size.pixels}px`;
@@ -76,5 +76,5 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     panel.hidden = scale.hidden = !visible.checked;
     update();
   });
-  return { update };
+  return { update, refresh() { previous = ''; update(); } };
 }

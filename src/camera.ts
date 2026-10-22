@@ -48,21 +48,40 @@ export function resizeCamera(camera: ViewCamera, aspect: number) {
   camera.updateProjectionMatrix();
 }
 
-/** Change projection without moving the camera or changing scale at its target. */
-export function setPerspective(camera: ViewCamera, controls: OrbitControls, enabled: boolean): ViewCamera {
+/**
+ * Change projection keeping orientation, target and scale at the target.
+ * Perspective always keeps its natural field of view (zoom 1), so scale is
+ * carried by the camera distance; an orthographic camera sits behind the whole
+ * model, because ortho zoom does not move it and nearer geometry would be cut.
+ */
+export function setPerspective(camera: ViewCamera, controls: OrbitControls, enabled: boolean, box?: Box3): ViewCamera {
   if ((camera instanceof PerspectiveCamera) === enabled) return camera;
-  const distance = camera.position.distanceTo(controls.target);
-  let next: ViewCamera;
+  const target = controls.target;
+  const forward = camera.getWorldDirection(new Vector3());
+  const distance = camera.position.distanceTo(target);
+  // Keep the whole model between near and far, also after the rotation centre moves inside it.
+  const radius = box && !box.isEmpty() ? box.getSize(new Vector3()).length() / 2 : distance;
+  const offset = box && !box.isEmpty() ? target.distanceTo(box.getCenter(new Vector3())) : 0;
+  let next: ViewCamera, nextDistance: number;
   if (camera instanceof PerspectiveCamera) {
     const halfHeight = distance * Math.tan(camera.getEffectiveFOV() * Math.PI / 360);
     next = new OrthographicCamera(-halfHeight * camera.aspect, halfHeight * camera.aspect, halfHeight, -halfHeight, camera.near, camera.far);
     next.userData.perspectiveFov = camera.fov;
+    next.userData.perspectiveNear = camera.near;
+    nextDistance = Math.max(distance, offset + radius * 2.2);
+    // Orthographic depth is linear, so a tiny near plane costs no precision.
+    next.near = 1e-3;
   } else {
     const fov = camera.userData.perspectiveFov ?? 45;
+    const halfHeight = (camera.top - camera.bottom) / (2 * camera.zoom);
     next = new PerspectiveCamera(fov, (camera.right - camera.left) / (camera.top - camera.bottom), camera.near, camera.far);
-    next.zoom = distance * Math.tan(fov * Math.PI / 360) / ((camera.top - camera.bottom) / (2 * camera.zoom));
+    nextDistance = halfHeight / Math.tan(fov * Math.PI / 360);
+    // Perspective depth precision depends on near; restore the model's own near plane.
+    next.near = Math.max(Math.min(camera.userData.perspectiveNear ?? radius / 10000, nextDistance / 10), 1e-3);
   }
-  next.position.copy(camera.position); next.quaternion.copy(camera.quaternion); next.up.copy(camera.up);
+  next.far = Math.max(camera.far, nextDistance + offset + radius * 4.4);
+  next.quaternion.copy(camera.quaternion); next.up.copy(camera.up);
+  next.position.copy(target).addScaledVector(forward, -nextDistance);
   next.updateProjectionMatrix(); next.updateMatrixWorld();
   controls.object = next;
   controls.update();

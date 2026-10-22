@@ -48,7 +48,11 @@ function bindToggle(button: HTMLButtonElement, checkbox: HTMLInputElement, descr
   return sync;
 }
 
-function bindLabels(button: HTMLButtonElement, select: HTMLSelectElement, parent: HTMLInputElement, cycle: LabelCycle, subject: string) {
+/**
+ * `ownsParent`: the label button is the only dock control for its symbols, so
+ * its first step shows them and its last step hides them again.
+ */
+function bindLabels(button: HTMLButtonElement, select: HTMLSelectElement, parent: HTMLInputElement, cycle: LabelCycle, subject: string, ownsParent = false) {
   const badge = button.querySelector<HTMLElement>('.label-badge');
   const sync = () => {
     const step = cycle.find(item => item.value === select.value);
@@ -56,7 +60,7 @@ function bindLabels(button: HTMLButtonElement, select: HTMLSelectElement, parent
     const on = select.value !== 'none' && parent.checked;
     button.classList.toggle('on', on);
     if (badge) badge.textContent = on ? step?.badge ?? '•' : '';
-    const next = nextLabel(cycle, select.value);
+    const next = on || !ownsParent ? nextLabel(cycle, select.value) : cycle[1];
     button.title = `${subject} labels: ${on ? text : 'off'} (click for ${next.text})`;
     button.setAttribute('aria-label', button.title);
   };
@@ -64,10 +68,12 @@ function bindLabels(button: HTMLButtonElement, select: HTMLSelectElement, parent
     // Labels are useless without their symbols, so the first click also shows them.
     if (!parent.checked) {
       parent.checked = true; emit(parent);
-      if (select.value === 'none') { select.value = cycle[1].value; emit(select); }
+      if (ownsParent || select.value === 'none') { select.value = cycle[1].value; emit(select); }
       return;
     }
-    select.value = nextLabel(cycle, select.value).value; emit(select);
+    const next = nextLabel(cycle, select.value);
+    select.value = next.value; emit(select);
+    if (ownsParent && next.value === 'none') { parent.checked = false; emit(parent); }
   });
   select.addEventListener('change', sync); parent.addEventListener('change', sync);
   sync();
@@ -79,7 +85,5 @@ export function initializeDock() {
   bindToggle(query('#entrance-toggle'), query('#station-entrance'),
     pressed => pressed ? 'Hide cave entrances' : 'Show cave entrances');
   bindLabels(query('#entrance-label-toggle'), query('#entrance-label'), query('#station-entrance'), ENTRANCE_LABELS, 'Entrance');
-  bindToggle(query('#stations-toggle'), query('#station-all'),
-    pressed => pressed ? 'Hide survey stations' : 'Show survey stations');
-  bindLabels(query('#station-label-toggle'), query('#station-label'), query('#station-all'), STATION_LABELS, 'Station');
+  bindLabels(query('#station-label-toggle'), query('#station-label'), query('#station-all'), STATION_LABELS, 'Station', true);
 }

@@ -197,7 +197,7 @@ describe('model views', () => {
     }
   });
 
-  it('toggles projection without changing position, orientation, target, tilt lock or target-plane scale', () => {
+  it('toggles projection without changing orientation, target, tilt lock or target-plane scale', () => {
     const canvas = new Canvas();
     let camera: ViewCamera = new PerspectiveCamera(45, 1.8);
     const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
@@ -214,7 +214,9 @@ describe('model views', () => {
       camera.updateMatrixWorld();
       expect(camera instanceof PerspectiveCamera).toBe(enabled);
       expect(controls.object).toBe(camera);
-      expect(camera.position.distanceTo(position)).toBeLessThan(1e-8);
+      // The camera only slides along its line of sight; perspective keeps its natural field of view.
+      expect(camera.position.clone().sub(target).normalize().dot(position.clone().sub(target).normalize())).toBeCloseTo(1, 10);
+      if (camera instanceof PerspectiveCamera) expect(camera.zoom).toBe(1);
       expect(camera.quaternion.angleTo(orientation)).toBeLessThan(1e-7);
       expect(controls.target.distanceTo(target)).toBeLessThan(1e-8);
       expect(controls.minPolarAngle).toBeCloseTo(angle, 10);
@@ -232,6 +234,32 @@ describe('model views', () => {
     resizeCamera(camera, .5);
     expect(point.clone().project(camera).x / zoomed.x).toBeCloseTo(1.8 / .5, 10);
     expect(point.clone().project(camera).y).toBeCloseTo(zoomed.y, 10);
+    controls.dispose();
+  });
+
+  it('keeps a natural perspective and the whole model in view after zooming out orthographically', () => {
+    const canvas = new Canvas();
+    let camera: ViewCamera = new PerspectiveCamera(45, 1.5, .01, 1e9);
+    const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
+    const box = new Box3(new Vector3(-9000, -4000, -480), new Vector3(9000, 4000, 480));
+    setCameraView(camera, controls, box, 'fit');
+    // A rotation centre near one end of the model, viewed from 300 m.
+    const offset = new Vector3(6000, 1500, 0).sub(controls.target);
+    controls.target.add(offset); camera.position.add(offset);
+    camera.position.sub(controls.target).setLength(300).add(controls.target); controls.update();
+    camera = setPerspective(camera, controls, false, box);
+    const depth = (x: number, y: number, z: number) => new Vector3(x, y, z).sub(camera.position).dot(camera.getWorldDirection(new Vector3()));
+    for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+      expect(depth(x, y, z)).toBeGreaterThan(camera.near); expect(depth(x, y, z)).toBeLessThan(camera.far);
+    }
+    camera.zoom = .03; camera.updateProjectionMatrix();
+    // A point in the plane through the target keeps its screen position.
+    const point = controls.target.clone().add(new Vector3(0, 1, 0).applyQuaternion(camera.quaternion).multiplyScalar(50)), before = point.clone().project(camera);
+    camera = setPerspective(camera, controls, true, box);
+    expect((camera as PerspectiveCamera).getEffectiveFOV()).toBeCloseTo(45, 10);
+    // The perspective near plane comes back, so depth precision is not lost after orthographic.
+    expect(camera.near).toBeGreaterThan(.5);
+    expect(point.clone().project(camera).y).toBeCloseTo(before.y, 6);
     controls.dispose();
   });
 

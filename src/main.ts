@@ -18,6 +18,7 @@ import { initializeIndicators } from './indicators';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
+import { ViewLocks } from './view-locks';
 import { animateRotationCentre, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
 import { modelFileFormat, parseModelFile } from './model-file';
@@ -179,7 +180,7 @@ lockTilt.addEventListener('change', () => setTiltLocked(controls, lockTilt.check
 const perspective = document.querySelector<HTMLInputElement>('#perspective')!;
 perspective.checked = true;
 perspective.addEventListener('change', () => {
-  camera = setPerspective(camera, controls, perspective.checked);
+  camera = setPerspective(camera, controls, perspective.checked, activeBox);
   flashBoundingBox();
 });
 // Dock buttons mirror menu controls, so wire them after those controls are initialized.
@@ -205,7 +206,22 @@ texturedWalls.addEventListener('change', () => {
   });
   invalidateView();
 });
+const compassIndicator = document.querySelector<HTMLElement>('#compass-indicator')!;
+const tiltIndicator = document.querySelector<HTMLElement>('#tilt-indicator')!;
+const viewLocks = new ViewLocks(() => camera, controls, state => {
+  compassIndicator.setAttribute('aria-pressed', String(state.north));
+  tiltIndicator.setAttribute('aria-pressed', String(state.side));
+  lockTilt.checked = state.tiltLocked;
+  indicators.refresh(); invalidateView();
+});
+for (const [element, toggle] of [[compassIndicator, () => viewLocks.toggleNorth()], [tiltIndicator, () => viewLocks.toggleSide()]] as const) {
+  element.addEventListener('click', toggle);
+  element.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
+  });
+}
 const menus = initializeMenus(view => {
+  viewLocks.reset();
   setCameraView(camera, controls, activeBox, view);
   lockTilt.checked = controls.minPolarAngle === controls.maxPolarAngle;
 }, error => {
