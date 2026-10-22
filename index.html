@@ -17,7 +17,10 @@
     <div id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></div>
     <div id="legend"></div>
   </div>
-</aside><header id="toolbar">
+</aside><button id="object-add" class="floating-tool" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
+    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  </svg></button><header id="toolbar">
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
@@ -94,10 +97,6 @@
   </svg></button>
   <button id="locate-toggle" type="button" aria-label="Show my location" aria-pressed="false" title="Show my location (GPS)"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2z"/>
-  </svg></button>
-  <button id="object-add" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
-    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
   </svg></button>
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="entrance-toggle" type="button" aria-pressed="false" aria-label="Show cave entrances" title="Show cave entrances"><svg viewBox="0 0 24 24" aria-hidden="true">

@@ -172,7 +172,16 @@ function showLocationState(state: LocationState) {
   }
   invalidateView();
 }
+const entranceToggle = document.querySelector<HTMLInputElement>('#station-entrance')!;
+const entranceLabel = document.querySelector<HTMLSelectElement>('#entrance-label')!;
+/** Entrances, field objects and SHP points share the dock's entrance and entrance-label buttons. */
+const symbolOptions = () => ({ visible: entranceToggle.checked, label: entranceLabel.value });
+function showSymbols() {
+  if (entranceToggle.checked) return;
+  entranceToggle.checked = true; entranceToggle.dispatchEvent(new Event('change', { bubbles: true }));
+}
 const fieldObjects = new FieldObjects({
+  getSymbols: symbolOptions, onSaved: showSymbols,
   store: new ObjectStore(),
   heightAt: (east, north) => surfaceScene.heightAt(east, north),
   getOrigin: () => hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y) ? worldOrigin : undefined,
@@ -444,6 +453,7 @@ async function importLayer(files: File[]) {
   try {
     const { layer, summary } = await readShapefileLayer(files, pointLayers.length);
     pointLayers = [...pointLayers, layer];
+    showSymbols();
     try { await layerStore.put(layer); } catch { /* Kept for this session only. */ }
     const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
     announce(georeferenced ? summary : `${summary}. Open a model in S-JTSK to see it.`);
@@ -457,8 +467,9 @@ document.querySelector<HTMLButtonElement>('#layers-clear')!.addEventListener('cl
 });
 function updateLayers() {
   const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
-  layerCanvas.hidden = !georeferenced || !layersVisible.checked || !pointLayers.length;
-  if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north));
+  const symbols = symbolOptions();
+  layerCanvas.hidden = !georeferenced || !layersVisible.checked || !symbols.visible || !pointLayers.length;
+  if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north), symbols.label);
 }
 document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
 document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; invalidateView(); });

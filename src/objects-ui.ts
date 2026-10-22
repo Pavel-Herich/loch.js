@@ -10,12 +10,18 @@ type Options = {
   /** File coordinates of the scene origin when the model is in S-JTSK, else undefined. */
   getOrigin: () => THREE.Vector3 | undefined;
   onChange: () => void;
+  /** Entrance symbol controls (dock Ω and its label button) also drive field object markers. */
+  getSymbols: () => SymbolOptions;
+  /** Called after an object is saved, e.g. to make the symbols visible. */
+  onSaved?: () => void;
   /** Let the user tap a point in the model; resolves with scene coordinates, or undefined when cancelled. */
   pickPoint: () => Promise<THREE.Vector3 | undefined>;
   geolocation?: Pick<Geolocation, 'watchPosition' | 'clearWatch'>;
 };
 
 const TEAM_KEY = 'loch.js.therion-team';
+
+export type SymbolOptions = { visible: boolean; label: 'none' | 'name' | 'altitude' | string };
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
@@ -188,7 +194,7 @@ export class FieldObjects {
     };
     await this.options.store.put(object);
     this.objects.push(object);
-    this.renderMarkers(); this.options.onChange();
+    this.renderMarkers(); this.options.onSaved?.(); this.options.onChange();
   }
 
   private renderList() {
@@ -252,7 +258,8 @@ export class FieldObjects {
   /** Place markers over the model; positions are in S-JTSK, so only georeferenced models show them. */
   updateMarkers(camera: THREE.Camera, width: number, height: number) {
     const origin = this.options.getOrigin();
-    this.markers.hidden = !origin || !this.markersVisible || !this.objects.length;
+    const symbols = this.options.getSymbols();
+    this.markers.hidden = !origin || !this.markersVisible || !symbols.visible || !this.objects.length;
     if (this.markers.hidden || !origin) return;
     const point = new THREE.Vector3();
     for (const element of Array.from(this.markers.children) as HTMLElement[]) {
@@ -266,6 +273,8 @@ export class FieldObjects {
       point.project(camera);
       const visible = point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
       element.hidden = !visible;
+      const label = element.firstElementChild as HTMLElement;
+      label.textContent = symbols.label === 'name' ? object!.title : symbols.label === 'altitude' ? `${Math.round(z)} m` : '';
       if (visible) element.style.transform = `translate(${(point.x + 1) / 2 * width}px, ${(1 - point.y) / 2 * height}px)`;
     }
   }

@@ -1,6 +1,6 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { guessCoordinates, layerPoints, nameField, parseDbf, parseShp, type CoordinateGuess, type LayerPoint } from './shapefile';
-import { entranceSize } from './station-labels';
+import { entranceSize, LabelOccupancy } from './station-labels';
 
 export type PointLayer = { id: string; name: string; color: string; source: string; points: LayerPoint[] };
 
@@ -65,8 +65,11 @@ export class LayerStore {
   clear() { return this.run('readwrite', store => store.clear()); }
 }
 
+const occupancy = new LabelOccupancy();
+
+/** Labels follow the entrance label button: names, altitudes (terrain height) or none. */
 export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], camera: Camera, width: number, height: number,
-  origin: Vector3, heightAt: (east: number, north: number) => number | undefined) {
+  origin: Vector3, heightAt: (east: number, north: number) => number | undefined, label: string = 'none') {
   const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
     canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
@@ -79,6 +82,7 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
   const ortho = camera as Camera & { isOrthographicCamera?: boolean; top?: number; bottom?: number; zoom?: number };
   const flatDepth = ortho.isOrthographicCamera ? (ortho.top! - ortho.bottom!) / ortho.zoom! / 2 / Math.tan(Math.PI / 8) : undefined;
   context.font = '11px system-ui, sans-serif'; context.textBaseline = 'middle'; context.lineJoin = 'round';
+  occupancy.reset(width, height);
   for (const layer of layers) for (const point of layer.points) {
     // Pinned to the model's terrain where it exists; elsewhere the file height or the model centre.
     const z = heightAt(point.east, point.north) ?? point.z ?? origin.z;
@@ -93,9 +97,13 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     context.beginPath(); context.arc(sx, sy, radius, 0, Math.PI * 2);
     context.fillStyle = layer.color; context.fill();
     context.lineWidth = 1; context.strokeStyle = '#09131c'; context.stroke();
-    if (point.label && size > .99) {
-      context.lineWidth = 3; context.strokeStyle = '#09131c'; context.fillStyle = layer.color;
-      context.strokeText(point.label, sx + radius + 3, sy); context.fillText(point.label, sx + radius + 3, sy);
-    }
+    const text = label === 'name' ? point.label : label === 'altitude' ? `${Math.round(z)} m` : '';
+    if (!text) continue;
+    // Skip labels that would overlap ones already drawn, as for station labels.
+    const left = sx + radius + 3, top = sy - 8, textWidth = context.measureText(text).width + 4;
+    if (left < 0 || top < 0 || left + textWidth > width || top + 16 > height || occupancy.overlaps(left, top, textWidth, 16)) continue;
+    occupancy.reserve(left, top, textWidth, 16);
+    context.lineWidth = 3; context.strokeStyle = '#09131c'; context.fillStyle = layer.color;
+    context.strokeText(text, left, sy); context.fillText(text, left, sy);
   }
 }

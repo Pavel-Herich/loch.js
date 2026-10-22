@@ -166,3 +166,7 @@ button.primary{background:#215a75;border-color:#8ed9ff}
 .objects-team input{flex:1;min-width:0;padding:.4rem .55rem;border:1px solid #678599;border-radius:6px;background:#09131c;color:#eaf3ff;font:inherit}
 #objects-skipped:empty{display:none}
 .projection-box path{fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
+/* Record-object button: left edge, under the title (wide) or under the indicator row and title (narrow). */
+.floating-tool{position:absolute;z-index:2;left:max(12px,env(safe-area-inset-left,0px));top:calc(72px + env(safe-area-inset-top,0px));width:44px;height:44px;padding:0;display:grid;place-items:center;border-radius:10px;background:#162531e6;border-color:#3c5668;box-shadow:0 6px 20px #0007}
+.floating-tool svg{width:26px;height:26px}
+@media(max-width:1000px){.floating-tool{top:calc(132px + env(safe-area-inset-top,0px))}}
