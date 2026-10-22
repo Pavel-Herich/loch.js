@@ -71,9 +71,11 @@ type PickerOptions = {
   animate?: (step: (time: number) => void) => void;
   /** Receives Escape to cancel; defaults to the window. */
   keyTarget?: EventTarget;
+  /** Pan the picked point to the view centre (rotation centre); false only reports it. */
+  recenter?: boolean;
 };
 
-/** One-shot mode: the next click on the model becomes the rotation centre. */
+/** One-shot mode: the next click on the model becomes the rotation centre (or is just reported). */
 export class RotationCentrePicker {
   private active = false;
   private press?: { id: number; x: number; y: number };
@@ -125,7 +127,7 @@ export class RotationCentrePicker {
     const point = pickModelPoint(camera, getRoots(), ndc, height, controls.target);
     if (!point) { this.options.onMiss?.(); return; }
     this.enabled = false;
-    this.recenter(camera, point);
+    if (this.options.recenter !== false) this.recenter(camera, point);
     this.options.onPicked?.(point);
   };
 

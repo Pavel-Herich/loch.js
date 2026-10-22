@@ -91,3 +91,37 @@ export function wgs84ToSJTSK(latitude: number, longitude: number, height = 0): [
 export function looksLikeSJTSK(east: number, north: number) {
   return east > -1_000_000 && east < -100_000 && north > -1_400_000 && north < -900_000;
 }
+
+function fromCartesian([x, y, z]: [number, number, number], ellipsoid: Ellipsoid): [number, number] {
+  return toGeodetic([x, y, z], ellipsoid);
+}
+
+/** S-JTSK → WGS 84 Helmert shift (position-vector convention, small-angle rotation). */
+function besselToWgs84Cartesian([x, y, z]: [number, number, number]): [number, number, number] {
+  const { tx, ty, tz, s } = HELMERT;
+  const rx = HELMERT.rx * ARCSEC, ry = HELMERT.ry * ARCSEC, rz = HELMERT.rz * ARCSEC, scale = 1 + s * 1e-6;
+  return [tx + scale * (x - rz * y + ry * z), ty + scale * (rz * x + y - rx * z), tz + scale * (-ry * x + rx * y + z)];
+}
+
+/** Krovak southing/westing (metres) → Bessel latitude/longitude (radians), EPSG method 9819 reversed. */
+function krovakInverse(southing: number, westing: number): [number, number] {
+  const { e, B, t0, n, rP } = krovak;
+  const r = Math.hypot(southing, westing), theta = Math.atan2(westing, southing);
+  const D = theta / n;
+  const T = 2 * (Math.atan((rP / r) ** (1 / n)) - Math.PI / 4);
+  const U = Math.asin(Math.cos(KROVAK.alphaC) * Math.sin(T) - Math.sin(KROVAK.alphaC) * Math.cos(T) * Math.cos(D));
+  const V = Math.asin(Math.cos(T) * Math.sin(D) / Math.cos(U));
+  let lat = U;
+  for (let i = 0; i < 10; i++) {
+    const sinLat = Math.sin(lat);
+    lat = 2 * (Math.atan(t0 ** (-1 / B) * Math.tan(U / 2 + Math.PI / 4) ** (1 / B) * ((1 + e * sinLat) / (1 - e * sinLat)) ** (e / 2)) - Math.PI / 4);
+  }
+  return [lat, KROVAK.lon0 - V / B];
+}
+
+/** EPSG:5514 / Therion ijtsk [east, north] (metres) → WGS 84 latitude/longitude in degrees. */
+export function sjtskToWgs84(east: number, north: number, height = 0): [number, number] {
+  const [lat, lon] = krovakInverse(-north, -east);
+  const [latitude, longitude] = fromCartesian(besselToWgs84Cartesian(toCartesian(lat, lon, height, BESSEL)), WGS84);
+  return [latitude / DEG, longitude / DEG];
+}

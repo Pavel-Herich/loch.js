@@ -1,4 +1,5 @@
 import { createZip, type ZipEntry } from './zip';
+import { DESKTOP_INI, THCONFIG_MAIN, THCONFIG_TEMPLATE } from './therion-templates';
 
 /** A field record: position from the device, a name, a note and photos. */
 export type FieldPhoto = { name: string; type: string; blob: Blob };
@@ -6,7 +7,9 @@ export type FieldPosition = {
   latitude: number; longitude: number; gpsAltitude: number | null; accuracy: number;
   /** EPSG:5514 / Therion ijtsk, metres. */
   east: number; north: number;
-  height: number | null; heightSource: 'surface' | 'gps' | null;
+  height: number | null; heightSource: 'surface' | 'gps' | 'model' | null;
+  /** Where the position came from: the device GPS or a point picked in the model. */
+  source?: 'gps' | 'model';
 };
 export type FieldObject = {
   id: string;
@@ -18,13 +21,20 @@ export type FieldObject = {
   photos: FieldPhoto[];
 };
 
-const pad = (value: number, size = 2) => String(value).padStart(size, '0');
+/** Diacritics never leave the app: names and notes are stripped as they are typed. */
+export function removeDiacritics(text: string) {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
 
-/** `Závrt pod hrebeňom` saved at 2026-10-22 11:44:05 → `Závrt_pod_hrebeňom_2026-10-22_11-44-05`. */
+/** Same rule as the j_mobil generator: ASCII, lower case, words joined by underscores. */
+export function sanitizeName(text: string) {
+  return removeDiacritics(text).toLowerCase().trim().replace(/[^\w\s]/gu, '').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+}
+
+/** `Zavrt pod hrebenom` saved at 22.10.2026 11:44:05 → `zavrt_pod_hrebenom_2026_10_22_11_44_5` (j_mobil survey id). */
 export function objectName(title: string, date: Date) {
-  const base = title.trim().replace(/\s+/g, '_') || 'Objekt';
-  const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
-  return `${base}_${stamp}`;
+  const stamp = [date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds()].join('_');
+  return `${sanitizeName(title) || 'objekt'}_${stamp}`;
 }
 
 function extension(type: string, fallback: string) {
@@ -32,57 +42,40 @@ function extension(type: string, fallback: string) {
   return known[type] ?? (fallback.match(/\.([A-Za-z0-9]{1,5})$/)?.[1]?.toLowerCase() ?? 'jpg');
 }
 
-/** File names used inside the export, unique per object and photo. */
+/** Photo file names inside a survey's _data folder, unique per object and photo. */
 export function photoFileName(object: FieldObject, index: number) {
   const photo = object.photos[index];
   return `${object.name}${object.photos.length > 1 ? `_${index + 1}` : ''}.${extension(photo.type, photo.name)}`;
 }
 
-function csvCell(value: string | number | null | undefined) {
-  const text = value === null || value === undefined ? '' : String(value);
-  return /[;"\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+/** One survey file per object, as written by the j_mobil generator. */
+export function surveyTh(object: FieldObject, team: string) {
+  const position = object.position!, date = new Date(object.created);
+  const elevation = Math.round(position.height ?? position.gpsAltitude ?? 0);
+  const comment = removeDiacritics(object.note || object.title).replace(/\s+/g, ' ').trim();
+  return `encoding  utf-8\r\n\r\nsurvey ${object.name} -title "${object.name}"\r\n\r\n\r\ncentreline\r\n`
+    + `station gps_mob "${object.name}" entrance #${comment}\r\ncs lat-long\r\n`
+    + `fix gps_mob ${position.latitude.toFixed(7)} ${position.longitude.toFixed(7)} ${elevation}\r\n`
+    + `explo-date 0 \r\nexplo-team "Anonymus"\r\ndate ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}\r\n`
+    + `team "${removeDiacritics(team).replace(/"/g, '') || 'Kto zameral'}"\r\ndata normal from to compass clino tape\r\nflags surface\r\nflags not surface\r\nendcentreline\r\nendsurvey\r\n\r\n`;
 }
 
-/** Semicolon CSV with S-JTSK Y/X as surveyors write them (positive), opened directly by Excel. */
-export function objectsCsv(objects: FieldObject[]) {
-  const header = ['name', 'title', 'created', 'Y_jtsk', 'X_jtsk', 'height_m', 'height_source', 'accuracy_m', 'latitude', 'longitude', 'gps_altitude_m', 'note', 'photos'];
-  const rows = objects.map(object => {
-    const p = object.position;
-    return [object.name, object.title, object.created,
-      p ? (-p.east).toFixed(2) : null, p ? (-p.north).toFixed(2) : null, p?.height?.toFixed(2), p?.heightSource,
-      p?.accuracy.toFixed(1), p?.latitude.toFixed(8), p?.longitude.toFixed(8), p?.gpsAltitude?.toFixed(1),
-      object.note, object.photos.map((_, i) => `photos/${photoFileName(object, i)}`).join(', ')].map(csvCell).join(';');
-  });
-  return '﻿' + [header.join(';'), ...rows].join('\r\n') + '\r\n';
-}
-
-/** GeoJSON in WGS 84 for GIS; S-JTSK coordinates are kept as properties. */
-export function objectsGeoJson(objects: FieldObject[]) {
-  return JSON.stringify({
-    type: 'FeatureCollection',
-    features: objects.map(object => ({
-      type: 'Feature',
-      geometry: object.position ? { type: 'Point', coordinates: [object.position.longitude, object.position.latitude, ...(object.position.gpsAltitude === null ? [] : [object.position.gpsAltitude])] } : null,
-      properties: {
-        name: object.name, title: object.title, created: object.created, note: object.note,
-        Y_jtsk: object.position ? -object.position.east : null, X_jtsk: object.position ? -object.position.north : null,
-        height: object.position?.height ?? null, height_source: object.position?.heightSource ?? null,
-        accuracy: object.position?.accuracy ?? null,
-        photos: object.photos.map((_, i) => `photos/${photoFileName(object, i)}`),
-      },
-    })),
-  }, null, 2);
-}
-
-export async function exportObjects(objects: FieldObject[]) {
-  const encoder = new TextEncoder(), now = new Date();
-  const entries: ZipEntry[] = [
-    { name: 'objects.csv', data: encoder.encode(objectsCsv(objects)), date: now },
-    { name: 'objects.geojson', data: encoder.encode(objectsGeoJson(objects)), date: now },
-  ];
-  for (const object of objects) for (let i = 0; i < object.photos.length; i++) {
-    entries.push({ name: `photos/${photoFileName(object, i)}`, data: new Uint8Array(await object.photos[i].blob.arrayBuffer()), date: new Date(object.created) });
+/** j_mobil.zip: j_mobil/<id>/<id>_th.th, thconfig_200.th, _data/ photos; j_mobil.th lists them all. */
+export async function exportTherion(objects: FieldObject[], team: string) {
+  const encoder = new TextEncoder(), now = new Date(), entries: ZipEntry[] = [], inputs: string[] = [];
+  for (const object of objects) {
+    if (!object.position) continue;
+    const date = new Date(object.created), folder = `j_mobil/${object.name}`;
+    entries.push({ name: `${folder}/_data/desktop.ini`, data: encoder.encode(DESKTOP_INI), date });
+    for (let i = 0; i < object.photos.length; i++) {
+      entries.push({ name: `${folder}/_data/${photoFileName(object, i)}`, data: new Uint8Array(await object.photos[i].blob.arrayBuffer()), date });
+    }
+    entries.push({ name: `${folder}/${object.name}_th.th`, data: encoder.encode(surveyTh(object, team)), date });
+    entries.push({ name: `${folder}/thconfig_200.th`, data: encoder.encode(THCONFIG_TEMPLATE.split('SURVEY_ID').join(object.name)), date });
+    inputs.push(`input ${object.name}/${object.name}_th.th`);
   }
+  entries.push({ name: 'j_mobil/j_mobil.th', data: encoder.encode(inputs.join('\r\n') + '\r\n'), date: now });
+  entries.push({ name: 'j_mobil/thconfig.th', data: encoder.encode(THCONFIG_MAIN), date: now });
   return createZip(entries);
 }
 

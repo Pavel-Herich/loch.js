@@ -36,13 +36,20 @@ function query<T extends Element>(selector: string) {
   return element;
 }
 
-function bindToggle(button: HTMLButtonElement, checkbox: HTMLInputElement, describe: (pressed: boolean) => string, invert = false) {
+function bindToggle(button: HTMLElement, checkbox: HTMLInputElement, describe: (pressed: boolean) => string, invert = false,
+  onSync?: (pressed: boolean) => void) {
   const sync = () => {
     const pressed = checkbox.checked !== invert;
     button.setAttribute('aria-pressed', String(pressed));
     button.title = describe(pressed); button.setAttribute('aria-label', button.title);
+    onSync?.(pressed);
   };
-  button.addEventListener('click', () => { checkbox.checked = !checkbox.checked; emit(checkbox); });
+  const toggle = () => { checkbox.checked = !checkbox.checked; emit(checkbox); };
+  button.addEventListener('click', toggle);
+  // Indicator panels are not native buttons, so they also take Enter and Space.
+  if (button.tagName !== 'BUTTON') button.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
+  });
   checkbox.addEventListener('change', sync);
   sync();
   return sync;
@@ -80,8 +87,13 @@ function bindLabels(button: HTMLButtonElement, select: HTMLSelectElement, parent
 }
 
 export function initializeDock() {
-  bindToggle(query('#ortho-toggle'), query('#perspective'),
-    pressed => pressed ? 'Orthographic view (click for perspective)' : 'Orthographic view', true);
+  bindToggle(query('#projection-indicator'), query('#perspective'),
+    pressed => pressed ? 'Orthographic projection. Click for perspective' : 'Perspective projection. Click for orthographic', true,
+    pressed => {
+      query('#projection-perspective').toggleAttribute('hidden', pressed);
+      query('#projection-orthographic').toggleAttribute('hidden', !pressed);
+      query('#projection-value').textContent = pressed ? 'Ortho' : 'Persp';
+    });
   bindToggle(query('#entrance-toggle'), query('#station-entrance'),
     pressed => pressed ? 'Hide cave entrances' : 'Show cave entrances');
   bindLabels(query('#entrance-label-toggle'), query('#entrance-label'), query('#station-entrance'), ENTRANCE_LABELS, 'Entrance');

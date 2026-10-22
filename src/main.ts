@@ -127,6 +127,23 @@ const pivotPicker = new RotationCentrePicker({
 });
 pivotButton.addEventListener('click', () => { pivotPicker.enabled = !pivotPicker.enabled; });
 document.querySelector<HTMLButtonElement>('#pivot-menu')!.addEventListener('click', () => { pivotPicker.enabled = true; });
+// Picking an object position: same tap-to-pick as the rotation centre, without moving the view.
+let resolveObjectPick: ((point: THREE.Vector3 | undefined) => void) | undefined;
+const objectPicker = new RotationCentrePicker({
+  canvas, controls, getCamera: () => camera, getRoots: () => [walls, surfaceGroup, lines], recenter: false,
+  onModeChange: active => {
+    pivotHint.textContent = 'Tap the model where the object is · Esc cancels';
+    pivotHint.hidden = !active;
+    // The picker leaves pick mode just before reporting the point, so a cancel is only certain afterwards.
+    if (!active) queueMicrotask(() => { const resolve = resolveObjectPick; resolveObjectPick = undefined; resolve?.(undefined); });
+  },
+  onMiss: () => { pivotHint.textContent = 'Nothing there. Tap a wall, the surface or a centreline shot · Esc cancels'; },
+  onPicked: point => { const resolve = resolveObjectPick; resolveObjectPick = undefined; resolve?.(point.clone()); },
+});
+function pickObjectPoint() {
+  pivotPicker.enabled = false;
+  return new Promise<THREE.Vector3 | undefined>(resolve => { resolveObjectPick = resolve; objectPicker.enabled = true; });
+}
 const locateButton = document.querySelector<HTMLButtonElement>('#locate-toggle')!;
 const locationDot = document.querySelector<HTMLElement>('#location-dot')!;
 const locationInfo = document.querySelector<HTMLElement>('#location-info')!;
@@ -159,6 +176,7 @@ const fieldObjects = new FieldObjects({
   heightAt: (east, north) => surfaceScene.heightAt(east, north),
   getOrigin: () => hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y) ? worldOrigin : undefined,
   onChange: () => invalidateView(),
+  pickPoint: pickObjectPoint,
 });
 const deviceLocation = new DeviceLocation({
   scene,

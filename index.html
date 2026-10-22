@@ -8,6 +8,12 @@
     <div id="tilt-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="View tilt">
       <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="tilt-horizon" d="M8 34h52M34 8v5m0 42v5"/><g id="tilt-arrow"><path class="tilt-direction" d="M17 34h31"/><path class="tilt-tip" d="m52 34-9-5v10z"/></g><circle cx="34" cy="34" r="2" fill="currentColor"/></svg><span id="tilt-value">0°</span>
     </div>
+    <div id="projection-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="Projection">
+      <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/>
+        <g id="projection-perspective" class="projection-box"><path d="M21 21h26v26H21zM29 29h10v10H29zM21 21l8 8M47 21l-8 8M21 47l8-8M47 47l-8-8"/></g>
+        <g id="projection-orthographic" class="projection-box" hidden><path d="M22 28h18v18H22zM28 22h18v18H28zM22 28l6-6M40 28l6-6M22 46l6-6M40 46l6-6"/></g>
+      </svg><span id="projection-value">Persp</span>
+    </div>
     <div id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></div>
     <div id="legend"></div>
   </div>
@@ -80,9 +86,6 @@
     <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2h8.8A1.5 1.5 0 0 1 21 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
   </svg></button>
   <span class="dock-separator" aria-hidden="true"></span>
-  <button id="ortho-toggle" type="button" aria-pressed="false" aria-label="Orthographic view" title="Orthographic view"><svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M12 3v17M3 20.5h18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 15h5v5.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
-  </svg></button>
   <button id="pivot-toggle" type="button" aria-label="Set rotation centre" aria-pressed="false" title="Set rotation centre: click the model"><svg viewBox="0 0 24 24" aria-hidden="true">
     <circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
     <path d="M12 1.5v5m0 11v5M1.5 12h5m11 0h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -105,17 +108,19 @@
   </div>
   <input id="file" type="file" accept=".lox,.3d,.plt" aria-label="Open cave model file" hidden/>
 </header></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="object-dialog" aria-labelledby="object-title-label"><form id="object-form" novalidate>
-  <header class="object-head"><label id="object-title-label" for="object-title">Name</label><input id="object-title" type="text" autocomplete="off" enterkeyhint="done" placeholder="e.g. Závrt pod hrebeňom"/></header>
+  <header class="object-head"><label id="object-title-label" for="object-title">Name</label><input id="object-title" type="text" autocomplete="off" enterkeyhint="done" placeholder="e.g. Zavrt pod hrebenom"/></header>
   <table class="object-table"><tbody>
     <tr><th scope="row">Saved as</th><td id="object-name-preview"></td></tr>
-    <tr><th scope="row">Position</th><td id="object-position" aria-live="polite">Waiting for GPS fix…</td></tr>
+    <tr><th scope="row">Position</th><td><div id="object-position" aria-live="polite">Waiting for GPS fix…</div><div class="position-actions"><button id="object-pick" type="button">Pick in model</button><button id="object-use-gps" type="button" hidden>Use GPS</button></div></td></tr>
     <tr><th scope="row"><label for="object-note">Note</label></th><td><textarea id="object-note" rows="3"></textarea></td></tr>
     <tr><th scope="row">Photo</th><td><div id="object-photos" class="object-photos"></div><label class="photo-add"><input id="object-photo" type="file" accept="image/*" multiple/>Add photo</label></td></tr>
   </tbody></table>
   <p id="object-error" class="object-error" role="alert"></p>
   <div class="dialog-actions"><button type="button" id="object-cancel">Cancel</button><button type="submit" id="object-save" class="primary" disabled>Save</button></div>
 </form></dialog><dialog id="objects-dialog" aria-labelledby="objects-heading"><h2 id="objects-heading">Field objects (<span id="objects-count">0</span>)</h2>
-  <p class="objects-hint">Stored on this device until you delete them. Export saves a ZIP with objects.csv (S-JTSK Y/X), objects.geojson (WGS 84) and the photos.</p>
+  <p class="objects-hint">Stored on this device until you delete them. Export saves j_mobil.zip for Therion: one survey per object with an entrance station fixed in lat-long, its thconfig and the photos in _data.</p>
+  <label class="objects-team" for="objects-team">Zameral <input id="objects-team" type="text" autocomplete="off"/></label>
+  <p id="objects-skipped" class="objects-hint"></p>
   <ul id="objects-list" class="objects-list"></ul>
-  <div class="dialog-actions"><button type="button" id="objects-export" class="primary">Export ZIP</button><button type="button" id="objects-close">Close</button></div>
+  <div class="dialog-actions"><button type="button" id="objects-export" class="primary">Export to Therion</button><button type="button" id="objects-close">Close</button></div>
 </dialog><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

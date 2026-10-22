@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { wgs84ToSJTSK } from './geo';
+import { sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { errorMessage } from './location';
-import { exportObjects, objectName, ObjectStore, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
+import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
 
 type Options = {
   store: ObjectStore;
@@ -9,15 +9,30 @@ type Options = {
   /** File coordinates of the scene origin when the model is in S-JTSK, else undefined. */
   getOrigin: () => THREE.Vector3 | undefined;
   onChange: () => void;
+  /** Let the user tap a point in the model; resolves with scene coordinates, or undefined when cancelled. */
+  pickPoint: () => Promise<THREE.Vector3 | undefined>;
   geolocation?: Pick<Geolocation, 'watchPosition' | 'clearWatch'>;
 };
+
+const TEAM_KEY = 'loch.js.therion-team';
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
 export function formatPosition(position: FieldPosition) {
-  const accuracy = position.accuracy < 10 ? position.accuracy.toFixed(1) : String(Math.round(position.accuracy));
-  const height = position.height === null ? '' : ` · ${Math.round(position.height)} m ${position.heightSource === 'surface' ? '(terrain)' : '(GPS)'}`;
-  return `±${accuracy} m · Y ${(-position.east).toFixed(1)}  X ${(-position.north).toFixed(1)}${height}`;
+  const source = { surface: '(terrain)', gps: '(GPS)', model: '(model)' } as const;
+  const height = position.height === null ? '' : ` · ${Math.round(position.height)} m ${position.heightSource ? source[position.heightSource] : ''}`;
+  const where = position.source === 'model' ? 'Picked in model'
+    : `±${position.accuracy < 10 ? position.accuracy.toFixed(1) : Math.round(position.accuracy)} m`;
+  return `${where} · Y ${(-position.east).toFixed(1)}  X ${(-position.north).toFixed(1)}${height}`;
+}
+
+/** Replace text in a field without diacritics, keeping the caret where the user is typing. */
+function stripField(field: HTMLInputElement | HTMLTextAreaElement) {
+  const clean = removeDiacritics(field.value);
+  if (clean === field.value) return;
+  const caret = removeDiacritics(field.value.slice(0, field.selectionStart ?? field.value.length)).length;
+  field.value = clean;
+  try { field.setSelectionRange(caret, caret); } catch { /* Not focusable right now. */ }
 }
 
 function newId() {
@@ -33,19 +48,23 @@ export class FieldObjects {
   private urls: string[] = [];
   private markers = $<HTMLElement>('#object-markers');
   private markersVisible = true;
+  private picking = false;
 
   constructor(private options: Options) {
     const recorder = $<HTMLDialogElement>('#object-dialog');
     const title = $<HTMLInputElement>('#object-title'), note = $<HTMLTextAreaElement>('#object-note');
     const photoInput = $<HTMLInputElement>('#object-photo');
     $<HTMLButtonElement>('#object-add').addEventListener('click', () => this.openRecorder());
-    title.addEventListener('input', () => this.updatePreview());
+    title.addEventListener('input', () => { stripField(title); this.updatePreview(); });
+    note.addEventListener('input', () => stripField(note));
+    $<HTMLButtonElement>('#object-pick').addEventListener('click', () => void this.pickInModel());
+    $<HTMLButtonElement>('#object-use-gps').addEventListener('click', () => { this.position = null; this.startGps(); });
     photoInput.addEventListener('change', () => {
       for (const file of Array.from(photoInput.files ?? [])) this.photos.push({ name: file.name, type: file.type || 'image/jpeg', blob: file });
       photoInput.value = ''; this.renderPhotos();
     });
     $<HTMLButtonElement>('#object-cancel').addEventListener('click', () => recorder.close());
-    recorder.addEventListener('close', () => this.stopGps());
+    recorder.addEventListener('close', () => { if (!this.picking) this.stopGps(); });
     $<HTMLFormElement>('#object-form').addEventListener('submit', event => {
       event.preventDefault();
       if (!title.value.trim()) { title.focus(); return; }
@@ -60,6 +79,12 @@ export class FieldObjects {
     });
     $<HTMLButtonElement>('#objects-close').addEventListener('click', () => list.close());
     $<HTMLButtonElement>('#objects-export').addEventListener('click', () => void this.export());
+    const team = $<HTMLInputElement>('#objects-team');
+    try { team.value = localStorage.getItem(TEAM_KEY) ?? 'P. Herich'; } catch { team.value = 'P. Herich'; }
+    team.addEventListener('input', () => {
+      stripField(team);
+      try { localStorage.setItem(TEAM_KEY, team.value); } catch { /* Storage may be disabled. */ }
+    });
     const visible = $<HTMLInputElement>('#objects-visible');
     visible.checked = true;
     visible.addEventListener('change', () => { this.markersVisible = visible.checked; options.onChange(); });
@@ -82,6 +107,10 @@ export class FieldObjects {
   }
 
   private startGps() {
+    this.stopGps();
+    $<HTMLButtonElement>('#object-use-gps').hidden = true;
+    $<HTMLButtonElement>('#object-pick').disabled = !this.options.getOrigin();
+    $<HTMLButtonElement>('#object-pick').title = this.options.getOrigin() ? 'Tap a point in the model instead of using GPS' : 'Open a model in S-JTSK to pick a point in it';
     const output = $<HTMLElement>('#object-position');
     const geolocation = this.options.geolocation ?? navigator.geolocation;
     if (!geolocation || !window.isSecureContext) { output.textContent = 'No GPS here: open the app over HTTPS. You can still save the note and photos.'; return; }
@@ -92,11 +121,32 @@ export class FieldObjects {
       this.position = {
         latitude: coords.latitude, longitude: coords.longitude, gpsAltitude: coords.altitude, accuracy: coords.accuracy, east, north,
         height: terrain ?? coords.altitude, heightSource: terrain !== undefined ? 'surface' : coords.altitude !== null ? 'gps' : null,
+        source: 'gps',
       };
       output.textContent = formatPosition(this.position);
     }, error => {
       if (error.code !== 3 || !this.position) output.textContent = `${errorMessage(error)} You can still save the note and photos.`;
     }, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  }
+
+  /** Hide the form, let the user tap the model, then come back with that point as the position. */
+  private async pickInModel() {
+    const recorder = $<HTMLDialogElement>('#object-dialog'), origin = this.options.getOrigin();
+    if (!origin) return;
+    this.picking = true; recorder.close();
+    try {
+      const local = await this.options.pickPoint();
+      if (local) {
+        this.stopGps();
+        const east = local.x + origin.x, north = local.y + origin.y, height = local.z + origin.z;
+        const [latitude, longitude] = sjtskToWgs84(east, north, height);
+        this.position = { latitude, longitude, gpsAltitude: null, accuracy: 0, east, north, height, heightSource: 'model', source: 'model' };
+        $<HTMLElement>('#object-position').textContent = formatPosition(this.position);
+        $<HTMLButtonElement>('#object-use-gps').hidden = false;
+      }
+    } finally {
+      this.picking = false; recorder.showModal();
+    }
   }
 
   private stopGps() {
@@ -139,7 +189,10 @@ export class FieldObjects {
   private renderList() {
     const list = $<HTMLElement>('#objects-list');
     $<HTMLElement>('#objects-count').textContent = String(this.objects.length);
-    $<HTMLButtonElement>('#objects-export').disabled = !this.objects.length;
+    const positioned = this.objects.filter(object => object.position).length;
+    $<HTMLButtonElement>('#objects-export').disabled = !positioned;
+    $<HTMLElement>('#objects-skipped').textContent = positioned < this.objects.length
+      ? `${this.objects.length - positioned} without a position will be left out of the Therion export.` : '';
     for (const image of Array.from(list.querySelectorAll('img'))) URL.revokeObjectURL(image.src);
     if (!this.objects.length) {
       const empty = document.createElement('p'); empty.className = 'objects-empty';
@@ -175,12 +228,11 @@ export class FieldObjects {
     const button = $<HTMLButtonElement>('#objects-export');
     button.disabled = true; button.textContent = 'Preparing…';
     try {
-      const blob = await exportObjects(this.objects);
-      const now = new Date(), name = `loch-objects_${objectName('', now).replace(/^Objekt_/, '')}.zip`;
-      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = name;
+      const blob = await exportTherion(this.objects, $<HTMLInputElement>('#objects-team').value.trim());
+      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'j_mobil.zip';
       document.body.append(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
-    } finally { button.disabled = !this.objects.length; button.textContent = 'Export ZIP'; }
+    } finally { button.textContent = 'Export to Therion'; button.disabled = !this.objects.some(object => object.position); }
   }
 
   private renderMarkers() {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { looksLikeSJTSK, wgs84ToSJTSK } from '../src/geo';
+import { looksLikeSJTSK, sjtskToWgs84, wgs84ToSJTSK } from '../src/geo';
 
 // Reference values from PROJ 9 (pyproj), EPSG "S-JTSK to WGS 84 (4)" + Krovak East North.
 const REFERENCE: [number, number, number, number][] = [
@@ -23,5 +23,17 @@ describe('WGS 84 to S-JTSK', () => {
     expect(looksLikeSJTSK(-378000, -1201000)).toBe(true);
     expect(looksLikeSJTSK(120, -45)).toBe(false);
     expect(looksLikeSJTSK(378000, 1201000)).toBe(false);
+  });
+
+  it('converts S-JTSK back to WGS 84 matching PROJ and round-trips within a centimetre', () => {
+    for (const [lat, lon, east, north] of REFERENCE) {
+      const [latitude, longitude] = sjtskToWgs84(east, north);
+      // 1e-7° is about 1 cm.
+      expect(Math.abs(latitude - lat)).toBeLessThan(2e-7);
+      expect(Math.abs(longitude - lon)).toBeLessThan(2e-7);
+      const [x, y] = wgs84ToSJTSK(latitude, longitude);
+      // The small-angle Helmert rotation is not exactly self-inverse (PROJ shows the same ~5 mm).
+      expect(Math.abs(x - east)).toBeLessThan(.01); expect(Math.abs(y - north)).toBeLessThan(.01);
+    }
   });
 });
