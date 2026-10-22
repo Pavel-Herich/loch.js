@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, Group, Vector3 } from 'three';
-import { DeviceLocation, formatFix, type LocationState } from '../src/location';
+import { DeviceLocation, errorMessage, formatFix, type LocationState } from '../src/location';
 import { surfaceHeightAt } from '../src/lox-surface';
 
 type Success = (position: { coords: { latitude: number; longitude: number; altitude: number | null; accuracy: number } }) => void;
@@ -88,5 +88,10 @@ describe('device location', () => {
     expect(surfaceHeightAt(grid, 105, 205)).toBeCloseTo(15, 9);
     expect(surfaceHeightAt(grid, 110, 210)).toBeCloseTo(30, 9);
     expect(surfaceHeightAt(grid, 99, 205)).toBeUndefined();
+  });
+
+  it('explains that embedded views block location', () => {
+    expect(errorMessage({ code: 1, message: '' }, true)).toContain('embedded');
+    expect(errorMessage({ code: 1, message: '' }, false)).toContain('browser settings');
   });
 });

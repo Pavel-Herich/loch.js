@@ -36,7 +36,13 @@ type Options = {
   secure?: boolean;
 };
 
-export function errorMessage(error: Pick<GeolocationPositionError, 'code' | 'message'>) {
+function embedded() {
+  try { return typeof window !== 'undefined' && window.top !== window.self; } catch { return true; }
+}
+
+export function errorMessage(error: Pick<GeolocationPositionError, 'code' | 'message'>, isEmbedded = embedded()) {
+  // Pages shown inside another site's frame are usually refused without any prompt.
+  if (error.code === 1 && isEmbedded) return 'Location is blocked inside this embedded view. Open the app at its own address (e.g. GitHub Pages) to use GPS.';
   if (error.code === 1) return 'Location permission denied. Allow location for this site in the browser settings.';
   if (error.code === 2) return 'Location unavailable. Turn on GPS/location services and try again outdoors.';
   return 'Still waiting for a GPS fix…';
