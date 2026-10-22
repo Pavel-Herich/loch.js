@@ -8,24 +8,32 @@ const MAX_TEXT_WIDTH = 360;
 export type StationMarker = 'entrance' | 'fixed' | 'continuation';
 const markerScale = (marker: StationMarker) => marker === 'fixed' ? 1 / 3 : .7;
 
-/** Fixed-size symbols drawn directly on the shared overlay, centred on the station. */
-export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number) {
+/** Entrance symbols keep full size up to this view depth (metres), then shrink with distance. */
+export const ENTRANCE_FULL_SIZE_DEPTH = 200;
+/** Smallest entrance symbol, as a fraction of full size (80 % smaller). */
+export const ENTRANCE_MIN_SIZE = .2;
+export function entranceSize(depth: number) {
+  return Math.min(1, Math.max(ENTRANCE_MIN_SIZE, ENTRANCE_FULL_SIZE_DEPTH / Math.max(depth, 1e-6)));
+}
+const OMEGA_SCALE = .18;
+
+/** Symbols drawn directly on the shared overlay, centred on the station; `size` scales them (1 = full). */
+export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number, size = 1) {
   context.save(); context.translate(x, y);
-  const scale = markerScale(marker); context.scale(scale, scale);
+  const scale = markerScale(marker) * size; context.scale(scale, scale);
   context.lineWidth = 1.5; context.strokeStyle = '#09131c';
   if (marker === 'entrance') {
-    context.beginPath(); context.arc(0, 0, 9, 0, Math.PI * 2);
-    context.fillStyle = '#ffffff'; context.fill(); context.stroke();
-    // Same omega outline as public/icon.svg, scaled to fit the circular sign.
-    context.transform(.13, 0, 0, .13, -64 * .13, -64 * .13);
-    context.strokeStyle = '#000000'; context.lineWidth = 16;
+    // Omega outline of public/icon.svg in black, haloed by a thin (1 px) white line.
+    context.transform(OMEGA_SCALE, 0, 0, OMEGA_SCALE, -64.5 * OMEGA_SCALE, -62 * OMEGA_SCALE);
     context.lineCap = 'round'; context.lineJoin = 'round';
     context.beginPath(); context.moveTo(20, 102); context.lineTo(48, 102);
     context.bezierCurveTo(48, 90, 29, 84, 29, 63);
     context.bezierCurveTo(29, 38, 49, 22, 69, 22);
     context.bezierCurveTo(91, 22, 104, 39, 102, 60);
     context.bezierCurveTo(100, 79, 90, 90, 80, 99);
-    context.lineTo(80, 102); context.lineTo(109, 102); context.stroke();
+    context.lineTo(80, 102); context.lineTo(109, 102);
+    context.strokeStyle = '#ffffff'; context.lineWidth = 16 + 2 / (scale * OMEGA_SCALE); context.stroke();
+    context.strokeStyle = '#000000'; context.lineWidth = 16; context.stroke();
   } else if (marker === 'fixed') {
     context.beginPath(); context.moveTo(0, -9); context.lineTo(8, 7); context.lineTo(-8, 7); context.closePath();
     context.fillStyle = '#ff3030'; context.fill(); context.stroke();
@@ -90,7 +98,10 @@ export class StationLabels {
     this.occupancy.reset(width, height);
     camera.updateMatrixWorld();
     const m = this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
-    let screenX = 0, screenY = 0;
+    let screenX = 0, screenY = 0, screenDepth = 1;
+    // Orthographic views have no per-point depth; use the distance a 45° perspective view would need.
+    const ortho = camera as Camera & { isOrthographicCamera?: boolean; top?: number; bottom?: number; zoom?: number };
+    const flatDepth = ortho.isOrthographicCamera ? (ortho.top! - ortho.bottom!) / ortho.zoom! / 2 / Math.tan(Math.PI / 8) : undefined;
     const project = (station: Station) => {
       const x = station.position[0] - origin.x, y = station.position[1] - origin.y, z = station.position[2] - origin.z;
       const w = m[3] * x + m[7] * y + m[11] * z + m[15];
@@ -100,14 +111,16 @@ export class StationLabels {
       const cz = m[2] * x + m[6] * y + m[10] * z + m[14];
       if (Math.abs(cx) > w || Math.abs(cy) > w || Math.abs(cz) > w) return false;
       screenX = (cx / w + 1) * width / 2; screenY = (1 - cy / w) * height / 2;
+      screenDepth = flatDepth ?? w;
       return true;
     };
     if (marker) {
       const mark = (station: Station) => {
         const symbol = marker(station);
         if (!symbol || !visible(station) || !project(station)) return;
-        drawStationMarker(context, symbol, screenX, screenY);
-        const radius = 10 * markerScale(symbol);
+        const size = symbol === 'entrance' ? entranceSize(screenDepth) : 1;
+        drawStationMarker(context, symbol, screenX, screenY, size);
+        const radius = 10 * markerScale(symbol) * size;
         const x = Math.max(0, screenX - radius), y = Math.max(0, screenY - radius);
         this.occupancy.reserve(x, y, Math.min(width, screenX + radius) - x, Math.min(height, screenY + radius) - y);
       };
@@ -120,7 +133,8 @@ export class StationLabels {
       const labelMode = modeFor(station);
       if (labelMode === 'none' || !visible(station) || !project(station)) return;
       const symbol = marker?.(station);
-      const left = screenX + (symbol ? 10 * markerScale(symbol) + 4 : 3), top = screenY - HEIGHT / 2;
+      const size = symbol === 'entrance' ? entranceSize(screenDepth) : 1;
+      const left = screenX + (symbol ? 10 * markerScale(symbol) * size + 4 : 3), top = screenY - HEIGHT / 2;
       if (left < 0 || top < 0 || left + 10 > width || top + HEIGHT > height
         || this.occupancy.overlaps(left, top, 10, HEIGHT)) return;
       let text = stationLabel(station, labelMode);

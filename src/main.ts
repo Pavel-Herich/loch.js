@@ -43,6 +43,15 @@ const surfaceGroup = new THREE.Group(); scene.add(surfaceGroup);
 const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
 boundingBox.visible = false;
 scene.add(boundingBox);
+/** The bounding box shows for a few seconds after opening a model or switching projection. */
+const BOUNDING_BOX_SECONDS = 3;
+let boundingBoxTimer = 0;
+function flashBoundingBox() {
+  clearTimeout(boundingBoxTimer);
+  boundingBox.visible = !activeBox.isEmpty() && document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
+  if (boundingBox.visible) boundingBoxTimer = window.setTimeout(() => { boundingBox.visible = false; invalidateView(); }, BOUNDING_BOX_SECONDS * 1000);
+  invalidateView();
+}
 let activeBox = new THREE.Box3();
 /** File coordinates of the scene origin; the scene is drawn relative to it. */
 const worldOrigin = new THREE.Vector3();
@@ -171,7 +180,7 @@ const perspective = document.querySelector<HTMLInputElement>('#perspective')!;
 perspective.checked = true;
 perspective.addEventListener('change', () => {
   camera = setPerspective(camera, controls, perspective.checked);
-  invalidateView();
+  flashBoundingBox();
 });
 // Dock buttons mirror menu controls, so wire them after those controls are initialized.
 initializeDock();
@@ -216,7 +225,7 @@ function clear(g: THREE.Group) {
 }
 function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
   const low = altitudeColor(model.minZ, model).getStyle(), high = altitudeColor(model.maxZ, model).getStyle();
-  legend.innerHTML = `<span>${model.minZ.toFixed(0)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.maxZ.toFixed(0)} m</span>`;
+  legend.innerHTML = `<div class="ramp" style="--low:${low};--high:${high}"></div><span class="legend-max">${model.maxZ.toFixed(0)} m</span><span class="legend-min">${model.minZ.toFixed(0)} m</span>`;
   legend.title = `Altitude colours: ${model.minZ.toFixed(1)} m to ${model.maxZ.toFixed(1)} m`;
 }
 function updateProjectTitle(title: string | undefined, filename: string) {
@@ -237,7 +246,7 @@ function draw(model: Model, label: string) {
   activeBox = bounds.isEmpty() ? new THREE.Box3() : centered;
   worldOrigin.copy(origin); hasModel = !bounds.isEmpty();
   boundingBox.box.copy(centered);
-  boundingBox.visible = !bounds.isEmpty() && document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
+  flashBoundingBox();
   for (const scrap of model.scraps) {
     const positions: number[] = [], colors: number[] = [], indices: number[] = [];
     for (const p of scrap.points) {
@@ -323,7 +332,7 @@ function loadLargeFile(file: File, id: number) {
         worldOrigin.copy(origin); hasModel = true;
         activeBox = new THREE.Box3(new THREE.Vector3(...model.min).sub(origin), new THREE.Vector3(...model.max).sub(origin));
         boundingBox.box.copy(activeBox);
-        boundingBox.visible = document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
+        flashBoundingBox();
         material = largeWallMaterial(model);
         largeScene = new LargeScene(walls, material, model);
         applyWallCulling();
@@ -369,10 +378,7 @@ const chooser = document.querySelector<HTMLInputElement>('#file')!;
 chooser.addEventListener('change', () => { if (chooser.files?.[0]) void loadFile(chooser.files[0]); });
 document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
 document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
-document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('change', e => {
-  boundingBox.visible = !activeBox.isEmpty() && (e.target as HTMLInputElement).checked;
-  invalidateView();
-});
+document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('change', flashBoundingBox);
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); const file = e.dataTransfer?.files[0]; if (file && modelFileFormat(file.name)) void loadFile(file); });
 const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); resizeCamera(camera, w / h); invalidateView(); };
@@ -445,6 +451,7 @@ async function loadSample() {
     const model = parseLox(buffer);
     phase = 'Rendering model';
     draw(model, 'Sample cave');
+    menus.collapse();
   }
   catch (e) { if (loadId === 0) reportLoadError(e, { phase, source }); }
 }

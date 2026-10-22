@@ -69,6 +69,8 @@ describe('bounded, non-overlapping station labels', () => {
     expect(context.measureText).not.toHaveBeenCalled();
     expect(context.save).toHaveBeenCalledTimes(1); expect(context.restore).toHaveBeenCalledTimes(1);
     if (symbol === 'continuation') expect(context.fillText).toHaveBeenCalledExactlyOnceWith('?', 0, 0);
+    // The entrance omega is stroked twice: white halo, then black sign; no filled disc any more.
+    else if (symbol === 'entrance') { expect(context.stroke).toHaveBeenCalledTimes(2); expect(context.arc).not.toHaveBeenCalled(); }
     else expect(context.fill).toHaveBeenCalled();
   });
 

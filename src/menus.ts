@@ -18,25 +18,27 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
     menus.querySelectorAll<HTMLDetailsElement>('details').forEach(group => { group.open = false; });
   }
 
-  /** The menu panel sits above the bottom dock; the status line shows while it is open. */
+  /** The menu panel sits above the bottom dock and starts closed. */
+  let statusPinned = true;
   function setOpen(open: boolean) {
-    panel.hidden = !open; status.hidden = !open;
+    panel.hidden = !open;
+    // The status line shows with the menu, and on its own while a file loads or reports an error.
+    status.hidden = !open && !statusPinned;
     toolbar.classList.toggle('collapsed', !open);
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
   }
 
-  // A pinned (non-compact) panel stays open while the model is used, e.g. during loading.
   function close() {
     closeDropdowns();
-    if (toolbar.classList.contains('compact')) setOpen(false);
+    setOpen(false);
   }
 
   toggle.addEventListener('click', () => {
-    if (!panel.hidden) { toolbar.classList.add('compact'); close(); return; }
+    if (!panel.hidden) { close(); return; }
     setOpen(true);
   });
-  setOpen(!panel.hidden);
+  setOpen(false);
   for (const group of groups) {
     group.addEventListener('toggle', () => {
       if (group.open) for (const other of groups) if (other !== group) other.open = false;
@@ -56,7 +58,7 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   });
 
   const chooser = document.querySelector<HTMLInputElement>('#file')!;
-  document.querySelector('#open')!.addEventListener('click', () => {
+  for (const button of [document.querySelector('#open')!, document.querySelector('#open-toggle')!]) button.addEventListener('click', () => {
     closeDropdowns();
     chooser.value = '';
     chooser.click();
@@ -86,13 +88,13 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   });
 
   return {
+    /** Show the status line (progress or errors) without opening the menu. */
     expand() {
-      toolbar.classList.remove('compact');
-      closeDropdowns(); setOpen(true);
+      statusPinned = true; setOpen(!panel.hidden);
     },
+    /** Hide the status line again unless the menu is open. */
     collapse() {
-      toolbar.classList.add('compact');
-      close();
+      statusPinned = false; setOpen(!panel.hidden);
     },
   };
 }

@@ -75,6 +75,9 @@
   </div>
   <div id="dock" role="toolbar" aria-label="Quick tools">
   <button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu-panel" title="Menu"><span class="hamburger" aria-hidden="true"></span></button>
+  <button id="open-toggle" type="button" aria-label="Open file" title="Open file (LOX, Survex .3d, Compass .plt)"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2h8.8A1.5 1.5 0 0 1 21 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+  </svg></button>
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="ortho-toggle" type="button" aria-pressed="false" aria-label="Orthographic view" title="Orthographic view"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M12 3v17M3 20.5h18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 15h5v5.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
@@ -91,12 +94,12 @@
   <button id="entrance-toggle" type="button" aria-pressed="false" aria-label="Show cave entrances" title="Show cave entrances"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M3.5 19.5h4.4c0-2-3-3-3-6.4 0-4 3.2-6.6 6.6-6.6 3.6 0 5.7 2.8 5.4 6.2-.3 3-1.9 4.8-3.5 6.3v.5h4.6" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
   </svg></button>
-  <button id="entrance-label-toggle" class="label-toggle" type="button" aria-label="Entrance labels: off" title="Entrance labels: off"><span class="label-glyph" aria-hidden="true">A1</span><span class="label-badge" aria-hidden="true"></span></button>
+  <button id="entrance-label-toggle" class="label-toggle" type="button" aria-label="Entrance labels: off" title="Entrance labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 19.5h4.4c0-2-3-3-3-6.4 0-4 3.2-6.6 6.6-6.6 3.6 0 5.7 2.8 5.4 6.2-.3 3-1.9 4.8-3.5 6.3v.5h4.6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="stations-toggle" type="button" aria-pressed="false" aria-label="Show survey stations" title="Show survey stations"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/>
   </svg></button>
-  <button id="station-label-toggle" class="label-toggle" type="button" aria-label="Station labels: off" title="Station labels: off"><span class="label-glyph" aria-hidden="true">A1</span><span class="label-badge" aria-hidden="true"></span></button>
+  <button id="station-label-toggle" class="label-toggle" type="button" aria-label="Station labels: off" title="Station labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
   </div>
   <input id="file" type="file" accept=".lox,.3d,.plt" aria-label="Open cave model file" hidden/>
 </header></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>
