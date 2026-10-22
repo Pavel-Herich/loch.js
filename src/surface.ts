@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { surfacePoint, type Surface, type SurfaceBitmap } from './lox-surface';
+import { surfaceHeightAt, surfacePoint, type Surface, type SurfaceBitmap } from './lox-surface';
 
 // Loch lxSetup defaults: m_srf_transparency = true, m_srf_opacity = 0.5.
 export const DEFAULT_SURFACE_OPACITY = 0.5;
@@ -54,10 +54,17 @@ export class SurfaceScene {
   private entries: SurfaceEntry[] = [];
   private revision = 0;
   private pending = new Map<string, THREE.Texture>();
+  private grids: Pick<Surface, 'width' | 'height' | 'calibration' | 'heights'>[] = [];
 
   constructor(readonly group: THREE.Group, private onChange: () => void, private onError: (error: unknown) => void) {}
 
   get loading() { return this.pending.size > 0; }
+
+  /** Terrain height at a world (model file) position, from the first surface that covers it. */
+  heightAt(x: number, y: number): number | undefined {
+    for (const grid of this.grids) { const h = surfaceHeightAt(grid, x, y); if (h !== undefined) return h; }
+    return undefined;
+  }
 
   setAppearance(transparency: boolean, opacity: number) {
     this.transparency = transparency; this.opacity = Math.max(0, Math.min(1, opacity));
@@ -81,6 +88,7 @@ export class SurfaceScene {
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
     const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
     const entry: SurfaceEntry = { image: material, lit, meshes: [] };
+    this.grids.push({ width: surface.width, height: surface.height, calibration: surface.calibration, heights: surface.heights });
     for (const surfaceMaterial of [material, lit]) { surfaceMaterial.forceSinglePass = true; this.applyAppearance(surfaceMaterial); }
     this.entries.push(entry);
     const tiles: { geometry: THREE.BufferGeometry; column: number; row: number; columns: number; rows: number }[] = [];
@@ -114,6 +122,7 @@ export class SurfaceScene {
 
   clear() {
     this.revision++;
+    this.grids = [];
     for (const [url, texture] of this.pending) { URL.revokeObjectURL(url); texture.dispose(); }
     this.pending.clear();
     for (const child of [...this.group.children]) {

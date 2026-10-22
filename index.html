@@ -40,6 +40,7 @@
       <label><input id="perspective" type="checkbox" checked/> Perspective</label>
       <label><input id="lock-tilt" type="checkbox"/> Lock tilt</label>
       <button id="pivot-menu" type="button">Set rotation centre</button>
+      <button id="locate-menu" type="button">My location (GPS)</button>
       <hr/>
       <button id="plan" type="button" data-view="plan">Plan</button>
       <button id="profile" type="button" data-view="profile">Profile</button>
@@ -69,9 +70,12 @@
     <path d="M12 1.5v5m0 11v5M1.5 12h5m11 0h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
     <circle cx="12" cy="12" r="2.2" fill="currentColor"/>
   </svg></button>
+  <button id="locate-toggle" type="button" aria-label="Show my location" aria-pressed="false" title="Show my location (GPS)"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2z"/>
+  </svg></button>
   <button id="autorotate-toggle" type="button" aria-label="Start autorotation" aria-pressed="false" title="Start autorotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="autorotate-symbol" fill="currentColor" d="M8 5v14l11-7z"/></svg></button>
   <input id="file" type="file" accept=".lox,.3d,.plt" aria-label="Open cave model file" hidden/>
-</header><main><canvas id="view" aria-label="3D cave model"></canvas><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
+</header><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
   <div id="legend"></div>
   <div class="orientation-indicators">
     <div id="compass-indicator" class="orientation-indicator" role="img" aria-label="Compass">

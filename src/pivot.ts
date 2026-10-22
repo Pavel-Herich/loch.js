@@ -78,7 +78,6 @@ export class RotationCentrePicker {
   private active = false;
   private press?: { id: number; x: number; y: number };
   private controlsWereEnabled = true;
-  private animation = 0;
   private abort = new AbortController();
 
   constructor(private options: PickerOptions) {
@@ -131,20 +130,25 @@ export class RotationCentrePicker {
   };
 
   private recenter(camera: PivotCamera, point: Vector3) {
-    const { controls } = this.options;
-    const animate = this.options.animate ?? (step => requestAnimationFrame(step));
-    const now = this.options.now ?? (() => performance.now());
-    const start = now(), from = controls.target.clone(), id = ++this.animation;
-    const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduced) { setRotationCentre(camera, controls, point); return; }
-    const step = (time: number) => {
-      if (id !== this.animation) return;
-      const t = Math.min(1, (time - start) / RECENTER_MS), eased = 1 - (1 - t) ** 3;
-      // Move from the original centre each frame so rounding cannot accumulate.
-      const goal = from.clone().lerp(point, eased);
-      setRotationCentre(camera, controls, goal);
-      if (t < 1) animate(step);
-    };
-    animate(step);
+    animateRotationCentre(camera, this.options.controls, point, this.options);
   }
+
+}
+
+let animation = 0;
+/** Pan smoothly until a point is the rotation centre in the middle of the view. */
+export function animateRotationCentre(camera: PivotCamera, controls: OrbitControls, point: Vector3,
+  { now = () => performance.now(), animate = (step: (time: number) => void) => { requestAnimationFrame(step); } }:
+  { now?: () => number; animate?: (step: (time: number) => void) => void } = {}) {
+  const start = now(), from = controls.target.clone(), id = ++animation;
+  const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) { setRotationCentre(camera, controls, point); return; }
+  const step = (time: number) => {
+    if (id !== animation) return;
+    const t = Math.min(1, (time - start) / RECENTER_MS), eased = 1 - (1 - t) ** 3;
+    // Move from the original centre each frame so rounding cannot accumulate.
+    setRotationCentre(camera, controls, from.clone().lerp(point, eased));
+    if (t < 1) animate(step);
+  };
+  animate(step);
 }

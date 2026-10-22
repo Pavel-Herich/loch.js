@@ -33,3 +33,14 @@ export function surfacePoint(surface: Pick<Surface, 'width' | 'calibration'>, in
   const column = index % surface.width, row = Math.floor(index / surface.width);
   return [x + xx * column + xy * row, y + yx * column + yy * row, z];
 }
+/** Bilinear terrain height at a world position, or undefined outside the grid. */
+export function surfaceHeightAt(surface: Pick<Surface, 'width' | 'height' | 'calibration' | 'heights'>, x: number, y: number): number | undefined {
+  const [x0, y0, xx, xy, yx, yy] = surface.calibration;
+  const determinant = xx * yy - xy * yx, dx = x - x0, dy = y - y0;
+  const column = (yy * dx - xy * dy) / determinant, row = (xx * dy - yx * dx) / determinant;
+  if (!(column >= 0 && row >= 0 && column <= surface.width - 1 && row <= surface.height - 1)) return undefined;
+  const c = Math.min(Math.floor(column), surface.width - 2), r = Math.min(Math.floor(row), surface.height - 2);
+  const u = column - c, v = row - r, at = (i: number, j: number) => surface.heights[(r + j) * surface.width + c + i];
+  const h = (at(0, 0) * (1 - u) + at(1, 0) * u) * (1 - v) + (at(0, 1) * (1 - u) + at(1, 1) * u) * v;
+  return Number.isFinite(h) ? h : undefined;
+}

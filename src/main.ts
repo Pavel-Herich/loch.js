@@ -18,7 +18,8 @@ import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators } from './indicators';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
-import { RotationCentrePicker } from './pivot';
+import { animateRotationCentre, RotationCentrePicker } from './pivot';
+import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
 import { modelFileFormat, parseModelFile } from './model-file';
 import './style.css';
 
@@ -43,6 +44,9 @@ const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
 boundingBox.visible = false;
 scene.add(boundingBox);
 let activeBox = new THREE.Box3();
+/** File coordinates of the scene origin; the scene is drawn relative to it. */
+const worldOrigin = new THREE.Vector3();
+let hasModel = false;
 let loadId = 0;
 let largeWorker: Worker | undefined;
 let loadingLargeWalls = false;
@@ -122,6 +126,54 @@ const pivotPicker = new RotationCentrePicker({
 });
 pivotButton.addEventListener('click', () => { pivotPicker.enabled = !pivotPicker.enabled; });
 document.querySelector<HTMLButtonElement>('#pivot-menu')!.addEventListener('click', () => { pivotPicker.enabled = true; });
+const locateButton = document.querySelector<HTMLButtonElement>('#locate-toggle')!;
+const locationDot = document.querySelector<HTMLElement>('#location-dot')!;
+const locationInfo = document.querySelector<HTMLElement>('#location-info')!;
+let locationInfoTimer = 0;
+function showLocationState(state: LocationState) {
+  const active = state.kind === 'waiting' || state.kind === 'fix';
+  locateButton.setAttribute('aria-pressed', String(active));
+  locateButton.title = active ? 'Stop showing my location' : 'Show my location (GPS)';
+  locateButton.setAttribute('aria-label', locateButton.title);
+  clearTimeout(locationInfoTimer);
+  locationInfo.classList.toggle('error', state.kind === 'error');
+  if (state.kind === 'off') locationInfo.hidden = true;
+  else if (state.kind === 'waiting') { locationInfo.textContent = 'Waiting for GPS fix…'; locationInfo.hidden = false; }
+  else if (state.kind === 'error') {
+    locationInfo.textContent = state.message; locationInfo.hidden = false;
+    locationInfoTimer = window.setTimeout(() => { locationInfo.hidden = true; }, 8000);
+  } else {
+    const text = formatFix(state.fix);
+    locationInfo.replaceChildren();
+    const first = document.createElement('div');
+    const accuracy = document.createElement('strong'); accuracy.textContent = text.accuracy;
+    first.append(accuracy, ` · ${text.height}`);
+    const second = document.createElement('div'); second.textContent = text.outside || text.coordinates;
+    locationInfo.append(first, second); locationInfo.hidden = false;
+  }
+  invalidateView();
+}
+const deviceLocation = new DeviceLocation({
+  scene,
+  getModel: () => hasModel ? { origin: worldOrigin, box: activeBox } : undefined,
+  heightAt: (east, north) => surfaceScene.heightAt(east, north),
+  onState: showLocationState,
+  onFirstFix: fix => animateRotationCentre(camera, controls, fix.local),
+});
+function toggleLocation() { if (deviceLocation.active) deviceLocation.stop(); else deviceLocation.start(); }
+locateButton.addEventListener('click', toggleLocation);
+document.querySelector<HTMLButtonElement>('#locate-menu')!.addEventListener('click', toggleLocation);
+function updateLocationDot() {
+  const fix = deviceLocation.state.kind === 'fix' ? deviceLocation.state.fix : undefined;
+  const width = canvas.clientWidth, height = canvas.clientHeight;
+  const screen = fix && deviceLocation.active ? markerScreenPosition(fix.local, camera, width, height) : undefined;
+  if (!screen) { locationDot.hidden = true; return; }
+  // Keep an off-screen position visible at the edge, pointing the way to it.
+  const x = Math.min(Math.max(screen.x, 10), width - 10), y = Math.min(Math.max(screen.y, 10), height - 10);
+  locationDot.classList.toggle('edge', !screen.onScreen);
+  locationDot.style.transform = `translate(${x}px, ${y}px)`;
+  locationDot.hidden = false;
+}
 canvas.addEventListener('webglcontextrestored', invalidateView);
 const lockTilt = document.querySelector<HTMLInputElement>('#lock-tilt')!;
 // Start unlocked even when the browser restores previous checkbox values.
@@ -192,6 +244,7 @@ function draw(model: Model, label: string) {
   const origin = bounds.getCenter(new THREE.Vector3());
   const centered = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(), bounds.getSize(new THREE.Vector3()));
   activeBox = bounds.isEmpty() ? new THREE.Box3() : centered;
+  worldOrigin.copy(origin); hasModel = !bounds.isEmpty();
   boundingBox.box.copy(centered);
   boundingBox.visible = !bounds.isEmpty() && document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
   for (const scrap of model.scraps) {
@@ -212,6 +265,7 @@ function draw(model: Model, label: string) {
   applyWallCulling();
   setStatusText(status, `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`);
   setCameraView(camera, controls, activeBox, 'fit');
+  deviceLocation.update();
 }
 async function loadFile(file: File) {
   const id = ++loadId;
@@ -275,6 +329,7 @@ function loadLargeFile(file: File, id: number) {
         loadingLargeWalls = true;
         invalidateView();
         const origin = new THREE.Vector3(...model.origin); modelOrigin = origin;
+        worldOrigin.copy(origin); hasModel = true;
         activeBox = new THREE.Box3(new THREE.Vector3(...model.min).sub(origin), new THREE.Vector3(...model.max).sub(origin));
         boundingBox.box.copy(activeBox);
         boundingBox.visible = document.querySelector<HTMLInputElement>('#bounding-box')!.checked;
@@ -284,10 +339,12 @@ function loadLargeFile(file: File, id: number) {
         updateProjectTitle(model.title, file.name);
         centreline.setModel(model, origin);
         updateLegend(model); setCameraView(camera, controls, activeBox, 'fit');
+        deviceLocation.update();
         worker.postMessage({ acknowledge: true });
       } else if (message.type === 'surface') {
         phase = 'Preparing surface';
         surfaceScene.add(message.surface, modelOrigin);
+        deviceLocation.update();
         worker.postMessage({ acknowledge: true });
       } else if (message.type === 'batch') {
         phase = 'Rendering full-detail walls';
@@ -334,6 +391,7 @@ function frame(time = performance.now()) {
   autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
   if (sceneDirty) {
     indicators.update();
+    updateLocationDot();
     centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
   }
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
