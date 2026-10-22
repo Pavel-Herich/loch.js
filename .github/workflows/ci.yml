@@ -28,10 +28,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: 'web-pwa-${{ steps.build.outputs.build-id }}', path: dist/ }
       - uses: actions/upload-pages-artifact@v3
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         with: { path: dist/ }
   pages:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     needs: web
     runs-on: ubuntu-latest
     permissions: { pages: write, id-token: write }
