@@ -37,9 +37,10 @@ describe('centreline shot types and colours', () => {
     expect(small.shots[0].from).toEqual([1000, 2000, 100]);
   });
 
-  it('shows all types by default and combines surface/underground and splay/duplicate filters', () => {
-    const defaults = { ...DEFAULT_CENTRELINE_OPTIONS };
-    expect(defaults).toEqual({ surface: true, underground: true, splay: true, duplicate: true, color: 'altitude', stations: false, entrance: false, fixed: false, continuation: false, label: 'none', entranceLabel: 'none' });
+  it('shows only underground survey legs by default and combines surface/underground and splay/duplicate filters', () => {
+    expect({ ...DEFAULT_CENTRELINE_OPTIONS }).toEqual({ surface: false, underground: true, splay: false, duplicate: false, color: 'altitude', stations: false, entrance: false, fixed: false, continuation: false, label: 'none', entranceLabel: 'none' });
+    expect(shots.every(shot => centrelineVisible(shot.flags, DEFAULT_CENTRELINE_OPTIONS) === !shot.flags)).toBe(true);
+    const defaults = { ...DEFAULT_CENTRELINE_OPTIONS, surface: true, splay: true, duplicate: true };
     expect(shots.every(shot => centrelineVisible(shot.flags, defaults))).toBe(true);
     for (const shot of shots) {
       expect(centrelineVisible(shot.flags, { ...defaults, surface: false })).toBe(!(shot.flags & SHOT_SURFACE));
@@ -85,7 +86,7 @@ describe('centreline shot types and colours', () => {
     const dispose = vi.fn(); geometry.addEventListener('dispose', dispose);
     scene.setModel(model, new THREE.Vector3()); expect(dispose).toHaveBeenCalledOnce();
     expect(scene.options.surface).toBe(false); expect(scene.options.splay).toBe(false); expect(scene.options.color).toBe('default');
-    expect(group.children.filter(child => child.visible)).toHaveLength(2);
+    expect(group.children.filter(child => child.visible)).toHaveLength(1);
     expect(group.visible).toBe(false); expect(onChange).toHaveBeenCalledOnce();
     scene.clear(); expect(group.children).toHaveLength(0);
   });

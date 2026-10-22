@@ -5,7 +5,7 @@ import type { Station, StationLabel } from './lox-stations';
 
 type AltitudeRange = { minZ: number; maxZ: number };
 export type CentrelineOptions = StationOptions & { color: 'altitude' | 'default'; duplicate: boolean };
-export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true, stations: false, entrance: false, fixed: false, continuation: false, label: 'none', entranceLabel: 'none' };
+export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: false, underground: true, color: 'altitude', splay: false, duplicate: false, stations: false, entrance: false, fixed: false, continuation: false, label: 'none', entranceLabel: 'none' };
 
 export function centrelineVisible(flags: number, options: CentrelineOptions) {
   return Boolean((flags & SHOT_SURFACE ? options.surface : options.underground)

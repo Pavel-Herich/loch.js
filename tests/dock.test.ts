@@ -28,9 +28,9 @@ describe('dock label cycles', () => {
 
   it('shrinks entrance symbols with distance from full size down to 20 %', () => {
     expect(entranceSize(50)).toBe(1);
-    expect(entranceSize(200)).toBe(1);
-    expect(entranceSize(400)).toBeCloseTo(.5, 9);
-    expect(entranceSize(1000)).toBeCloseTo(.2, 9);
+    expect(entranceSize(800)).toBe(1);
+    expect(entranceSize(1600)).toBeCloseTo(.5, 9);
+    expect(entranceSize(4000)).toBeCloseTo(.2, 9);
     expect(entranceSize(20000)).toBe(.2);
   });
 });

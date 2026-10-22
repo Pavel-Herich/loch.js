@@ -116,3 +116,44 @@ footer a{color:#8ed9ff;white-space:nowrap;flex-shrink:0}
 
 #project-title{position:absolute;top:calc(16px + env(safe-area-inset-top,0px));left:16px;max-width:calc(50% - 230px);margin:0;padding:8px 12px;border-radius:6px;background:#15263480;font-size:1rem;font-weight:600;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
 @media(max-width:1000px){#project-title{top:calc(88px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);max-width:calc(100% - 32px);padding:4px 10px;font-size:.9rem}}
+
+#object-markers{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
+.object-marker{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
+.object-marker::before{content:"";position:absolute;left:-6px;top:-6px;width:12px;height:12px;background:#ff9f1a;border:2px solid #09131c;transform:rotate(45deg)}
+.object-marker span{position:absolute;left:10px;top:-9px;white-space:nowrap;font-size:12px;color:#ffd9a3;text-shadow:0 0 3px #09131c,0 0 3px #09131c}
+#object-dialog,#objects-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
+#object-dialog::backdrop,#objects-dialog::backdrop{background:#0009}
+#object-form{display:flex;flex-direction:column}
+.object-head{display:flex;flex-direction:column;gap:6px;padding:16px 16px 12px;border-bottom:1px solid #3c5668}
+.object-head label{font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;color:#b8ccd9}
+.object-head input{width:100%;padding:.55rem .65rem;border:1px solid #678599;border-radius:8px;background:#09131c;color:inherit;font:600 1.05rem system-ui,sans-serif}
+.object-table{width:100%;border-collapse:collapse;font-size:.9rem}
+.object-table th{width:28%;padding:10px 8px 10px 16px;text-align:left;vertical-align:top;font-weight:500;color:#b8ccd9}
+.object-table td{padding:10px 16px 10px 8px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.object-table tr+tr{border-top:1px solid #253b4b}
+.object-table textarea{width:100%;min-height:4.5em;padding:.45rem;border:1px solid #678599;border-radius:6px;background:#09131c;color:inherit;font:inherit;resize:vertical}
+#object-name-preview{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem}
+.object-photos{display:flex;flex-wrap:wrap;gap:8px}
+.object-photos:not(:empty){margin-bottom:8px}
+.object-photos figure{position:relative;margin:0;width:72px;height:72px}
+.object-photos img{width:100%;height:100%;object-fit:cover;border-radius:6px;display:block}
+.object-photos button{position:absolute;top:-6px;right:-6px;width:22px;height:22px;padding:0;border-radius:50%;line-height:1;font-size:15px}
+.photo-add{display:inline-flex;align-items:center;padding:.4rem .75rem;border:1px solid #678599;border-radius:8px;background:#233b4b;cursor:pointer}
+.photo-add input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.photo-add:focus-within{outline:2px solid #8ed9ff;outline-offset:2px}
+.object-error{margin:0 16px;color:#ffb36b;font-size:.85rem}
+.object-error:empty{display:none}
+#object-form .dialog-actions,#objects-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
+button.primary{background:#215a75;border-color:#8ed9ff}
+#objects-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
+.objects-hint{margin:0;padding:0 16px 8px;font-size:.8rem;color:#b8ccd9}
+.objects-list{list-style:none;margin:0;padding:0 16px;max-height:calc(100dvh - 230px);overflow:auto}
+.objects-list li{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid #253b4b}
+.objects-list img{width:56px;height:56px;object-fit:cover;border-radius:6px;flex-shrink:0}
+.objects-list div{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;font-size:.82rem;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.objects-list strong{font-size:.9rem}
+.objects-list .object-note{color:#b8ccd9;white-space:pre-wrap}
+.objects-list button{flex-shrink:0;font-size:.8rem}
+.objects-list button[data-armed="true"]{border-color:#ffb36b;color:#ffb36b}
+.objects-empty{margin:0;padding:16px 0;color:#b8ccd9;font-size:.9rem}
+@media(max-width:450px){.object-table th{width:24%;padding-left:12px}.object-table td{padding-right:12px}}

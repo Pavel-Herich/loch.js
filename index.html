@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><div id="object-markers" aria-label="Field objects" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
   <div id="top-indicators">
     <div id="compass-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="Compass">
       <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="compass-index" d="m31 1 3 5 3-5z"/>
@@ -15,7 +15,7 @@
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
-    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button></div></details>
+    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button></div></details>
     <details class="menu"><summary>Scene</summary><div class="menu-items">
       <details class="control-group"><summary>Visibility</summary><div class="group-items">
         <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
@@ -23,13 +23,14 @@
         <label><input id="walls" type="checkbox" checked/> Walls</label>
         <label><input id="surface" type="checkbox" checked/> Surface</label>
         <label><input id="indicators" type="checkbox" checked/> Indicators</label>
+        <label><input id="objects-visible" type="checkbox" checked/> Field objects</label>
       </div></details>
       <details class="control-group"><summary>Centreline</summary><div class="group-items">
-        <label><input id="centreline-surface" type="checkbox" checked/> Surface</label>
+        <label><input id="centreline-surface" type="checkbox"/> Surface</label>
         <label><input id="centreline-underground" type="checkbox" checked/> Underground</label>
         <label>Color <select id="centreline-color" aria-label="Centreline color"><option value="altitude" selected>Altitude</option><option value="default">Default</option></select></label>
-        <label><input id="centreline-splay" type="checkbox" checked/> Splay</label>
-        <label><input id="centreline-duplicate" type="checkbox" checked/> Duplicate</label>
+        <label><input id="centreline-splay" type="checkbox"/> Splay</label>
+        <label><input id="centreline-duplicate" type="checkbox"/> Duplicate</label>
         <details class="control-group"><summary>Stations</summary><div class="group-items">
           <label><input id="station-entrance" type="checkbox"/> Entrance</label>
           <label>Entrance label <select id="entrance-label" aria-label="Entrance label"><option value="none" selected>(None)</option><option value="name">Name</option><option value="altitude">Altitude</option></select></label>
@@ -90,6 +91,10 @@
   <button id="locate-toggle" type="button" aria-label="Show my location" aria-pressed="false" title="Show my location (GPS)"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2z"/>
   </svg></button>
+  <button id="object-add" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
+    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  </svg></button>
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="entrance-toggle" type="button" aria-pressed="false" aria-label="Show cave entrances" title="Show cave entrances"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M3.5 19.5h4.4c0-2-3-3-3-6.4 0-4 3.2-6.6 6.6-6.6 3.6 0 5.7 2.8 5.4 6.2-.3 3-1.9 4.8-3.5 6.3v.5h4.6" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -99,4 +104,18 @@
   <button id="station-label-toggle" class="label-toggle" type="button" aria-label="Station labels: off" title="Station labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
   </div>
   <input id="file" type="file" accept=".lox,.3d,.plt" aria-label="Open cave model file" hidden/>
-</header></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>
+</header></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="object-dialog" aria-labelledby="object-title-label"><form id="object-form" novalidate>
+  <header class="object-head"><label id="object-title-label" for="object-title">Name</label><input id="object-title" type="text" autocomplete="off" enterkeyhint="done" placeholder="e.g. Závrt pod hrebeňom"/></header>
+  <table class="object-table"><tbody>
+    <tr><th scope="row">Saved as</th><td id="object-name-preview"></td></tr>
+    <tr><th scope="row">Position</th><td id="object-position" aria-live="polite">Waiting for GPS fix…</td></tr>
+    <tr><th scope="row"><label for="object-note">Note</label></th><td><textarea id="object-note" rows="3"></textarea></td></tr>
+    <tr><th scope="row">Photo</th><td><div id="object-photos" class="object-photos"></div><label class="photo-add"><input id="object-photo" type="file" accept="image/*" multiple/>Add photo</label></td></tr>
+  </tbody></table>
+  <p id="object-error" class="object-error" role="alert"></p>
+  <div class="dialog-actions"><button type="button" id="object-cancel">Cancel</button><button type="submit" id="object-save" class="primary" disabled>Save</button></div>
+</form></dialog><dialog id="objects-dialog" aria-labelledby="objects-heading"><h2 id="objects-heading">Field objects (<span id="objects-count">0</span>)</h2>
+  <p class="objects-hint">Stored on this device until you delete them. Export saves a ZIP with objects.csv (S-JTSK Y/X), objects.geojson (WGS 84) and the photos.</p>
+  <ul id="objects-list" class="objects-list"></ul>
+  <div class="dialog-actions"><button type="button" id="objects-export" class="primary">Export ZIP</button><button type="button" id="objects-close">Close</button></div>
+</dialog><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

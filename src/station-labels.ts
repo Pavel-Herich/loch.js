@@ -9,7 +9,7 @@ export type StationMarker = 'entrance' | 'fixed' | 'continuation';
 const markerScale = (marker: StationMarker) => marker === 'fixed' ? 1 / 3 : .7;
 
 /** Entrance symbols keep full size up to this view depth (metres), then shrink with distance. */
-export const ENTRANCE_FULL_SIZE_DEPTH = 200;
+export const ENTRANCE_FULL_SIZE_DEPTH = 800;
 /** Smallest entrance symbol, as a fraction of full size (80 % smaller). */
 export const ENTRANCE_MIN_SIZE = .2;
 export function entranceSize(depth: number) {
@@ -23,7 +23,7 @@ export function drawStationMarker(context: CanvasRenderingContext2D, marker: Sta
   const scale = markerScale(marker) * size; context.scale(scale, scale);
   context.lineWidth = 1.5; context.strokeStyle = '#09131c';
   if (marker === 'entrance') {
-    // Omega outline of public/icon.svg in black, haloed by a thin (1 px) white line.
+    // Omega outline of public/icon.svg in white, edged by a thin (1 px) black line.
     context.transform(OMEGA_SCALE, 0, 0, OMEGA_SCALE, -64.5 * OMEGA_SCALE, -62 * OMEGA_SCALE);
     context.lineCap = 'round'; context.lineJoin = 'round';
     context.beginPath(); context.moveTo(20, 102); context.lineTo(48, 102);
@@ -32,8 +32,8 @@ export function drawStationMarker(context: CanvasRenderingContext2D, marker: Sta
     context.bezierCurveTo(91, 22, 104, 39, 102, 60);
     context.bezierCurveTo(100, 79, 90, 90, 80, 99);
     context.lineTo(80, 102); context.lineTo(109, 102);
-    context.strokeStyle = '#ffffff'; context.lineWidth = 16 + 2 / (scale * OMEGA_SCALE); context.stroke();
-    context.strokeStyle = '#000000'; context.lineWidth = 16; context.stroke();
+    context.strokeStyle = '#000000'; context.lineWidth = 16 + 2 / (scale * OMEGA_SCALE); context.stroke();
+    context.strokeStyle = '#ffffff'; context.lineWidth = 16; context.stroke();
   } else if (marker === 'fixed') {
     context.beginPath(); context.moveTo(0, -9); context.lineTo(8, 7); context.lineTo(-8, 7); context.closePath();
     context.fillStyle = '#ff3030'; context.fill(); context.stroke();

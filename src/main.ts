@@ -19,6 +19,9 @@ import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
 import { ViewLocks } from './view-locks';
+import { FieldObjects } from './objects-ui';
+import { ObjectStore } from './objects';
+import { looksLikeSJTSK } from './geo';
 import { animateRotationCentre, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
 import { modelFileFormat, parseModelFile } from './model-file';
@@ -151,6 +154,12 @@ function showLocationState(state: LocationState) {
   }
   invalidateView();
 }
+const fieldObjects = new FieldObjects({
+  store: new ObjectStore(),
+  heightAt: (east, north) => surfaceScene.heightAt(east, north),
+  getOrigin: () => hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y) ? worldOrigin : undefined,
+  onChange: () => invalidateView(),
+});
 const deviceLocation = new DeviceLocation({
   scene,
   getModel: () => hasModel ? { origin: worldOrigin, box: activeBox } : undefined,
@@ -405,6 +414,7 @@ function frame(time = performance.now()) {
   if (sceneDirty) {
     indicators.update();
     updateLocationDot();
+    fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);
     centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
   }
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
