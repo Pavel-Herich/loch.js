@@ -35,7 +35,7 @@ function fixture(comments = false) {
   return bytes.buffer;
 }
 async function large(data: ArrayBuffer) { return streamLargeLox(new Blob([data]), { progress() {}, async ready() {}, async batch() {} }); }
-const options: StationOptions = { stations: true, entrance: false, fixed: false, continuation: false, label: 'none', surface: true, underground: true, splay: true };
+const options: StationOptions = { stations: true, entrance: false, fixed: false, continuation: false, label: 'none', entranceLabel: 'none', surface: true, underground: true, splay: true };
 
 describe('station metadata, dots and labels', () => {
   it('preserves station names, flags, elevations and nested survey paths identically in both loaders', async () => {

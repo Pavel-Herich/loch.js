@@ -5,7 +5,7 @@ import type { Station, StationLabel } from './lox-stations';
 
 type AltitudeRange = { minZ: number; maxZ: number };
 export type CentrelineOptions = StationOptions & { color: 'altitude' | 'default'; duplicate: boolean };
-export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true, stations: false, entrance: false, fixed: false, continuation: false, label: 'none' };
+export const DEFAULT_CENTRELINE_OPTIONS: CentrelineOptions = { surface: true, underground: true, color: 'altitude', splay: true, duplicate: true, stations: false, entrance: false, fixed: false, continuation: false, label: 'none', entranceLabel: 'none' };
 
 export function centrelineVisible(flags: number, options: CentrelineOptions) {
   return Boolean((flags & SHOT_SURFACE ? options.surface : options.underground)
@@ -107,7 +107,8 @@ export function initializeCentrelineControls(centreline: CentrelineScene) {
   };
   const color = document.querySelector<HTMLSelectElement>('#centreline-color')!;
   const label = document.querySelector<HTMLSelectElement>('#station-label')!;
-  label.value = 'none';
+  const entranceLabel = document.querySelector<HTMLSelectElement>('#entrance-label')!;
+  label.value = 'none'; entranceLabel.value = 'none';
   color.value = 'altitude';
   for (const [key, control] of Object.entries(controls)) control.checked = DEFAULT_CENTRELINE_OPTIONS[key as keyof typeof controls];
   const update = () => centreline.setOptions({
@@ -115,7 +116,8 @@ export function initializeCentrelineControls(centreline: CentrelineScene) {
     color: color.value === 'default' ? 'default' : 'altitude', splay: controls.splay.checked, duplicate: controls.duplicate.checked,
     stations: controls.stations.checked, entrance: controls.entrance.checked, fixed: controls.fixed.checked,
     continuation: controls.continuation.checked, label: label.value as StationLabel,
+    entranceLabel: entranceLabel.value as StationLabel,
   });
-  for (const control of [...Object.values(controls), color, label]) control.addEventListener('change', update);
+  for (const control of [...Object.values(controls), color, label, entranceLabel]) control.addEventListener('change', update);
   update();
 }

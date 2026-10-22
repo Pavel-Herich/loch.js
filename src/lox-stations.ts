@@ -6,7 +6,7 @@ export const STATION_FIXED = 4;
 export const STATION_CONTINUATION = 8;
 export type Survey = { id: number; parent: number; name: string };
 export type Station = { id: number; surveyId: number; name: string; comment?: string; flags: number; position: Point; survey: string; fullSurvey: string };
-export type StationLabel = 'none' | 'number' | 'short' | 'full' | 'altitude' | 'comments';
+export type StationLabel = 'none' | 'number' | 'short' | 'full' | 'altitude' | 'comments' | 'name';
 
 export function stationNameReference(data: DataView, start: number, dataSize: number) {
   return stationTextReference(data, start + 8, dataSize, 'name');
@@ -43,6 +43,8 @@ export function temporaryStation(station: Station) { return station.name === '.'
 export function stationLabel(station: Station, mode: StationLabel) {
   if (mode === 'none' || temporaryStation(station)) return '';
   if (mode === 'comments') return station.comment?.trim() ?? '';
+  // Entrance names live in the station comment in Therion exports; fall back to the survey.
+  if (mode === 'name') return station.comment?.trim() || station.survey || station.name;
   if (mode === 'altitude') return `${station.position[2].toFixed(0)} m`;
   const name = station.name || String(station.id);
   const survey = mode === 'short' ? station.survey : mode === 'full' ? station.fullSurvey : '';

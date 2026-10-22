@@ -142,7 +142,7 @@ describe('automatic rotation', () => {
     rotation.dispose(); controls.dispose();
   });
 
-  it('works with Walker enabled and pauses for its interaction events', () => {
+  it('keeps turning with orbit input disabled and pauses for interaction events', () => {
     const { controls, rotation } = setup(); controls.enabled = false; rotation.enabled = true;
     rotation.update(0); const angle = controls.getAzimuthalAngle(); rotation.update(3750);
     expect(Math.abs(angleDifference(controls.getAzimuthalAngle(), angle))).toBeCloseTo(Math.PI / 2);

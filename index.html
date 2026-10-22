@@ -1,4 +1,18 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><header id="toolbar">
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
+  <div id="top-indicators">
+    <div id="compass-indicator" class="orientation-indicator" role="img" aria-label="Compass">
+      <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="compass-index" d="m31 1 3 5 3-5z"/>
+        <g id="compass-rose"><text class="compass-north" x="34" y="10">N</text><text x="61" y="38">E</text><text x="34" y="65">S</text><text x="7" y="38">W</text><path class="compass-needle-north" d="m34 14-5 20h10z"/><path class="compass-needle-south" d="m34 54-5-20h10z"/></g><circle cx="34" cy="34" r="2" fill="currentColor"/>
+      </svg><span id="bearing-value">000°</span>
+    </div>
+    <div id="tilt-indicator" class="orientation-indicator" role="img" aria-label="View tilt">
+      <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="tilt-horizon" d="M8 34h52M34 8v5m0 42v5"/><g id="tilt-arrow"><path class="tilt-direction" d="M17 34h31"/><path class="tilt-tip" d="m52 34-9-5v10z"/></g><circle cx="34" cy="34" r="2" fill="currentColor"/></svg><span id="tilt-value">0°</span>
+    </div>
+    <div id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></div>
+    <div id="legend"></div>
+  </div>
+</aside><header id="toolbar">
+  <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
     <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button></div></details>
@@ -18,6 +32,7 @@
         <label><input id="centreline-duplicate" type="checkbox" checked/> Duplicate</label>
         <details class="control-group"><summary>Stations</summary><div class="group-items">
           <label><input id="station-entrance" type="checkbox"/> Entrance</label>
+          <label>Entrance label <select id="entrance-label" aria-label="Entrance label"><option value="none" selected>(None)</option><option value="name">Name</option><option value="altitude">Altitude</option></select></label>
           <label><input id="station-fixed" type="checkbox"/> Fixed</label>
           <label><input id="station-continuation" type="checkbox"/> Continuation</label>
           <label><input id="station-all" type="checkbox"/> All</label>
@@ -35,7 +50,6 @@
       </div></details>
     </div></details>
     <details class="menu"><summary>View</summary><div class="menu-items">
-      <label><input id="walker" type="checkbox"/> Walker</label>
       <label><input id="autorotate" type="checkbox"/> Autorotate</label>
       <label><input id="perspective" type="checkbox" checked/> Perspective</label>
       <label><input id="lock-tilt" type="checkbox"/> Lock tilt</label>
@@ -58,12 +72,12 @@
       <button id="fullscreen" type="button">Full screen</button>
     </div></details>
   </nav>
-  <button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menus" hidden><span class="hamburger" aria-hidden="true"></span></button>
-  <button id="walker-toggle" type="button" aria-label="Walker mode" aria-pressed="false" title="Enable Walker mode"><svg viewBox="0 0 24 24" aria-hidden="true">
-    <path fill="currentColor" d="M5.7 5.5C5.6 3.9 6.4 2.1 7.6 2.1c1.5-.1 3.3.9 4.4 2l3.5-.7c1.2-.2 1.6 1.5.4 1.8l-4.4 1z"/>
-    <circle cx="8.8" cy="6.7" r="3.1" fill="currentColor"/>
-    <path d="m8.8 10-.3 6.1m.1-5.8-4.2 5m4.7-4.9 4 4 2.4-1.3M8.5 16.1l-1.7 3.3-2 2.6m3.7-5.9 3.1 3.1 1.8 2.6" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
-    <g transform="rotate(40 16 12)"><rect x="14" y="9.5" width="4" height="5.5" rx=".8" fill="currentColor"/><path d="M16 9.5V6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></g>
+  </div>
+  <div id="dock" role="toolbar" aria-label="Quick tools">
+  <button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu-panel" title="Menu"><span class="hamburger" aria-hidden="true"></span></button>
+  <span class="dock-separator" aria-hidden="true"></span>
+  <button id="ortho-toggle" type="button" aria-pressed="false" aria-label="Orthographic view" title="Orthographic view"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 3v17M3 20.5h18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M12 15h5v5.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
   </svg></button>
   <button id="pivot-toggle" type="button" aria-label="Set rotation centre" aria-pressed="false" title="Set rotation centre: click the model"><svg viewBox="0 0 24 24" aria-hidden="true">
     <circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -73,18 +87,16 @@
   <button id="locate-toggle" type="button" aria-label="Show my location" aria-pressed="false" title="Show my location (GPS)"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2z"/>
   </svg></button>
-  <button id="autorotate-toggle" type="button" aria-label="Start autorotation" aria-pressed="false" title="Start autorotation"><svg viewBox="0 0 24 24" aria-hidden="true"><path id="autorotate-symbol" fill="currentColor" d="M8 5v14l11-7z"/></svg></button>
-  <input id="file" type="file" accept=".lox,.3d,.plt" aria-label="Open cave model file" hidden/>
-</header><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
-  <div id="legend"></div>
-  <div class="orientation-indicators">
-    <div id="compass-indicator" class="orientation-indicator" role="img" aria-label="Compass">
-      <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="compass-index" d="m31 1 3 5 3-5z"/>
-        <g id="compass-rose"><text class="compass-north" x="34" y="10">N</text><text x="61" y="38">E</text><text x="34" y="65">S</text><text x="7" y="38">W</text><path class="compass-needle-north" d="m34 14-5 20h10z"/><path class="compass-needle-south" d="m34 54-5-20h10z"/></g><circle cx="34" cy="34" r="2" fill="currentColor"/>
-      </svg><span id="bearing-value">000°</span>
-    </div>
-    <div id="tilt-indicator" class="orientation-indicator" role="img" aria-label="View tilt">
-      <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="tilt-horizon" d="M8 34h52M34 8v5m0 42v5"/><g id="tilt-arrow"><path class="tilt-direction" d="M17 34h31"/><path class="tilt-tip" d="m52 34-9-5v10z"/></g><circle cx="34" cy="34" r="2" fill="currentColor"/></svg><span id="tilt-value">0°</span>
-    </div>
+  <span class="dock-separator" aria-hidden="true"></span>
+  <button id="entrance-toggle" type="button" aria-pressed="false" aria-label="Show cave entrances" title="Show cave entrances"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M3.5 19.5h4.4c0-2-3-3-3-6.4 0-4 3.2-6.6 6.6-6.6 3.6 0 5.7 2.8 5.4 6.2-.3 3-1.9 4.8-3.5 6.3v.5h4.6" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg></button>
+  <button id="entrance-label-toggle" class="label-toggle" type="button" aria-label="Entrance labels: off" title="Entrance labels: off"><span class="label-glyph" aria-hidden="true">A1</span><span class="label-badge" aria-hidden="true"></span></button>
+  <span class="dock-separator" aria-hidden="true"></span>
+  <button id="stations-toggle" type="button" aria-pressed="false" aria-label="Show survey stations" title="Show survey stations"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/>
+  </svg></button>
+  <button id="station-label-toggle" class="label-toggle" type="button" aria-label="Station labels: off" title="Station labels: off"><span class="label-glyph" aria-hidden="true">A1</span><span class="label-badge" aria-hidden="true"></span></button>
   </div>
-</aside><aside id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></aside></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>
+  <input id="file" type="file" accept=".lox,.3d,.plt" aria-label="Open cave model file" hidden/>
+</header></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

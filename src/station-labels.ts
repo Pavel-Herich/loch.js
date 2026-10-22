@@ -75,7 +75,7 @@ export class StationLabels {
   }
   setVisible(visible: boolean) { if (this.canvas) this.canvas.hidden = !visible; }
 
-  draw(camera: Camera, width: number, height: number, origin: Vector3, mode: StationLabel, visible: (station: Station) => boolean, marker?: (station: Station) => StationMarker | undefined) {
+  draw(camera: Camera, width: number, height: number, origin: Vector3, mode: StationLabel | ((station: Station) => StationLabel), visible: (station: Station) => boolean, marker?: (station: Station) => StationMarker | undefined) {
     const canvas = this.canvas;
     if (!canvas || canvas.hidden || width <= 0 || height <= 0) return;
     const ratio = Math.min(globalThis.devicePixelRatio || 1, 2, Math.sqrt(8_388_608 / (width * height)));
@@ -115,13 +115,15 @@ export class StationLabels {
       for (const station of this.ordinary) mark(station);
     }
     if (mode === 'none') return;
+    const modeFor = typeof mode === 'function' ? mode : () => mode;
     const draw = (station: Station) => {
-      if (!visible(station) || !project(station)) return;
+      const labelMode = modeFor(station);
+      if (labelMode === 'none' || !visible(station) || !project(station)) return;
       const symbol = marker?.(station);
       const left = screenX + (symbol ? 10 * markerScale(symbol) + 4 : 3), top = screenY - HEIGHT / 2;
       if (left < 0 || top < 0 || left + 10 > width || top + HEIGHT > height
         || this.occupancy.overlaps(left, top, 10, HEIGHT)) return;
-      let text = stationLabel(station, mode);
+      let text = stationLabel(station, labelMode);
       if (!text) return;
       // Bound measurement work for long survey paths and comments.
       if (text.length > 256) text = text.slice(0, 255).replace(/[\uD800-\uDBFF]$/, '') + '…';
@@ -144,6 +146,7 @@ export class StationLabels {
       context.strokeText(text, textX, top + HEIGHT / 2); context.fillText(text, textX, top + HEIGHT / 2);
     };
     for (const station of this.commented) draw(station);
+    // Ordinary stations have no comment text, so a fixed comments mode can skip them.
     if (mode !== 'comments') for (const station of this.ordinary) draw(station);
   }
   clear() {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { StationLabels, type StationMarker } from './station-labels';
 import { STATION_SURFACE, STATION_ENTRANCE, STATION_FIXED, STATION_CONTINUATION, temporaryStation, type Station, type StationLabel } from './lox-stations';
 
-export type StationOptions = { stations: boolean; entrance: boolean; fixed: boolean; continuation: boolean; label: StationLabel; surface: boolean; underground: boolean; splay: boolean };
+export type StationOptions = { stations: boolean; entrance: boolean; fixed: boolean; continuation: boolean; label: StationLabel; entranceLabel: StationLabel; surface: boolean; underground: boolean; splay: boolean };
 type Entry = { independent: boolean; points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial> };
 export function stationMarker(station: Station, options: StationOptions): StationMarker | undefined {
   if (temporaryStation(station)) return;
@@ -15,6 +15,10 @@ export function stationVisible(station: Station, options: StationOptions) {
   return !temporaryStation(station) && Boolean(stationMarker(station, options)
     || options.stations && (station.flags & (STATION_SURFACE | STATION_ENTRANCE | STATION_FIXED) || options.underground));
 }
+/** Entrance symbols use their own label mode; every other visible station uses the station label. */
+export function stationLabelMode(station: Station, options: StationOptions): StationLabel {
+  return stationMarker(station, options) === 'entrance' ? options.entranceLabel : options.label;
+}
 function overlayVisible(options: StationOptions) {
   return options.entrance || options.fixed || options.continuation || options.stations && options.label !== 'none';
 }
@@ -23,7 +27,7 @@ function overlayVisible(options: StationOptions) {
 export class StationScene {
   private entries: Entry[] = [];
   private origin = new THREE.Vector3();
-  private options: StationOptions = { stations: false, entrance: false, fixed: false, continuation: false, label: 'none', surface: true, underground: true, splay: true };
+  private options: StationOptions = { stations: false, entrance: false, fixed: false, continuation: false, label: 'none', entranceLabel: 'none', surface: true, underground: true, splay: true };
   private labels: StationLabels;
   constructor(private group: THREE.Group, canvas?: HTMLCanvasElement) { this.labels = new StationLabels(canvas); }
 
@@ -61,7 +65,7 @@ export class StationScene {
   updateLabels(camera: THREE.Camera, width: number, height: number) {
     const visible = this.group.visible && overlayVisible(this.options);
     this.labels.setVisible(visible);
-    if (visible) this.labels.draw(camera, width, height, this.origin, this.options.label, station => stationVisible(station, this.options), (this.options.entrance || this.options.fixed || this.options.continuation) ? station => stationMarker(station, this.options) : undefined);
+    if (visible) this.labels.draw(camera, width, height, this.origin, station => stationLabelMode(station, this.options), station => stationVisible(station, this.options), (this.options.entrance || this.options.fixed || this.options.continuation) ? station => stationMarker(station, this.options) : undefined);
   }
 
   clear() {

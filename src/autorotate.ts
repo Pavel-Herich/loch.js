@@ -35,7 +35,7 @@ export class AutoRotation {
     const seconds = !rotating || this.previousTime === undefined ? 0 : Math.max(0, (time - this.previousTime) / 1000);
     this.previousTime = rotating ? time : undefined;
     const previous = this.controls.autoRotate;
-    // Only timed frame updates may add a turn. Fit, Walker and projection changes
+    // Only timed frame updates may add a turn. Fit and projection changes
     // also call controls.update(), and must not add a frame-dependent rotation.
     this.controls.autoRotate = rotating;
     try { this.controls.update(seconds); }
@@ -56,19 +56,22 @@ export function initializeAutorotateControls(controls: OrbitControls) {
   const rotation = new AutoRotation(controls, direction);
   const wakeLock = new AnimationWakeLock();
   const checkbox = document.querySelector<HTMLInputElement>('#autorotate')!;
-  const button = document.querySelector<HTMLButtonElement>('#autorotate-toggle')!;
-  const symbol = document.querySelector<SVGPathElement>('#autorotate-symbol')!;
+  // The floating play/pause button is optional; the View menu checkbox is always present.
+  const button = document.querySelector<HTMLButtonElement>('#autorotate-toggle');
+  const symbol = document.querySelector<SVGPathElement>('#autorotate-symbol');
   function setEnabled(enabled: boolean) {
     rotation.enabled = enabled; checkbox.checked = enabled;
     wakeLock.enabled = enabled;
     try { localStorage.setItem(AUTOROTATE_DIRECTION_KEY, String(rotation.direction)); } catch { /* Keep the session preference. */ }
-    button.setAttribute('aria-pressed', String(enabled));
-    button.title = enabled ? 'Pause autorotation' : 'Start autorotation';
-    button.setAttribute('aria-label', button.title);
-    symbol.setAttribute('d', enabled ? 'M7 5h4v14H7zm7 0h4v14h-4z' : 'M8 5v14l11-7z');
+    if (button) {
+      button.setAttribute('aria-pressed', String(enabled));
+      button.title = enabled ? 'Pause autorotation' : 'Start autorotation';
+      button.setAttribute('aria-label', button.title);
+    }
+    symbol?.setAttribute('d', enabled ? 'M7 5h4v14H7zm7 0h4v14h-4z' : 'M8 5v14l11-7z');
   }
   checkbox.addEventListener('change', () => setEnabled(checkbox.checked));
-  button.addEventListener('click', () => setEnabled(!rotation.enabled));
+  button?.addEventListener('click', () => setEnabled(!rotation.enabled));
   document.addEventListener('visibilitychange', () => rotation.resetTime());
   window.addEventListener('pagehide', () => { wakeLock.enabled = false; });
   window.addEventListener('pageshow', () => { wakeLock.enabled = rotation.enabled; });

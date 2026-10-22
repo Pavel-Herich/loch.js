@@ -5,7 +5,6 @@ import { exceptionMessage, showLoadError, type LoadContext } from './errors';
 import { parseLox, type Model, type Point } from './lox';
 import { initializeMenus } from './menus';
 import { createHeadlight, initializeLightControls } from './lighting';
-import { WalkerControls } from './walker';
 import { loadWallTexture, setTexturedWalls, wallMaterial } from './wall-material';
 import type { GeometryBatch, LargeModel, LoadProgress } from './large-lox';
 import { largeWallMaterial, LargeScene } from './large-scene';
@@ -18,6 +17,7 @@ import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators } from './indicators';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
+import { initializeDock } from './dock';
 import { animateRotationCentre, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
 import { modelFileFormat, parseModelFile } from './model-file';
@@ -91,18 +91,6 @@ const centreline = new CentrelineScene(lines, invalidateView, document.querySele
 initializeCentrelineControls(centreline);
 const indicators = initializeIndicators(canvas, () => camera, () => controls.target);
 const autorotate = initializeAutorotateControls(controls);
-const walker = new WalkerControls(controls, canvas);
-const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
-const walkerButton = document.querySelector<HTMLButtonElement>('#walker-toggle')!;
-walkerCheckbox.checked = false;
-function setWalker(enabled: boolean) {
-  pivotPicker.enabled = false;
-  walker.enabled = enabled; walkerCheckbox.checked = enabled;
-  walkerButton.setAttribute('aria-pressed', String(enabled));
-  walkerButton.title = enabled ? 'Disable Walker mode' : 'Enable Walker mode';
-}
-walkerCheckbox.addEventListener('change', () => setWalker(walkerCheckbox.checked));
-walkerButton.addEventListener('click', () => setWalker(!walker.enabled));
 controls.addEventListener('change', invalidateView);
 const pivotButton = document.querySelector<HTMLButtonElement>('#pivot-toggle')!;
 const pivotHint = document.querySelector<HTMLElement>('#pivot-hint')!;
@@ -185,6 +173,8 @@ perspective.addEventListener('change', () => {
   camera = setPerspective(camera, controls, perspective.checked);
   invalidateView();
 });
+// Dock buttons mirror menu controls, so wire them after those controls are initialized.
+initializeDock();
 const wallsCulling = document.querySelector<HTMLInputElement>('#walls-culling')!;
 wallsCulling.checked = false;
 function applyWallCulling() {
@@ -226,7 +216,8 @@ function clear(g: THREE.Group) {
 }
 function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
   const low = altitudeColor(model.minZ, model).getStyle(), high = altitudeColor(model.maxZ, model).getStyle();
-  legend.innerHTML = `<span>${model.maxZ.toFixed(1)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.minZ.toFixed(1)} m</span>`;
+  legend.innerHTML = `<span>${model.minZ.toFixed(0)} m</span><div class="ramp" style="--low:${low};--high:${high}"></div><span>${model.maxZ.toFixed(0)} m</span>`;
+  legend.title = `Altitude colours: ${model.minZ.toFixed(1)} m to ${model.maxZ.toFixed(1)} m`;
 }
 function updateProjectTitle(title: string | undefined, filename: string) {
   projectTitle.textContent = displayProjectTitle(title, filename); projectTitle.hidden = false;

@@ -6,6 +6,7 @@ type DesktopAPI = { window: { getCurrentWindow(): DesktopWindow } };
 export function initializeMenus(onView: (view: ModelView) => void, onError: (error: unknown) => void) {
   const toolbar = document.querySelector<HTMLElement>('#toolbar')!;
   const menus = document.querySelector<HTMLElement>('#menus')!;
+  const panel = document.querySelector<HTMLElement>('#menu-panel')!;
   const status = document.querySelector<HTMLElement>('#status')!;
   const toggle = document.querySelector<HTMLButtonElement>('#menu-toggle')!;
   const groups = Array.from(menus.querySelectorAll<HTMLDetailsElement>(':scope > details'));
@@ -17,24 +18,25 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
     menus.querySelectorAll<HTMLDetailsElement>('details').forEach(group => { group.open = false; });
   }
 
+  /** The menu panel sits above the bottom dock; the status line shows while it is open. */
+  function setOpen(open: boolean) {
+    panel.hidden = !open; status.hidden = !open;
+    toolbar.classList.toggle('collapsed', !open);
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+  }
+
+  // A pinned (non-compact) panel stays open while the model is used, e.g. during loading.
   function close() {
     closeDropdowns();
-    if (toolbar.classList.contains('compact')) {
-      menus.hidden = true;
-      toolbar.classList.add('collapsed');
-    }
-    status.hidden = menus.hidden;
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.setAttribute('aria-label', 'Open menu');
+    if (toolbar.classList.contains('compact')) setOpen(false);
   }
 
   toggle.addEventListener('click', () => {
-    if (!menus.hidden) { close(); return; }
-    menus.hidden = false; status.hidden = false;
-    toolbar.classList.remove('collapsed');
-    toggle.setAttribute('aria-expanded', 'true');
-    toggle.setAttribute('aria-label', 'Close menu');
+    if (!panel.hidden) { toolbar.classList.add('compact'); close(); return; }
+    setOpen(true);
   });
+  setOpen(!panel.hidden);
   for (const group of groups) {
     group.addEventListener('toggle', () => {
       if (group.open) for (const other of groups) if (other !== group) other.open = false;
@@ -45,9 +47,9 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (groups.some(group => group.open) || (!toggle.hidden && !menus.hidden)) {
+    if (groups.some(group => group.open) || !panel.hidden) {
       close();
-      if (!toggle.hidden) toggle.focus();
+      toggle.focus();
     } else if (desktopFullscreen) {
       void setDesktopFullscreen(false).catch(onError);
     }
@@ -85,13 +87,11 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
 
   return {
     expand() {
-      toolbar.classList.remove('compact', 'collapsed');
-      menus.hidden = false; status.hidden = false; toggle.hidden = true;
-      close();
+      toolbar.classList.remove('compact');
+      closeDropdowns(); setOpen(true);
     },
     collapse() {
       toolbar.classList.add('compact');
-      toggle.hidden = false;
       close();
     },
   };
