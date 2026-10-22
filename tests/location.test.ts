@@ -47,7 +47,7 @@ describe('device location', () => {
     // Only the first fix recentres the view.
     geo.success!({ coords: { latitude: STATION.latitude, longitude: STATION.longitude, altitude: null, accuracy: 3 } });
     expect(firstFixes).toHaveLength(1);
-    expect(formatFix(state.fix)).toMatchObject({ accuracy: '±4.2 m', coordinates: 'Y 372234.8  X 1203810.7', height: '1279 m (terrain)' });
+    expect(formatFix(state.fix)).toMatchObject({ accuracy: '±4.2 m', coordinates: 'x -372234.8  y -1203810.7', height: '1279 m (terrain)' });
     location.stop();
     expect(geo.cleared).toBe(1); expect(location.group.visible).toBe(false); expect(states.at(-1)).toEqual({ kind: 'off' });
   });

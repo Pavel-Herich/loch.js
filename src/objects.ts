@@ -31,10 +31,13 @@ export function sanitizeName(text: string) {
   return removeDiacritics(text).toLowerCase().trim().replace(/[^\w\s]/gu, '').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
 }
 
-/** `Zavrt pod hrebenom` saved at 22.10.2026 11:44:05 → `zavrt_pod_hrebenom_2026_10_22_11_44_5` (j_mobil survey id). */
+const pad = (value: number) => String(value).padStart(2, '0');
+
+/** `Zavrt pod hrebenom` saved at 22.10.2026 12:25:48 (device clock) → `zavrt_pod_hrebenom_26-10-22_12-25-48`. */
 export function objectName(title: string, date: Date) {
-  const stamp = [date.getFullYear(), date.getMonth() + 1, date.getDate(), date.getHours(), date.getMinutes(), date.getSeconds()].join('_');
-  return `${sanitizeName(title) || 'objekt'}_${stamp}`;
+  const day = `${pad(date.getFullYear() % 100)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const time = `${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+  return `${sanitizeName(title) || 'objekt'}_${day}_${time}`;
 }
 
 function extension(type: string, fallback: string) {
@@ -48,14 +51,14 @@ export function photoFileName(object: FieldObject, index: number) {
   return `${object.name}${object.photos.length > 1 ? `_${index + 1}` : ''}.${extension(photo.type, photo.name)}`;
 }
 
-/** One survey file per object, as written by the j_mobil generator. */
+/** One survey file per object in the j_mobil layout, fixed in the model's system (cs ijtsk, Bpv height). */
 export function surveyTh(object: FieldObject, team: string) {
   const position = object.position!, date = new Date(object.created);
-  const elevation = Math.round(position.height ?? position.gpsAltitude ?? 0);
+  const elevation = (position.height ?? position.gpsAltitude ?? 0).toFixed(2);
   const comment = removeDiacritics(object.note || object.title).replace(/\s+/g, ' ').trim();
   return `encoding  utf-8\r\n\r\nsurvey ${object.name} -title "${object.name}"\r\n\r\n\r\ncentreline\r\n`
-    + `station gps_mob "${object.name}" entrance #${comment}\r\ncs lat-long\r\n`
-    + `fix gps_mob ${position.latitude.toFixed(7)} ${position.longitude.toFixed(7)} ${elevation}\r\n`
+    + `station gps_mob "${object.name}" entrance #${comment}\r\ncs ijtsk\r\n`
+    + `fix gps_mob ${position.east.toFixed(2)} ${position.north.toFixed(2)} ${elevation}\r\n`
     + `explo-date 0 \r\nexplo-team "Anonymus"\r\ndate ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}\r\n`
     + `team "${removeDiacritics(team).replace(/"/g, '') || 'Kto zameral'}"\r\ndata normal from to compass clino tape\r\nflags surface\r\nflags not surface\r\nendcentreline\r\nendsurvey\r\n\r\n`;
 }
@@ -107,6 +110,8 @@ export class ObjectStore {
 
   async list() {
     const objects = await this.run<FieldObject[]>('readonly', store => store.getAll() as IDBRequest<FieldObject[]>);
+    // Names are derived from title and save time, so records from older versions follow the current format.
+    for (const object of objects) object.name = objectName(object.title, new Date(object.created));
     return objects.sort((a, b) => a.created.localeCompare(b.created));
   }
   async put(object: FieldObject) {

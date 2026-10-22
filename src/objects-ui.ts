@@ -23,7 +23,7 @@ export function formatPosition(position: FieldPosition) {
   const height = position.height === null ? '' : ` · ${Math.round(position.height)} m ${position.heightSource ? source[position.heightSource] : ''}`;
   const where = position.source === 'model' ? 'Picked in model'
     : `±${position.accuracy < 10 ? position.accuracy.toFixed(1) : Math.round(position.accuracy)} m`;
-  return `${where} · Y ${(-position.east).toFixed(1)}  X ${(-position.north).toFixed(1)}${height}`;
+  return `${where} · x ${position.east.toFixed(1)}  y ${position.north.toFixed(1)}${height}`;
 }
 
 /** Replace text in a field without diacritics, keeping the caret where the user is typing. */

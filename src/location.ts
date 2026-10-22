@@ -151,7 +151,8 @@ export function formatFix(fix: LocationFix) {
   const height = `${Math.round(fix.height)} m ${fix.heightSource === 'surface' ? '(terrain)' : fix.heightSource === 'gps' ? '(GPS)' : '(model centre)'}`;
   return {
     accuracy: `±${fix.accuracy < 10 ? fix.accuracy.toFixed(1) : Math.round(fix.accuracy)} m`,
-    coordinates: `Y ${(-fix.east).toFixed(1)}  X ${(-fix.north).toFixed(1)}`,
+    // Same coordinate system as the model (Therion cs ijtsk / EPSG:5514).
+    coordinates: `x ${fix.east.toFixed(1)}  y ${fix.north.toFixed(1)}`,
     height,
     outside: fix.outside > 0 ? `${distance} outside the model` : '',
   };
