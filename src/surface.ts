@@ -1,3 +1,4 @@
+import { nearestSurfacePoint } from './measure';
 import * as THREE from 'three';
 import { surfaceHeightAt, surfacePoint, type Surface, type SurfaceBitmap } from './lox-surface';
 
@@ -59,6 +60,20 @@ export class SurfaceScene {
   constructor(readonly group: THREE.Group, private onChange: () => void, private onError: (error: unknown) => void) {}
 
   get loading() { return this.pending.size > 0; }
+
+  /** Closest terrain point to a world position (3D), from the surface above or below it. */
+  nearestPoint(x: number, y: number, z: number) {
+    for (const grid of this.grids) {
+      const above = surfaceHeightAt(grid, x, y);
+      if (above !== undefined) return nearestSurfacePoint(grid, x, y, z, above);
+    }
+    let best: ReturnType<typeof nearestSurfacePoint>;
+    for (const grid of this.grids) {
+      const found = nearestSurfacePoint(grid, x, y, z);
+      if (found && (!best || found.distance < best.distance)) best = found;
+    }
+    return best;
+  }
 
   /** Terrain height at a world (model file) position, from the first surface that covers it. */
   heightAt(x: number, y: number): number | undefined {

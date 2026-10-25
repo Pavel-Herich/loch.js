@@ -40,6 +40,12 @@ export function viewScale(camera: ViewCamera, target: Vector3, height: number, m
   return { distance, pixels: distance / unitsPerPixel, label: formatScaleDistance(distance) };
 }
 
+/** Number of tick intervals on the scale line. */
+export function scaleParts(distance: number) {
+  const leading = Math.round(distance / 10 ** Math.floor(Math.log10(distance) + 1e-9));
+  return leading === 2 ? 4 : 5;
+}
+
 export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () => ViewCamera, getTarget: () => Vector3) {
   const visible = document.querySelector<HTMLInputElement>('#indicators')!;
   const panel = document.querySelector<HTMLElement>('#model-indicators')!;
@@ -73,6 +79,8 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     tilt.setAttribute('aria-label', tilt.title);
     if (size) {
       scaleValue.textContent = size.label; ruler.style.width = `${size.pixels}px`;
+      // Ticks every fifth of 1 and 5, every quarter of 2 (e.g. 200 m in 50 m steps).
+      ruler.style.setProperty('--parts', String(scaleParts(size.distance)));
       scale.title = `${size.label} at the view centre`;
       scale.setAttribute('aria-label', scale.title);
     }

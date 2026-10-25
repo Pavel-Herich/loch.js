@@ -30,8 +30,10 @@ import { searchModel, type SearchResult } from './search';
 import { browsablePoints } from './layers-ui';
 import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
-import { DeviceLocation, formatFix, markerScreenPosition, type LocationState, headingScreenAngle } from './location';
+import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
+import { degrees, metres, segment, signedMetres, type MeasurePoint, type Segment } from './measure';
+import { drawMeasure } from './measure-draw';
 import { modelFileFormat, parseModelFile } from './model-file';
 import './style.css';
 
@@ -121,6 +123,8 @@ function setWalker(enabled: boolean) {
   walker.enabled = enabled; walkerCheckbox.checked = enabled;
   walkerIndicator.setAttribute('aria-pressed', String(enabled));
   walkerIndicator.title = enabled ? 'Walker on: drag to look, wheel/pinch to walk. Click to return to orbiting' : 'Walker: move through the cave from the camera position';
+  // Like the projection switch, a view mode change flashes the model's red box.
+  flashBoundingBox();
 }
 walkerIndicator.title = 'Walker: move through the cave from the camera position';
 walkerCheckbox.addEventListener('change', () => setWalker(walkerCheckbox.checked));
@@ -152,7 +156,7 @@ for (const type of ['gesturestart', 'gesturechange', 'gestureend']) document.add
 
 /** Double click or double tap on the model sets the rotation centre there. */
 function centreAt(clientX: number, clientY: number) {
-  if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
+  if (walker.enabled || pivotPicker.enabled || objectPicker.enabled || measuring) return;
   const rect = canvas.getBoundingClientRect();
   const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
   const point = pickModelPoint(camera, [walls, surfaceGroup, lines], ndc, rect.height, controls.target);
@@ -180,8 +184,16 @@ canvas.addEventListener('pointerup', event => {
 const infoCard = document.querySelector<HTMLElement>('#info-card')!;
 const infoTitle = document.querySelector<HTMLElement>('#info-title')!;
 const infoRows = document.querySelector<HTMLElement>('#info-rows')!;
-function showInfo(title: string, rows: [string, string][]) {
+const infoActions = document.querySelector<HTMLElement>('#info-actions')!;
+type InfoAction = { label: string; run: () => void; primary?: boolean };
+function showInfo(title: string, rows: [string, string][], actions: InfoAction[] = []) {
   infoTitle.textContent = title;
+  infoActions.replaceChildren(...actions.map(action => {
+    const button = document.createElement('button');
+    button.type = 'button'; button.textContent = action.label; if (action.primary) button.className = 'primary';
+    button.addEventListener('click', action.run); return button;
+  }));
+  infoActions.hidden = !actions.length;
   infoRows.replaceChildren(...rows.filter(([, value]) => value !== '').map(([key, value]) => {
     const row = document.createElement('tr'), th = document.createElement('th'), td = document.createElement('td');
     th.scope = 'row'; th.textContent = key; td.textContent = value; row.append(th, td); return row;
@@ -189,23 +201,39 @@ function showInfo(title: string, rows: [string, string][]) {
   infoCard.hidden = false;
 }
 document.querySelector<HTMLButtonElement>('#info-close')!.addEventListener('click', () => { infoCard.hidden = true; });
-document.addEventListener('keydown', event => { if (event.key === 'Escape') infoCard.hidden = true; });
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  infoCard.hidden = true;
+  if (measuring) setMeasuring(false);
+});
 const SYMBOL_HIT_PIXELS = 16;
-function symbolAt(clientX: number, clientY: number) {
+type SymbolHit = { distance: number; open: () => void; name: string; position: MeasurePoint; gps?: boolean };
+/** Nearest visible symbol under the pointer; `measuring` also snaps to shown stations and the GPS position. */
+function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHit | undefined {
   const symbols = symbolOptions();
-  if (!symbols.visible || !hasModel) return undefined;
+  if (!hasModel || (!symbols.visible && !measuring)) return undefined;
   const rect = canvas.getBoundingClientRect(), point = new THREE.Vector3();
-  let best: { distance: number; open: () => void } | undefined;
-  const consider = (east: number, north: number, z: number, open: () => void) => {
+  let best: SymbolHit | undefined;
+  const consider = (east: number, north: number, z: number, name: string, open: () => void, gps = false) => {
     point.set(east - worldOrigin.x, north - worldOrigin.y, z - worldOrigin.z).project(camera);
     if (point.z < -1 || point.z > 1) return;
     const distance = Math.hypot(rect.left + (point.x + 1) / 2 * rect.width - clientX, rect.top + (1 - point.y) / 2 * rect.height - clientY);
-    if (distance <= SYMBOL_HIT_PIXELS && (!best || distance < best.distance)) best = { distance, open };
+    if (distance <= SYMBOL_HIT_PIXELS && (!best || distance < best.distance)) best = { distance, open, name, position: { name, east, north, z }, gps };
   };
+  if (measuring && deviceLocation.active && deviceLocation.state.kind === 'fix') {
+    const fix = deviceLocation.state.fix;
+    consider(fix.east, fix.north, fix.height, 'My location', () => undefined, true);
+  }
+  if (measuring && lines.visible && document.querySelector<HTMLInputElement>('#station-all')!.checked) for (const station of centreline.stationDetails) {
+    if (temporaryStation(station)) continue;
+    const [east, north, z] = station.position;
+    consider(east, north, z, `${station.name}@${station.survey}`, () => undefined);
+  }
+  if (!symbols.visible) return best;
   if (lines.visible) for (const station of centreline.stationDetails) {
     if (!(station.flags & STATION_ENTRANCE) || temporaryStation(station)) continue;
     const [east, north, z] = station.position;
-    consider(east, north, z, () => showInfo(station.comment?.trim() || `${station.name}@${station.survey}`, [
+    consider(east, north, z, station.comment?.trim() || `${station.name}@${station.survey}`, () => showInfo(station.comment?.trim() || `${station.name}@${station.survey}`, [
       ['Type', 'Cave entrance'], ['Station', `${station.name}@${station.survey}`], ['Survey', station.fullSurvey],
       ['Altitude', `${z.toFixed(1)} m`], ['x  y', `${Math.round(east)}  ${Math.round(north)}`],
     ]));
@@ -214,12 +242,12 @@ function symbolAt(clientX: number, clientY: number) {
   if (georeferenced && document.querySelector<HTMLInputElement>('#objects-visible')!.checked) for (const object of fieldObjects.objects) {
     const position = object.position;
     if (!position) continue;
-    consider(position.east, position.north, surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z, () => fieldObjects.open(object));
+    consider(position.east, position.north, surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z, object.title || object.name, () => fieldObjects.open(object));
   }
   if (georeferenced && layersVisible.checked) for (const layer of pointLayers) {
     browsablePoints(layer).forEach((index, position) => {
       const shp = layer.points[index], terrain = surfaceScene.heightAt(shp.east, shp.north);
-      consider(shp.east, shp.north, shp.z ?? terrain ?? worldOrigin.z, () => showInfo(shp.label || `${layer.name} #${position + 1}`, [
+      consider(shp.east, shp.north, shp.z ?? terrain ?? worldOrigin.z, shp.label || `${layer.name} #${position + 1}`, () => showInfo(shp.label || `${layer.name} #${position + 1}`, [
         ['Layer', layer.name], ['x  y', `${Math.round(shp.east)}  ${Math.round(shp.north)}`],
         ['Z (file)', shp.z === null ? '' : `${shp.z.toFixed(2)} m`], ['Terrain height', terrain === undefined ? '' : `${Math.round(terrain)} m`],
         ...Object.entries(shp.attributes ?? {}),
@@ -234,9 +262,100 @@ canvas.addEventListener('click', event => {
   // A drag that rotated or panned is not a click.
   if (!clickStart || Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) > 6) return;
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
+  if (measuring) { addMeasurePoint(event.clientX, event.clientY); return; }
   const hit = symbolAt(event.clientX, event.clientY);
   if (hit) hit.open(); else infoCard.hidden = true;
 });
+// Measuring: tap points (snapping to entrances, objects, SHP points, shown stations and the GPS
+// position, else the model under the finger); the card gives the last leg and the total.
+const measureButton = document.querySelector<HTMLButtonElement>('#measure-toggle')!;
+const measureCanvas = document.querySelector<HTMLCanvasElement>('#measure-overlay')!;
+let measuring = false;
+let measured: (MeasurePoint & { gps?: boolean })[] = [];
+let surfaceLink: { from: MeasurePoint; to: MeasurePoint; above?: number } | undefined;
+const MEASURE_HINT = 'Tap points to measure: entrances, objects, SHP points, your location or the model · Esc ends';
+function setMeasuring(on: boolean) {
+  measuring = on; measured = []; surfaceLink = undefined;
+  if (on) { pivotPicker.enabled = false; if (walker.enabled) setWalker(false); }
+  measureButton.setAttribute('aria-pressed', String(on));
+  measureButton.title = on ? 'Stop measuring' : 'Measure distances: tap points, entrances, objects or your location';
+  pivotHint.textContent = MEASURE_HINT; pivotHint.hidden = !on;
+  infoCard.hidden = true;
+  invalidateView();
+}
+measureButton.addEventListener('click', () => setMeasuring(!measuring));
+function addMeasurePoint(clientX: number, clientY: number) {
+  const hit = symbolAt(clientX, clientY, true);
+  let point: (MeasurePoint & { gps?: boolean }) | undefined = hit ? { ...hit.position, gps: hit.gps } : undefined;
+  if (!point) {
+    const rect = canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    const local = pickModelPoint(camera, [walls, surfaceGroup, lines], ndc, rect.height, controls.target);
+    if (local) point = { name: `Point ${measured.length + 1}`, east: local.x + worldOrigin.x, north: local.y + worldOrigin.y, z: local.z + worldOrigin.z };
+  }
+  if (!point) { pivotHint.textContent = 'Nothing there. Tap a symbol, a wall, the surface or a centreline shot · Esc ends'; pivotHint.hidden = false; return; }
+  const last = measured.at(-1);
+  // A second tap on the same spot (e.g. a double tap) adds nothing.
+  if (last && Math.hypot(last.east - point.east, last.north - point.north, last.z - point.z) < .5) return;
+  measured.push(point); surfaceLink = undefined;
+  pivotHint.hidden = true;
+  showMeasure(); invalidateView();
+}
+function nearestToSurface() {
+  const from = measured.at(-1);
+  if (!from) return;
+  const found = surfaceScene.nearestPoint(from.east, from.north, from.z);
+  if (!found) { announce('No surface in this model to measure to.', true); return; }
+  surfaceLink = { from, to: { name: 'Surface', east: found.east, north: found.north, z: found.z }, above: surfaceScene.heightAt(from.east, from.north) };
+  showMeasure(); invalidateView();
+}
+function showMeasure() {
+  const georeferenced = looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
+  const position = (p: MeasurePoint) => `${Math.round(p.east)}  ${Math.round(p.north)}  ${Math.round(p.z)}`;
+  // Compact rows so the card leaves the measured line in view on phones.
+  const legRows = (leg: Segment): [string, string][] => [
+    ['Distance', `${metres(leg.slope)} · horizontal ${metres(leg.horizontal)}`],
+    ['Height', `${signedMetres(leg.dz)} · inclination ${Math.round(leg.inclination)}°`],
+    ['Bearing', `${degrees(leg.bearing)} grid${leg.trueBearing === undefined ? '' : ` · ${degrees(leg.trueBearing)} true`}`],
+  ];
+  const actions: InfoAction[] = [
+    { label: 'Nearest to surface', run: nearestToSurface, primary: true },
+    ...(measured.length > 1 ? [{ label: 'Undo', run: () => { measured.pop(); surfaceLink = undefined; showMeasure(); invalidateView(); } }] : []),
+    { label: 'Clear', run: () => { measured = []; surfaceLink = undefined; infoCard.hidden = true; pivotHint.textContent = MEASURE_HINT; pivotHint.hidden = false; invalidateView(); } },
+  ];
+  if (surfaceLink) {
+    const leg = segment(surfaceLink.from, surfaceLink.to), above = surfaceLink.above;
+    const onSurface = leg.slope < .5;
+    showInfo(`${surfaceLink.from.name} → nearest surface`, [
+      ['Nearest', onSurface ? '0 m · the point is on the surface' : `${metres(leg.slope)} · inclination ${Math.round(leg.inclination)}°${leg.horizontal >= .5 ? ` · bearing ${degrees(leg.bearing)}` : ''}`],
+      ['Vertical', above === undefined ? 'outside the surface' : `${signedMetres(above - surfaceLink.from.z)} to the terrain above`],
+      ['Surface x y z', position(surfaceLink.to)],
+    ], actions);
+    return;
+  }
+  const last = measured.at(-1);
+  if (!last) { infoCard.hidden = true; return; }
+  if (measured.length === 1) {
+    showInfo(last.name, [['x  y  z', position(last)], ['Next', 'tap a second point']], actions);
+    return;
+  }
+  const previous = measured[measured.length - 2], leg = segment(previous, last);
+  let total = 0, totalHorizontal = 0;
+  for (let i = 1; i < measured.length; i++) { const part = segment(measured[i - 1], measured[i]); total += part.slope; totalHorizontal += part.horizontal; }
+  showInfo(`${previous.name} → ${last.name}`, [
+    ...legRows(leg),
+    ...(measured.length > 2 ? [['Total', `${metres(total)} · horizontal ${metres(totalHorizontal)} · ${measured.length - 1} legs`]] as [string, string][] : []),
+    ...(georeferenced ? [] : [['Coordinates', 'local model units']] as [string, string][]),
+  ], actions);
+}
+/** Measured GPS positions follow new fixes. */
+function updateMeasuredLocation(fix: LocationFix) {
+  if (!measuring || !measured.some(point => point.gps)) return;
+  for (const point of measured) if (point.gps) Object.assign(point, { east: fix.east, north: fix.north, z: fix.height });
+  if (surfaceLink && measured.at(-1)?.gps) surfaceLink = undefined;
+  if (!infoCard.hidden) showMeasure();
+  invalidateView();
+}
 // Picking an object position: same tap-to-pick as the rotation centre, without moving the view.
 let resolveObjectPick: ((point: THREE.Vector3 | undefined) => void) | undefined;
 const objectPicker = new RotationCentrePicker({
@@ -259,6 +378,7 @@ const locationDot = document.querySelector<HTMLElement>('#location-dot')!;
 const locationInfo = document.querySelector<HTMLElement>('#location-info')!;
 let locationInfoTimer = 0;
 function showLocationState(state: LocationState) {
+  if (state.kind === 'fix') updateMeasuredLocation(state.fix);
   const active = state.kind === 'waiting' || state.kind === 'fix';
   locateButton.setAttribute('aria-pressed', String(active));
   locateButton.title = active ? 'Stop showing my location' : 'Show my location (GPS)';
@@ -370,7 +490,7 @@ const viewLocks = new ViewLocks(() => camera, controls, state => {
   lockTilt.checked = state.tiltLocked;
   indicators.refresh(); invalidateView();
 });
-for (const [element, toggle] of [[compassIndicator, () => viewLocks.toggleNorth()], [tiltIndicator, () => viewLocks.toggleSide()]] as const) {
+for (const [element, toggle] of [[compassIndicator, () => { viewLocks.toggleNorth(); flashBoundingBox(); }], [tiltIndicator, () => { viewLocks.toggleSide(); flashBoundingBox(); }]] as const) {
   element.addEventListener('click', toggle);
   element.addEventListener('keydown', event => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
@@ -680,6 +800,8 @@ function frame(time = performance.now()) {
     updateLocationDot();
     fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);
     updateLayers();
+    measureCanvas.hidden = !measuring || (!measured.length && !surfaceLink);
+    if (!measureCanvas.hidden) drawMeasure(measureCanvas, measured, surfaceLink, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin);
     centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
   }
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
