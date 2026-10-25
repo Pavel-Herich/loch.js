@@ -94,6 +94,7 @@ export function initializeDock() {
       query('#projection-orthographic').toggleAttribute('hidden', !pressed);
       query('#projection-value').textContent = pressed ? 'Ortho' : 'Persp';
     });
+  bindToggle(query('#surface-toggle'), query('#surface'), pressed => pressed ? 'Hide surface' : 'Show surface');
   bindToggle(query('#entrance-toggle'), query('#station-entrance'),
     pressed => pressed ? 'Hide cave entrances' : 'Show cave entrances');
   bindLabels(query('#entrance-label-toggle'), query('#entrance-label'), query('#station-entrance'), ENTRANCE_LABELS, 'Entrance');
