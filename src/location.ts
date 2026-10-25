@@ -11,6 +11,8 @@ export type LocationFix = {
   local: THREE.Vector3;
   /** Horizontal distance from the model's bounding box, 0 when inside. */
   outside: number;
+  /** Grid bearing of true north here (S-JTSK meridian convergence), degrees clockwise from +Y. */
+  trueNorth: number;
 };
 
 export type LocationState =
@@ -122,7 +124,9 @@ export class DeviceLocation {
     const local = new THREE.Vector3(east - model.origin.x, north - model.origin.y, height - model.origin.z);
     const dx = Math.max(model.box.min.x - local.x, 0, local.x - model.box.max.x);
     const dy = Math.max(model.box.min.y - local.y, 0, local.y - model.box.max.y);
-    const fix: LocationFix = { east, north, height, heightSource, accuracy, local, outside: Math.hypot(dx, dy) };
+    const [northEast, northNorth] = wgs84ToSJTSK(latitude + .001, longitude, altitude ?? 0);
+    const trueNorth = Math.atan2(northEast - east, northNorth - north) * 180 / Math.PI;
+    const fix: LocationFix = { east, north, height, heightSource, accuracy, local, outside: Math.hypot(dx, dy), trueNorth };
     this.group.position.copy(local);
     this.disc.scale.setScalar(Math.max(accuracy, .5));
     this.group.visible = true;
@@ -144,6 +148,20 @@ export function markerScreenPosition(local: THREE.Vector3, camera: THREE.Camera,
   const p = local.clone().project(camera);
   if (p.z < -1 || p.z > 1) return undefined;
   return { x: (p.x + 1) / 2 * width, y: (1 - p.y) / 2 * height, onScreen: Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1 };
+}
+
+/**
+ * Screen angle (CSS degrees, clockwise from up) of a true-north heading drawn at
+ * the marker: a short horizontal step that way, projected like the model.
+ */
+export function headingScreenAngle(fix: Pick<LocationFix, 'local' | 'trueNorth'>, heading: number, camera: THREE.Camera, width: number, height: number, step = 1) {
+  const bearing = (heading + fix.trueNorth) * Math.PI / 180;
+  const a = fix.local.clone().project(camera);
+  const b = fix.local.clone().add(new THREE.Vector3(Math.sin(bearing) * step, Math.cos(bearing) * step, 0)).project(camera);
+  const dx = (b.x - a.x) * width / 2, dy = -(b.y - a.y) * height / 2;
+  // Looking straight along the heading there is no direction to show.
+  if (Math.hypot(dx, dy) < 1e-6) return undefined;
+  return Math.atan2(dx, -dy) * 180 / Math.PI;
 }
 
 export function formatFix(fix: LocationFix) {

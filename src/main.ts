@@ -30,7 +30,8 @@ import { searchModel, type SearchResult } from './search';
 import { browsablePoints } from './layers-ui';
 import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
-import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
+import { DeviceLocation, formatFix, markerScreenPosition, type LocationState, headingScreenAngle } from './location';
+import { DeviceHeading } from './heading';
 import { modelFileFormat, parseModelFile } from './model-file';
 import './style.css';
 
@@ -303,7 +304,13 @@ const deviceLocation = new DeviceLocation({
   onState: showLocationState,
   onFirstFix: fix => animateRotationCentre(camera, controls, fix.local),
 });
-function toggleLocation() { if (deviceLocation.active) deviceLocation.stop(); else deviceLocation.start(); }
+// The phone's heading turns a small arrow at the location dot.
+const deviceHeading = new DeviceHeading(() => invalidateView());
+const headingArrow = document.querySelector<HTMLElement>('#heading-arrow')!;
+function toggleLocation() {
+  if (deviceLocation.active) { deviceLocation.stop(); deviceHeading.stop(); }
+  else { deviceHeading.start(); deviceLocation.start(); }
+}
 locateButton.addEventListener('click', toggleLocation);
 document.querySelector<HTMLButtonElement>('#locate-menu')!.addEventListener('click', toggleLocation);
 function updateLocationDot() {
@@ -315,6 +322,10 @@ function updateLocationDot() {
   const x = Math.min(Math.max(screen.x, 10), width - 10), y = Math.min(Math.max(screen.y, 10), height - 10);
   locationDot.classList.toggle('edge', !screen.onScreen);
   locationDot.style.transform = `translate(${x}px, ${y}px)`;
+  const angle = screen.onScreen && fix && deviceHeading.heading !== undefined
+    ? headingScreenAngle(fix, deviceHeading.heading, camera, width, height) : undefined;
+  headingArrow.hidden = angle === undefined;
+  if (angle !== undefined) headingArrow.style.transform = `rotate(${angle}deg)`;
   locationDot.hidden = false;
 }
 canvas.addEventListener('webglcontextrestored', invalidateView);
