@@ -124,8 +124,8 @@ footer a{color:#8ed9ff;white-space:nowrap;flex-shrink:0}
 .object-marker{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
 .object-marker::before{content:"";position:absolute;left:-6px;top:-6px;width:12px;height:12px;background:#ff9f1a;border:2px solid #09131c;transform:rotate(45deg) scale(var(--s,1))}
 .object-marker span{position:absolute;left:calc(3px + 8px * var(--s,1));top:-9px;white-space:nowrap;font-size:12px;color:#ffd9a3;text-shadow:0 0 3px #09131c,0 0 3px #09131c}
-#object-dialog,#objects-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
-#object-dialog::backdrop,#objects-dialog::backdrop{background:#0009}
+#object-dialog,#objects-dialog,#layers-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
+#object-dialog::backdrop,#objects-dialog::backdrop,#layers-dialog::backdrop{background:#0009}
 #object-form{display:flex;flex-direction:column}
 .object-head{display:flex;flex-direction:column;gap:6px;padding:16px 16px 12px;border-bottom:1px solid #3c5668}
 .object-head label{font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;color:#b8ccd9}
@@ -146,9 +146,9 @@ footer a{color:#8ed9ff;white-space:nowrap;flex-shrink:0}
 .photo-add:focus-within{outline:2px solid #8ed9ff;outline-offset:2px}
 .object-error{margin:0 16px;color:#ffb36b;font-size:.85rem}
 .object-error:empty{display:none}
-#object-form .dialog-actions,#objects-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
+#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
 button.primary{background:#215a75;border-color:#8ed9ff}
-#objects-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
+#objects-dialog h2,#layers-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
 .objects-hint{margin:0;padding:0 16px 8px;font-size:.8rem;color:#b8ccd9}
 .objects-list{list-style:none;margin:0;padding:0 16px;max-height:calc(100dvh - 230px);overflow:auto}
 .objects-list li{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid #253b4b}
@@ -166,7 +166,20 @@ button.primary{background:#215a75;border-color:#8ed9ff}
 .objects-team input{flex:1;min-width:0;padding:.4rem .55rem;border:1px solid #678599;border-radius:6px;background:#09131c;color:#eaf3ff;font:inherit}
 #objects-skipped:empty{display:none}
 .projection-box path{fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
-/* Record-object button: left edge, under the title (wide) or under the indicator row and title (narrow). */
-.floating-tool{position:absolute;z-index:2;left:max(12px,env(safe-area-inset-left,0px));top:calc(72px + env(safe-area-inset-top,0px));width:44px;height:44px;padding:0;display:grid;place-items:center;border-radius:10px;background:#162531e6;border-color:#3c5668;box-shadow:0 6px 20px #0007}
-.floating-tool svg{width:26px;height:26px}
-@media(max-width:1000px){.floating-tool{top:calc(132px + env(safe-area-inset-top,0px))}}
+#photo-viewer{width:min(96vw,1100px);max-height:96dvh;padding:0;border:1px solid #678599;border-radius:12px;background:#09131c;color:#eaf3ff;overflow:hidden}
+#photo-viewer::backdrop{background:#000c}
+#photo-viewer img{display:block;width:100%;max-height:calc(96dvh - 58px);object-fit:contain;background:#000}
+.viewer-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#162531}
+.viewer-bar #photo-viewer-close{margin-left:auto}
+.viewer-bar span{font-variant-numeric:tabular-nums;font-size:.85rem;color:#b8ccd9}
+.object-photos img,.objects-list img{cursor:zoom-in}
+.objects-list li>div{cursor:pointer}
+.objects-list li>div:hover strong{text-decoration:underline}
+.object-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.layer-pick,.layer-nav{display:flex;align-items:center;gap:8px;padding:0 16px 8px}
+.layer-pick select,.layer-nav select{flex:1;min-width:0;padding:.4rem;border:1px solid #678599;border-radius:6px;background:#09131c;color:#eaf3ff;font:inherit}
+.layer-nav button{width:40px;font-size:1.2rem;line-height:1;padding:.3rem 0}
+.layer-swatch{width:14px;height:14px;border-radius:50%;border:2px solid #09131c;flex-shrink:0}
+#layer-remove[data-armed="true"]{border-color:#ffb36b;color:#ffb36b}
+.layer-table{max-height:calc(100dvh - 300px);overflow:auto;border-top:1px solid #253b4b}
+.layer-table th{width:38%}

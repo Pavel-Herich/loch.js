@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ENTRANCE_LABELS, nextLabel, STATION_LABELS } from '../src/dock';
 import { stationLabel, STATION_ENTRANCE, type Station } from '../src/lox-stations';
 import { stationLabelMode, type StationOptions } from '../src/stations';
-import { entranceSize } from '../src/station-labels';
+import { FULL_SIZE_METRES_PER_PIXEL, symbolScale } from '../src/station-labels';
 
 const station = (flags: number, comment?: string): Station => ({ id: 1, surveyId: 2, name: '7', comment, flags, position: [0, 0, 1286.4], survey: 'krasna_dita', fullSurvey: 'krasna_dita.index' });
 const options: StationOptions = { stations: true, entrance: true, fixed: false, continuation: false, label: 'number', entranceLabel: 'name', surface: true, underground: true, splay: true };
@@ -26,11 +26,17 @@ describe('dock label cycles', () => {
     expect(stationLabel(station(0), 'altitude')).toBe('1286 m');
   });
 
-  it('shrinks entrance symbols with distance from full size down to 20 %', () => {
-    expect(entranceSize(50)).toBe(1);
-    expect(entranceSize(800)).toBe(1);
-    expect(entranceSize(1600)).toBeCloseTo(.5, 9);
-    expect(entranceSize(4000)).toBeCloseTo(.2, 9);
-    expect(entranceSize(20000)).toBe(.2);
+  it('sizes symbols by zoom: 30 % for the whole model, 100 % from a 100 m scale bar, smooth between', () => {
+    const fit = 20;   // metres per pixel when the whole model is in view
+    expect(symbolScale(fit, fit)).toBeCloseTo(.3, 9);
+    expect(symbolScale(fit * 3, fit)).toBeCloseTo(.3, 9);
+    expect(symbolScale(FULL_SIZE_METRES_PER_PIXEL, fit)).toBeCloseTo(1, 9);
+    expect(symbolScale(.1, fit)).toBe(1);
+    // Halfway in log zoom is halfway in size.
+    expect(symbolScale(Math.sqrt(fit * FULL_SIZE_METRES_PER_PIXEL), fit)).toBeCloseTo(.65, 9);
+    const sizes = [16, 8, 4, 2, 1].map(m => symbolScale(m, fit));
+    expect(sizes.every((size, i) => i === 0 || size > sizes[i - 1])).toBe(true);
+    // Models smaller than the full-size zoom always show full-size symbols.
+    expect(symbolScale(.5, .4)).toBe(1);
   });
 });

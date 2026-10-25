@@ -14,7 +14,8 @@ import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
-import { initializeIndicators } from './indicators';
+import { initializeIndicators, metresPerPixel } from './indicators';
+import { FULL_SIZE_METRES_PER_PIXEL, setSymbolScale, symbolScale } from './station-labels';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
@@ -23,6 +24,7 @@ import { FieldObjects } from './objects-ui';
 import { ObjectStore } from './objects';
 import { looksLikeSJTSK } from './geo';
 import { drawLayers, LayerStore, readShapefileLayer, type PointLayer } from './layers';
+import { LayerBrowser, type LayerHighlight } from './layers-ui';
 import { animateRotationCentre, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
 import { modelFileFormat, parseModelFile } from './model-file';
@@ -462,14 +464,37 @@ async function importLayer(files: File[]) {
     announce(`Cannot import SHP layer: ${exceptionMessage(error)}`, true);
   }
 }
-document.querySelector<HTMLButtonElement>('#layers-clear')!.addEventListener('click', () => {
-  pointLayers = []; void layerStore.clear().catch(() => {}); announce('SHP layers removed'); invalidateView();
+let layerHighlight: LayerHighlight = null;
+/** Centre a scene point and zoom in to full-size symbols if the view is farther out. */
+function focusOn(local: THREE.Vector3) {
+  const height = canvas.clientHeight || 1, wanted = FULL_SIZE_METRES_PER_PIXEL * .7;
+  const current = metresPerPixel(camera, controls.target, height);
+  if (current > wanted) {
+    if (camera instanceof THREE.PerspectiveCamera) {
+      const distance = wanted * height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.getEffectiveFOV()) / 2));
+      camera.position.sub(controls.target).setLength(distance).add(controls.target);
+    } else { camera.zoom *= current / wanted; camera.updateProjectionMatrix(); }
+    controls.update();
+  }
+  animateRotationCentre(camera, controls, local);
+}
+new LayerBrowser({
+  getLayers: () => pointLayers,
+  removeLayer: async id => {
+    pointLayers = pointLayers.filter(layer => layer.id !== id);
+    try { await layerStore.delete(id); } catch { /* Already gone. */ }
+    invalidateView();
+  },
+  heightAt: (east, north) => surfaceScene.heightAt(east, north),
+  getOrigin: () => hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y) ? worldOrigin : undefined,
+  focus: focusOn,
+  setHighlight: highlight => { layerHighlight = highlight; if (highlight) showSymbols(); invalidateView(); },
 });
 function updateLayers() {
   const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
   const symbols = symbolOptions();
   layerCanvas.hidden = !georeferenced || !layersVisible.checked || !symbols.visible || !pointLayers.length;
-  if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north), symbols.label);
+  if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north), symbols.label, layerHighlight);
 }
 document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
 document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
@@ -482,6 +507,9 @@ function frame(time = performance.now()) {
   requestAnimationFrame(frame);
   autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
   if (sceneDirty) {
+    // One symbol size per frame: whole model in view → 30 %, 100 m scale bar → 100 %.
+    const height = canvas.clientHeight;
+    if (height > 0 && !activeBox.isEmpty()) setSymbolScale(symbolScale(metresPerPixel(camera, controls.target, height), activeBox.getSize(new THREE.Vector3()).length() / height));
     indicators.update();
     updateLocationDot();
     fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);

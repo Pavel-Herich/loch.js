@@ -17,14 +17,11 @@
     <div id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></div>
     <div id="legend"></div>
   </div>
-</aside><button id="object-add" class="floating-tool" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
-    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-  </svg></button><header id="toolbar">
+</aside><header id="toolbar">
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
-    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-clear" type="button">Remove SHP layers</button></div></details>
+    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button></div></details>
     <details class="menu"><summary>Scene</summary><div class="menu-items">
       <details class="control-group"><summary>Visibility</summary><div class="group-items">
         <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
@@ -89,6 +86,10 @@
   <button id="open-toggle" type="button" aria-label="Open file" title="Open a model (LOX, Survex .3d, Compass .plt) or an SHP layer (.shp with .dbf, .prj)"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2h8.8A1.5 1.5 0 0 1 21 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
   </svg></button>
+  <button id="object-add" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
+    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  </svg></button>
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="pivot-toggle" type="button" aria-label="Set rotation centre" aria-pressed="false" title="Set rotation centre: click the model"><svg viewBox="0 0 24 24" aria-hidden="true">
     <circle cx="12" cy="12" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -123,4 +124,13 @@
   <p id="objects-skipped" class="objects-hint"></p>
   <ul id="objects-list" class="objects-list"></ul>
   <div class="dialog-actions"><button type="button" id="objects-export" class="primary">Export to Therion</button><button type="button" id="objects-close">Close</button></div>
-</dialog><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>
+</dialog><dialog id="layers-dialog" aria-labelledby="layers-heading"><h2 id="layers-heading">SHP files</h2>
+  <p id="layers-empty" class="objects-hint">No SHP layers yet. Open a .shp (with its .dbf, .prj and .cpg) with the folder button.</p>
+  <div id="layers-body">
+    <div class="layer-pick"><span id="layers-swatch" class="layer-swatch" aria-hidden="true"></span><select id="layers-select" aria-label="Layer"></select><button type="button" id="layer-remove">Remove layer</button></div>
+    <p id="layers-source" class="objects-hint"></p>
+    <div class="layer-nav"><button type="button" id="layer-prev" aria-label="Previous point">‹</button><select id="layer-point" aria-label="Point"></select><button type="button" id="layer-next" aria-label="Next point">›</button></div>
+    <div class="layer-table"><table class="object-table"><tbody id="layer-attributes"></tbody></table></div>
+  </div>
+  <div class="dialog-actions"><button type="button" id="layer-show" class="primary">Show in model</button><button type="button" id="layers-close">Close</button></div>
+</dialog><dialog id="photo-viewer" aria-label="Photo"><img id="photo-viewer-img" alt=""/><div class="viewer-bar"><button type="button" id="photo-viewer-prev" aria-label="Previous photo">‹</button><span id="photo-viewer-count"></span><button type="button" id="photo-viewer-next" aria-label="Next photo">›</button><button type="button" id="photo-viewer-close" class="primary">Close</button></div></dialog><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

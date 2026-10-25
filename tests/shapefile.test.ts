@@ -54,8 +54,9 @@ describe('SHP layers', () => {
     expect(points.map(p => p.z)).toEqual([900, 905]);
     const guess = guessCoordinates(points);
     expect(guess).toBe('jtsk-positive');
-    expect(layerPoints(points, guess, () => 'Sindliarka')).toEqual([
-      { east: -378000, north: -1201000, z: 900, label: 'Sindliarka' }, { east: -378010, north: -1201020, z: 905, label: '' }]);
+    expect(layerPoints(points, guess, () => 'Sindliarka', () => ({ ID: '7' }))).toEqual([
+      { east: -378000, north: -1201000, z: 900, label: 'Sindliarka', record: 0, attributes: { ID: '7' } },
+      { east: -378010, north: -1201020, z: 905, label: '', record: 0 }]);
   });
 
   it('converts WGS 84 points and recognises them from the .prj', () => {
@@ -69,5 +70,16 @@ describe('SHP layers', () => {
     const records = parseDbf(dbf([['ID', 4], ['NAZOV', 12]], [['1', 'Ponor A'], ['2', 'Zavrt B']]));
     expect(records).toEqual([{ ID: '1', NAZOV: 'Ponor A' }, { ID: '2', NAZOV: 'Zavrt B' }]);
     expect(nameField(records)).toBe('NAZOV');
+  });
+});
+
+import { browsablePoints } from '../src/layers-ui';
+describe('SHP browser', () => {
+  it('lists each shape once: every point, and lines by their first vertex', () => {
+    const point = (record?: number) => ({ east: 0, north: 0, z: null, label: '', record });
+    expect(browsablePoints({ id: 'a', name: 'a', color: '#fff', source: '', points: [point(0), point(1), point(2)] })).toEqual([0, 1, 2]);
+    expect(browsablePoints({ id: 'b', name: 'b', color: '#fff', source: '', points: [point(0), point(0), point(1), point(1), point(1)] })).toEqual([0, 2]);
+    // Layers saved before records were kept list every vertex.
+    expect(browsablePoints({ id: 'c', name: 'c', color: '#fff', source: '', points: [point(), point()] })).toEqual([0, 1]);
   });
 });

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { errorMessage } from './location';
-import { entranceSize, symbolDepth } from './station-labels';
+import { currentSymbolScale } from './station-labels';
 import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
 
 type Options = {
@@ -58,12 +58,21 @@ export class FieldObjects {
   private markers = $<HTMLElement>('#object-markers');
   private markersVisible = true;
   private picking = false;
+  /** Object being edited, or null while recording a new one. */
+  private editing: FieldObject | null = null;
+  /** Reopen the list after editing an object opened from it. */
+  private returnToList = false;
 
   constructor(private options: Options) {
     const recorder = $<HTMLDialogElement>('#object-dialog');
     const title = $<HTMLInputElement>('#object-title'), note = $<HTMLTextAreaElement>('#object-note');
     const photoInput = $<HTMLInputElement>('#object-photo');
     $<HTMLButtonElement>('#object-add').addEventListener('click', () => this.openRecorder());
+    const viewer = $<HTMLDialogElement>('#photo-viewer');
+    $<HTMLButtonElement>('#photo-viewer-close').addEventListener('click', () => viewer.close());
+    $<HTMLButtonElement>('#photo-viewer-prev').addEventListener('click', () => this.stepPhoto(-1));
+    $<HTMLButtonElement>('#photo-viewer-next').addEventListener('click', () => this.stepPhoto(1));
+    viewer.addEventListener('close', () => { URL.revokeObjectURL($<HTMLImageElement>('#photo-viewer-img').src); });
     title.addEventListener('input', () => { stripField(title); this.updatePreview(); });
     note.addEventListener('input', () => stripField(note));
     $<HTMLButtonElement>('#object-pick').addEventListener('click', () => void this.pickInModel());
@@ -73,7 +82,11 @@ export class FieldObjects {
       photoInput.value = ''; this.renderPhotos();
     });
     $<HTMLButtonElement>('#object-cancel').addEventListener('click', () => recorder.close());
-    recorder.addEventListener('close', () => { if (!this.picking) this.stopGps(); });
+    recorder.addEventListener('close', () => {
+      if (this.picking) return;
+      this.stopGps();
+      if (this.returnToList) { this.returnToList = false; this.renderList(); $<HTMLDialogElement>('#objects-dialog').showModal(); }
+    });
     $<HTMLFormElement>('#object-form').addEventListener('submit', event => {
       event.preventDefault();
       if (!title.value.trim()) { title.focus(); return; }
@@ -105,14 +118,44 @@ export class FieldObjects {
     this.renderMarkers(); this.options.onChange();
   }
 
-  private openRecorder() {
+  /** New object at the current GPS position, or an existing one to view and edit. */
+  private openRecorder(object?: FieldObject) {
     const recorder = $<HTMLDialogElement>('#object-dialog');
-    $<HTMLInputElement>('#object-title').value = ''; $<HTMLTextAreaElement>('#object-note').value = '';
+    this.editing = object ?? null;
+    $<HTMLInputElement>('#object-title').value = object?.title ?? '';
+    $<HTMLTextAreaElement>('#object-note').value = object?.note ?? '';
     $<HTMLElement>('#object-error').textContent = '';
-    this.photos = []; this.position = null; this.renderPhotos(); this.updatePreview();
-    this.startGps();
+    $<HTMLButtonElement>('#object-save').textContent = object ? 'Save changes' : 'Save';
+    this.photos = object ? [...object.photos] : []; this.position = object?.position ?? null;
+    this.renderPhotos(); this.updatePreview();
+    if (object) {
+      // Keep the recorded position unless the user picks a new one or switches to GPS.
+      this.stopGps();
+      $<HTMLElement>('#object-position').textContent = this.position ? formatPosition(this.position) : 'No position';
+      $<HTMLButtonElement>('#object-use-gps').hidden = false;
+      $<HTMLButtonElement>('#object-pick').disabled = !this.options.getOrigin();
+    } else this.startGps();
     recorder.showModal();
-    $<HTMLInputElement>('#object-title').focus();
+    if (!object) $<HTMLInputElement>('#object-title').focus();
+  }
+
+  private viewerPhotos: FieldPhoto[] = [];
+  private viewerIndex = 0;
+  /** Full-size photo view with previous/next for objects with several photos. */
+  private showPhoto(photos: FieldPhoto[], index: number) {
+    this.viewerPhotos = photos; this.viewerIndex = index;
+    const viewer = $<HTMLDialogElement>('#photo-viewer');
+    this.stepPhoto(0);
+    if (!viewer.open) viewer.showModal();
+  }
+  private stepPhoto(step: number) {
+    if (!this.viewerPhotos.length) return;
+    this.viewerIndex = (this.viewerIndex + step + this.viewerPhotos.length) % this.viewerPhotos.length;
+    const image = $<HTMLImageElement>('#photo-viewer-img'), photo = this.viewerPhotos[this.viewerIndex];
+    URL.revokeObjectURL(image.src);
+    image.src = URL.createObjectURL(photo.blob); image.alt = photo.name;
+    $<HTMLElement>('#photo-viewer-count').textContent = this.viewerPhotos.length > 1 ? `${this.viewerIndex + 1} / ${this.viewerPhotos.length}` : '';
+    $<HTMLButtonElement>('#photo-viewer-prev').hidden = $<HTMLButtonElement>('#photo-viewer-next').hidden = this.viewerPhotos.length < 2;
   }
 
   private startGps() {
@@ -167,7 +210,9 @@ export class FieldObjects {
 
   private updatePreview() {
     const title = $<HTMLInputElement>('#object-title').value;
-    $<HTMLElement>('#object-name-preview').textContent = title.trim() ? objectName(title, new Date()) : 'Name + date and time of saving';
+    // An edited object keeps its original save time in the name.
+    const time = this.editing ? new Date(this.editing.created) : new Date();
+    $<HTMLElement>('#object-name-preview').textContent = title.trim() ? objectName(title, time) : 'Name + date and time of saving';
     $<HTMLButtonElement>('#object-save').disabled = !title.trim();
   }
 
@@ -179,6 +224,7 @@ export class FieldObjects {
       const figure = document.createElement('figure'), image = document.createElement('img'), remove = document.createElement('button');
       const url = URL.createObjectURL(photo.blob); this.urls.push(url);
       image.src = url; image.alt = photo.name;
+      image.addEventListener('click', () => this.showPhoto(this.photos, index));
       remove.type = 'button'; remove.textContent = '×'; remove.setAttribute('aria-label', `Remove ${photo.name}`);
       remove.addEventListener('click', () => { this.photos.splice(index, 1); this.renderPhotos(); });
       figure.append(image, remove);
@@ -187,14 +233,16 @@ export class FieldObjects {
   }
 
   private async save(title: string, note: string) {
-    const created = new Date();
+    const editing = this.editing;
+    const created = editing ? new Date(editing.created) : new Date();
     const object: FieldObject = {
-      id: newId(), title: title.trim(), name: objectName(title, created), created: created.toISOString(),
+      id: editing?.id ?? newId(), title: title.trim(), name: objectName(title, created), created: created.toISOString(),
       position: this.position, note: note.trim(), photos: this.photos,
     };
     await this.options.store.put(object);
-    this.objects.push(object);
-    this.renderMarkers(); this.options.onSaved?.(); this.options.onChange();
+    this.objects = editing ? this.objects.map(other => other.id === object.id ? object : other) : [...this.objects, object];
+    this.editing = null;
+    this.renderMarkers(); if (!editing) this.options.onSaved?.(); this.options.onChange();
   }
 
   private renderList() {
@@ -213,7 +261,8 @@ export class FieldObjects {
     list.replaceChildren(...[...this.objects].reverse().map(object => {
       const item = document.createElement('li'), text = document.createElement('div');
       if (object.photos[0]) {
-        const image = document.createElement('img'); image.src = URL.createObjectURL(object.photos[0].blob); image.alt = '';
+        const image = document.createElement('img'); image.src = URL.createObjectURL(object.photos[0].blob); image.alt = `Photo of ${object.name}`;
+        image.addEventListener('click', event => { event.stopPropagation(); this.showPhoto(object.photos, 0); });
         item.append(image);
       }
       const name = document.createElement('strong'); name.textContent = object.name;
@@ -230,9 +279,20 @@ export class FieldObjects {
           this.renderList(); this.renderMarkers(); this.options.onChange();
         });
       });
-      item.append(text, remove);
+      // Tap an object to view and edit it; the list comes back afterwards.
+      const edit = document.createElement('button'); edit.type = 'button'; edit.textContent = 'Open';
+      edit.addEventListener('click', () => this.openFromList(object));
+      text.addEventListener('click', () => this.openFromList(object));
+      const actions = document.createElement('span'); actions.className = 'object-actions'; actions.append(edit, remove);
+      item.append(text, actions);
       return item;
     }));
+  }
+
+  private openFromList(object: FieldObject) {
+    this.returnToList = true;
+    $<HTMLDialogElement>('#objects-dialog').close();
+    this.openRecorder(object);
   }
 
   private async export() {
@@ -269,7 +329,7 @@ export class FieldObjects {
       const z = this.options.heightAt(position.east, position.north) ?? position.height ?? origin.z;
       point.set(position.east - origin.x, position.north - origin.y, z - origin.z);
       // Same distance scaling as entrance symbols.
-      element.style.setProperty('--s', entranceSize(symbolDepth(camera, point)).toFixed(3));
+      element.style.setProperty('--s', currentSymbolScale().toFixed(3));
       point.project(camera);
       const visible = point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
       element.hidden = !visible;

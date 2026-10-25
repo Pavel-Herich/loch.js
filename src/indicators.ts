@@ -20,13 +20,18 @@ export function formatScaleDistance(distance: number) {
 }
 
 /** Perspective scale is measured in the plane through the view's target. */
-export function viewScale(camera: ViewCamera, target: Vector3, height: number, maxPixels = 140) {
-  if (height <= 0 || maxPixels <= 0) return null;
+/** Metres per screen pixel in the plane through the view's target. */
+export function metresPerPixel(camera: ViewCamera, target: Vector3, height: number) {
   camera.updateMatrixWorld();
   const depth = target.clone().sub(camera.getWorldPosition(new Vector3())).dot(camera.getWorldDirection(new Vector3()));
-  const unitsPerPixel = camera instanceof OrthographicCamera
+  return camera instanceof OrthographicCamera
     ? (camera.top - camera.bottom) / camera.zoom / height
     : 2 * depth * Math.tan(MathUtils.degToRad(camera.getEffectiveFOV()) / 2) / height;
+}
+
+export function viewScale(camera: ViewCamera, target: Vector3, height: number, maxPixels = 140) {
+  if (height <= 0 || maxPixels <= 0) return null;
+  const unitsPerPixel = metresPerPixel(camera, target, height);
   if (!Number.isFinite(unitsPerPixel) || unitsPerPixel <= 0) return null;
   const maximum = unitsPerPixel * maxPixels;
   const magnitude = 10 ** Math.floor(Math.log10(maximum));

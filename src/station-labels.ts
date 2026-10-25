@@ -8,24 +8,26 @@ const MAX_TEXT_WIDTH = 360;
 export type StationMarker = 'entrance' | 'fixed' | 'continuation';
 const markerScale = (marker: StationMarker) => marker === 'fixed' ? 1 / 3 : .7;
 
-/** Entrance symbols keep full size up to this view depth (metres), then shrink with distance. */
-export const ENTRANCE_FULL_SIZE_DEPTH = 800;
-/** Smallest entrance symbol, as a fraction of full size (80 % smaller). */
-export const ENTRANCE_MIN_SIZE = .2;
-export function entranceSize(depth: number) {
-  return Math.min(1, Math.max(ENTRANCE_MIN_SIZE, ENTRANCE_FULL_SIZE_DEPTH / Math.max(depth, 1e-6)));
-}
-const OMEGA_SCALE = .18;
+/** Smallest symbol size (entrances, field objects, SHP points), as a fraction of full size. */
+export const SYMBOL_MIN_SIZE = .3;
+/** Full size from this zoom on: a 140 px scale bar reads 100 m. */
+export const FULL_SIZE_METRES_PER_PIXEL = 100 / 140;
 
 /**
- * Distance used to size symbols: depth in front of a perspective camera, or for
- * orthographic views the distance a 45° perspective view would need for its zoom.
+ * Symbol size for the current zoom: 30 % when the whole model fills the view,
+ * 100 % from a 100 m scale bar on, smooth (logarithmic in zoom) in between.
  */
-export function symbolDepth(camera: Camera, point: Vector3) {
-  const ortho = camera as Camera & { isOrthographicCamera?: boolean; top?: number; bottom?: number; zoom?: number };
-  if (ortho.isOrthographicCamera) return (ortho.top! - ortho.bottom!) / ortho.zoom! / 2 / Math.tan(Math.PI / 8);
-  return -point.clone().applyMatrix4(camera.matrixWorldInverse).z;
+export function symbolScale(metresPerPixel: number, fitMetresPerPixel: number) {
+  if (!(metresPerPixel > 0) || !(fitMetresPerPixel > FULL_SIZE_METRES_PER_PIXEL)) return 1;
+  const t = Math.log(fitMetresPerPixel / metresPerPixel) / Math.log(fitMetresPerPixel / FULL_SIZE_METRES_PER_PIXEL);
+  return SYMBOL_MIN_SIZE + (1 - SYMBOL_MIN_SIZE) * Math.min(1, Math.max(0, t));
 }
+let currentScale = 1;
+/** Set once per frame from the view; every symbol overlay reads the same value. */
+export function setSymbolScale(scale: number) { currentScale = scale; }
+export function currentSymbolScale() { return currentScale; }
+const OMEGA_SCALE = .18;
+
 
 /** Symbols drawn directly on the shared overlay, centred on the station; `size` scales them (1 = full). */
 export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number, size = 1) {
@@ -108,10 +110,8 @@ export class StationLabels {
     this.occupancy.reset(width, height);
     camera.updateMatrixWorld();
     const m = this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
-    let screenX = 0, screenY = 0, screenDepth = 1;
-    // Orthographic views have no per-point depth; use the distance a 45° perspective view would need.
-    const ortho = camera as Camera & { isOrthographicCamera?: boolean; top?: number; bottom?: number; zoom?: number };
-    const flatDepth = ortho.isOrthographicCamera ? (ortho.top! - ortho.bottom!) / ortho.zoom! / 2 / Math.tan(Math.PI / 8) : undefined;
+    let screenX = 0, screenY = 0;
+    const symbolSize = currentSymbolScale();
     const project = (station: Station) => {
       const x = station.position[0] - origin.x, y = station.position[1] - origin.y, z = station.position[2] - origin.z;
       const w = m[3] * x + m[7] * y + m[11] * z + m[15];
@@ -121,14 +121,13 @@ export class StationLabels {
       const cz = m[2] * x + m[6] * y + m[10] * z + m[14];
       if (Math.abs(cx) > w || Math.abs(cy) > w || Math.abs(cz) > w) return false;
       screenX = (cx / w + 1) * width / 2; screenY = (1 - cy / w) * height / 2;
-      screenDepth = flatDepth ?? w;
       return true;
     };
     if (marker) {
       const mark = (station: Station) => {
         const symbol = marker(station);
         if (!symbol || !visible(station) || !project(station)) return;
-        const size = symbol === 'entrance' ? entranceSize(screenDepth) : 1;
+        const size = symbol === 'entrance' ? symbolSize : 1;
         drawStationMarker(context, symbol, screenX, screenY, size);
         const radius = 10 * markerScale(symbol) * size;
         const x = Math.max(0, screenX - radius), y = Math.max(0, screenY - radius);
@@ -143,7 +142,7 @@ export class StationLabels {
       const labelMode = modeFor(station);
       if (labelMode === 'none' || !visible(station) || !project(station)) return;
       const symbol = marker?.(station);
-      const size = symbol === 'entrance' ? entranceSize(screenDepth) : 1;
+      const size = symbol === 'entrance' ? symbolSize : 1;
       const left = screenX + (symbol ? 10 * markerScale(symbol) * size + 4 : 3), top = screenY - HEIGHT / 2;
       if (left < 0 || top < 0 || left + 10 > width || top + HEIGHT > height
         || this.occupancy.overlaps(left, top, 10, HEIGHT)) return;

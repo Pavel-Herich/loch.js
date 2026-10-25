@@ -2,7 +2,8 @@ import { looksLikeSJTSK, wgs84ToSJTSK } from './geo';
 
 /** One vertex of a shapefile layer in file coordinates; z is null for 2D shapes. */
 export type ShpPoint = { x: number; y: number; z: number | null; record: number };
-export type LayerPoint = { east: number; north: number; z: number | null; label: string };
+/** `record` links vertices of one shape; its first vertex carries the label and the .dbf attributes. */
+export type LayerPoint = { east: number; north: number; z: number | null; label: string; record?: number; attributes?: Record<string, string> };
 
 const SHAPE_NAMES: Record<number, string> = {
   1: 'Point', 3: 'PolyLine', 5: 'Polygon', 8: 'MultiPoint',
@@ -87,7 +88,8 @@ export function guessCoordinates(points: ShpPoint[], prj?: string): CoordinateGu
 }
 
 /** Convert shapefile vertices to S-JTSK east/north (negative, like the model) with labels. */
-export function layerPoints(points: ShpPoint[], guess: CoordinateGuess, labels: (record: number) => string): LayerPoint[] {
+export function layerPoints(points: ShpPoint[], guess: CoordinateGuess, labels: (record: number) => string,
+  attributes?: (record: number) => Record<string, string> | undefined): LayerPoint[] {
   let previous = -1;
   return points.map(point => {
     // A line or polygon labels only its first vertex.
@@ -95,6 +97,7 @@ export function layerPoints(points: ShpPoint[], guess: CoordinateGuess, labels: 
     let east = point.x, north = point.y;
     if (guess === 'jtsk-positive') { east = -point.x; north = -point.y; }
     else if (guess === 'wgs84') [east, north] = wgs84ToSJTSK(point.y, point.x, point.z ?? 0);
-    return { east, north, z: point.z, label: first ? labels(point.record) : '' };
+    const values = first ? attributes?.(point.record) : undefined;
+    return { east, north, z: point.z, label: first ? labels(point.record) : '', record: point.record, ...(values ? { attributes: values } : {}) };
   });
 }
