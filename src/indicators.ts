@@ -60,7 +60,7 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     const size = viewScale(camera, getTarget(), canvas.clientHeight);
     scale.hidden = !size;
     const bearing = Math.round(orientation.bearing) % 360, angle = Math.round(orientation.tilt);
-    const state = `${orientation.bearing.toFixed(2)}:${orientation.tilt.toFixed(2)}:${size?.distance}:${size?.pixels.toFixed(2)}`;
+    const state = `${camera.type}:${orientation.bearing.toFixed(2)}:${orientation.tilt.toFixed(2)}:${size?.distance}:${size?.pixels.toFixed(2)}`;
     if (state === previous) return;
     previous = state;
     rose.setAttribute('transform', `rotate(${-orientation.bearing} 34 34)`);
@@ -72,9 +72,12 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     tilt.title = `View tilt ${angle}°; 0° horizontal, +90° up, −90° down. ${tilt.getAttribute('aria-pressed') === 'true' ? 'Click to return to the previous tilt' : 'Click for a level side view with tilt locked'}`;
     tilt.setAttribute('aria-label', tilt.title);
     if (size) {
-      scaleValue.textContent = size.label; ruler.style.width = `${Math.round(size.pixels) + 1}px`; // whole pixels keep the ticks sharp; +1 for the end tick
+      // In perspective the scale holds only at the depth of the rotation centre.
+      const approximate = !(camera instanceof OrthographicCamera);
+      scale.classList.toggle('approximate', approximate);
+      scaleValue.textContent = `${approximate ? '≈ ' : ''}${size.label}`; ruler.style.width = `${Math.round(size.pixels) + 1}px`; // whole pixels keep the ticks sharp; +1 for the end tick
 
-      scale.title = `${size.label} at the view centre`;
+      scale.title = approximate ? `About ${size.label} at the depth of the rotation centre (perspective)` : `${size.label} (orthographic)`;
       scale.setAttribute('aria-label', scale.title);
     }
   }

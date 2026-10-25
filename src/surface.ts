@@ -48,10 +48,36 @@ export function surfaceUV(surface: Surface, bitmap: SurfaceBitmap, width: number
 type SurfaceMaterial = THREE.MeshBasicMaterial | THREE.MeshStandardMaterial;
 type SurfaceEntry = { image: THREE.MeshBasicMaterial; lit: THREE.MeshStandardMaterial; meshes: THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>[] };
 
+/** Earth brown for the terrain seen from below, mixed into its own colour so the relief still reads. */
+const UNDERSIDE = 'vec3(.56, .36, .22)';
+
+/**
+ * Seen from below, the surface turns brown and (by default) opaque, so a view up from
+ * the cave is told apart from a view down onto the terrain.
+ */
+function shadeUnderside(material: THREE.Material, frontUp: { value: number }, opaque: { value: number }) {
+  material.onBeforeCompile = shader => {
+    shader.uniforms.surfaceFrontUp = frontUp; shader.uniforms.surfaceUndersideOpaque = opaque;
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'varying float vSurfaceZ;\nvoid main() {')
+      .replace('#include <project_vertex>', '#include <project_vertex>\n  vSurfaceZ = (modelMatrix * vec4(transformed, 1.0)).z;');
+    // Only from below: the back of a steep slope seen from above stays as it is.
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform float surfaceFrontUp;\nuniform float surfaceUndersideOpaque;\nvarying float vSurfaceZ;\nvoid main() {')
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>
+  if (gl_FrontFacing != (surfaceFrontUp > .5) && cameraPosition.z < vSurfaceZ) {
+    gl_FragColor.rgb = mix(gl_FragColor.rgb, ${UNDERSIDE}, .6) * .85;
+    gl_FragColor.a = mix(gl_FragColor.a, 1.0, surfaceUndersideOpaque);
+  }`);
+  };
+  material.customProgramCacheKey = () => 'surface-underside';
+}
+
 export class SurfaceScene {
   transparency = true;
   opacity = DEFAULT_SURFACE_OPACITY;
   imageOverlay = true;
+  private undersideOpaque = { value: 1 };
   private entries: SurfaceEntry[] = [];
   private revision = 0;
   private pending = new Map<string, THREE.Texture>();
@@ -86,6 +112,10 @@ export class SurfaceScene {
     for (const entry of this.entries) { this.applyAppearance(entry.image); this.applyAppearance(entry.lit); }
     this.onChange();
   }
+  setOpaqueUnderside(opaque: boolean) {
+    this.undersideOpaque.value = opaque ? 1 : 0;
+    this.onChange();
+  }
   setImageOverlay(enabled: boolean) {
     this.imageOverlay = enabled;
     for (const entry of this.entries) for (const mesh of entry.meshes) mesh.material = enabled ? entry.image : entry.lit;
@@ -104,7 +134,13 @@ export class SurfaceScene {
     const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
     const entry: SurfaceEntry = { image: material, lit, meshes: [] };
     this.grids.push({ width: surface.width, height: surface.height, calibration: surface.calibration, heights: surface.heights });
-    for (const surfaceMaterial of [material, lit]) { surfaceMaterial.forceSinglePass = true; this.applyAppearance(surfaceMaterial); }
+    // Cells wind a → b → d; whether that faces up depends on the grid's handedness.
+    const [, , xx, xy, yx, yy] = surface.calibration;
+    const frontUp = { value: xx * yy - xy * yx > 0 ? 1 : 0 };
+    for (const surfaceMaterial of [material, lit]) {
+      surfaceMaterial.forceSinglePass = true; this.applyAppearance(surfaceMaterial);
+      shadeUnderside(surfaceMaterial, frontUp, this.undersideOpaque);
+    }
     this.entries.push(entry);
     const tiles: { geometry: THREE.BufferGeometry; column: number; row: number; columns: number; rows: number }[] = [];
     for (let row = 0; row < surface.height - 1; row += TILE_CELLS) {
@@ -152,6 +188,9 @@ export function initializeSurfaceControls(surface: SurfaceScene) {
   const visible = document.querySelector<HTMLInputElement>('#surface')!;
   const transparency = document.querySelector<HTMLInputElement>('#surface-transparency')!;
   const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
+  const underside = document.querySelector<HTMLInputElement>('#surface-opaque-underside')!;
+  underside.checked = true;
+  underside.addEventListener('change', () => surface.setOpaqueUnderside(underside.checked));
   const opacity = document.querySelector<HTMLInputElement>('#surface-opacity')!;
   const value = document.querySelector<HTMLOutputElement>('#surface-opacity-value')!;
   const slider = document.querySelector<HTMLElement>('#surface-opacity-control')!;

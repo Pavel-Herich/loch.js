@@ -229,4 +229,5 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
 .info-actions{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:8px;padding:8px 12px;border-top:1px solid #253b4b;background:#162531}
 #info-card header{padding-top:6px;padding-bottom:6px}
 #measure-overlay{position:absolute;inset:0;pointer-events:none;z-index:1}
-#surface-toggle[aria-pressed="true"]{color:#8ed9ff}
+#surface-toggle[aria-pressed="true"] .off-stroke{display:none}
+.scale-indicator.approximate .scale-ruler{opacity:.7}
