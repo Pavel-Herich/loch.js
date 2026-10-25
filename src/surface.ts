@@ -55,17 +55,15 @@ const UNDERSIDE = 'vec3(.56, .36, .22)';
  * Seen from below, the surface turns brown and (by default) opaque, so a view up from
  * the cave is told apart from a view down onto the terrain.
  */
-function shadeUnderside(material: THREE.Material, frontUp: { value: number }, opaque: { value: number }) {
+function shadeUnderside(material: THREE.Material, frontUp: { value: number }, opaque: { value: number }, below: { value: number }) {
   material.onBeforeCompile = shader => {
-    shader.uniforms.surfaceFrontUp = frontUp; shader.uniforms.surfaceUndersideOpaque = opaque;
-    shader.vertexShader = shader.vertexShader
-      .replace('void main() {', 'varying float vSurfaceZ;\nvoid main() {')
-      .replace('#include <project_vertex>', '#include <project_vertex>\n  vSurfaceZ = (modelMatrix * vec4(transformed, 1.0)).z;');
-    // Only from below: the back of a steep slope seen from above stays as it is.
+    shader.uniforms.surfaceFrontUp = frontUp; shader.uniforms.surfaceUndersideOpaque = opaque; shader.uniforms.surfaceCameraBelow = below;
+    // Only while the camera is under the terrain: from above, the backs of far slopes
+    // (higher than the camera, seen through the transparent surface) keep their normal look.
     shader.fragmentShader = shader.fragmentShader
-      .replace('void main() {', 'uniform float surfaceFrontUp;\nuniform float surfaceUndersideOpaque;\nvarying float vSurfaceZ;\nvoid main() {')
+      .replace('void main() {', 'uniform float surfaceFrontUp;\nuniform float surfaceUndersideOpaque;\nuniform float surfaceCameraBelow;\nvoid main() {')
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
-  if (gl_FrontFacing != (surfaceFrontUp > .5) && cameraPosition.z < vSurfaceZ) {
+  if (surfaceCameraBelow > .5 && gl_FrontFacing != (surfaceFrontUp > .5)) {
     gl_FragColor.rgb = mix(gl_FragColor.rgb, ${UNDERSIDE}, .6) * .85;
     gl_FragColor.a = mix(gl_FragColor.a, 1.0, surfaceUndersideOpaque);
   }`);
@@ -78,6 +76,9 @@ export class SurfaceScene {
   opacity = DEFAULT_SURFACE_OPACITY;
   imageOverlay = true;
   private undersideOpaque = { value: 1 };
+  private cameraBelow = { value: 0 };
+  private origin = new THREE.Vector3();
+  private lowest = Infinity;
   private entries: SurfaceEntry[] = [];
   private revision = 0;
   private pending = new Map<string, THREE.Texture>();
@@ -112,6 +113,17 @@ export class SurfaceScene {
     for (const entry of this.entries) { this.applyAppearance(entry.image); this.applyAppearance(entry.lit); }
     this.onChange();
   }
+  /**
+   * Is the camera (scene coordinates) under the terrain? Over the surface it is compared with
+   * the height there; beside it, with the lowest terrain point.
+   */
+  updateCamera(position: THREE.Vector3) {
+    if (!this.grids.length) return;
+    const east = position.x + this.origin.x, north = position.y + this.origin.y, z = position.z + this.origin.z;
+    const ground = this.heightAt(east, north) ?? this.lowest;
+    this.cameraBelow.value = z < ground ? 1 : 0;
+  }
+
   setOpaqueUnderside(opaque: boolean) {
     this.undersideOpaque.value = opaque ? 1 : 0;
     this.onChange();
@@ -134,12 +146,14 @@ export class SurfaceScene {
     const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
     const entry: SurfaceEntry = { image: material, lit, meshes: [] };
     this.grids.push({ width: surface.width, height: surface.height, calibration: surface.calibration, heights: surface.heights });
+    this.origin.copy(origin);
+    for (const h of surface.heights) if (h < this.lowest) this.lowest = h;
     // Cells wind a → b → d; whether that faces up depends on the grid's handedness.
     const [, , xx, xy, yx, yy] = surface.calibration;
     const frontUp = { value: xx * yy - xy * yx > 0 ? 1 : 0 };
     for (const surfaceMaterial of [material, lit]) {
       surfaceMaterial.forceSinglePass = true; this.applyAppearance(surfaceMaterial);
-      shadeUnderside(surfaceMaterial, frontUp, this.undersideOpaque);
+      shadeUnderside(surfaceMaterial, frontUp, this.undersideOpaque, this.cameraBelow);
     }
     this.entries.push(entry);
     const tiles: { geometry: THREE.BufferGeometry; column: number; row: number; columns: number; rows: number }[] = [];
@@ -173,7 +187,7 @@ export class SurfaceScene {
 
   clear() {
     this.revision++;
-    this.grids = [];
+    this.grids = []; this.lowest = Infinity; this.cameraBelow.value = 0;
     for (const [url, texture] of this.pending) { URL.revokeObjectURL(url); texture.dispose(); }
     this.pending.clear();
     for (const child of [...this.group.children]) {

@@ -33,11 +33,11 @@ export function sanitizeName(text: string) {
 
 const pad = (value: number) => String(value).padStart(2, '0');
 
-/** `Zavrt pod hrebenom` saved at 22.10.2026 12:25:48 (device clock) → `zavrt_pod_hrebenom_26-10-22_12-25-48`. */
+/** `Sinkhole below ridge` saved at 22.10.2026 12:25:48 (device clock) → `sinkhole_below_ridge_26-10-22_12-25-48`. */
 export function objectName(title: string, date: Date) {
   const day = `${pad(date.getFullYear() % 100)}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   const time = `${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
-  return `${sanitizeName(title) || 'objekt'}_${day}_${time}`;
+  return `${sanitizeName(title) || 'object'}_${day}_${time}`;
 }
 
 function extension(type: string, fallback: string) {
@@ -60,7 +60,7 @@ export function surveyTh(object: FieldObject, team: string) {
     + `station gps_mob "${object.name}" entrance #${comment}\r\ncs ijtsk\r\n`
     + `fix gps_mob ${Math.round(position.east)} ${Math.round(position.north)} ${elevation}\r\n`
     + `explo-date 0 \r\nexplo-team "Anonymus"\r\ndate ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}\r\n`
-    + `team "${removeDiacritics(team).replace(/"/g, '') || 'Kto zameral'}"\r\ndata normal from to compass clino tape\r\nflags surface\r\nflags not surface\r\nendcentreline\r\nendsurvey\r\n\r\n`;
+    + `team "${removeDiacritics(team).replace(/"/g, '') || 'unknown'}"\r\ndata normal from to compass clino tape\r\nflags surface\r\nflags not surface\r\nendcentreline\r\nendsurvey\r\n\r\n`;
 }
 
 /** j_mobil.zip: j_mobil/<id>/<id>_th.th, thconfig_200.th, _data/ photos; j_mobil.th lists them all. */

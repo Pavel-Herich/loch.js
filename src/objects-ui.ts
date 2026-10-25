@@ -100,7 +100,7 @@ export class FieldObjects {
     });
     $<HTMLButtonElement>('#objects-close').addEventListener('click', () => list.close());
     $<HTMLButtonElement>('#objects-export').addEventListener('click', () => void this.export());
-    // Zameral starts empty (only a faint "Name" hint); it is typed for each export.
+    // Surveyed by starts empty (only a faint "Name" hint); it is typed for each export.
     const team = $<HTMLInputElement>('#objects-team');
     team.value = '';
     team.addEventListener('input', () => stripField(team));

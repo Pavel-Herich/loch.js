@@ -796,6 +796,7 @@ function frame(time = performance.now()) {
         ? controls.target.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3())) : undefined;
       setSymbolView(symbolScale(metresPerPixel(camera, controls.target, height), activeBox.getSize(new THREE.Vector3()).length() / height), targetDepth);
     }
+    surfaceScene.updateCamera(camera.position);
     indicators.update();
     updateLocationDot();
     fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);

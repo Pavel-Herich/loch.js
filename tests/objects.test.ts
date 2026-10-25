@@ -15,7 +15,7 @@ describe('field objects for Therion', () => {
     expect(removeDiacritics('Závrt pod hrebeňom, ľadová ťava')).toBe('Zavrt pod hrebenom, ladova tava');
     expect(sanitizeName('  Závrt pod  hrebeňom (V1) ')).toBe('zavrt_pod_hrebenom_v1');
     expect(objectName('Závrt pod hrebeňom', new Date(2026, 9, 22, 11, 44, 5))).toBe('zavrt_pod_hrebenom_26-10-22_11-44-05');
-    expect(objectName('', new Date(2026, 0, 2, 3, 4, 5))).toBe('objekt_26-01-02_03-04-05');
+    expect(objectName('', new Date(2026, 0, 2, 3, 4, 5))).toBe('object_26-01-02_03-04-05');
   });
 
   it('writes the j_mobil survey fixed in the model system (cs ijtsk)', () => {

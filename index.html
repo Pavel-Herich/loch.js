@@ -136,7 +136,7 @@
   <button id="station-label-toggle" class="label-toggle" type="button" aria-label="Station labels: off" title="Station labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
 </div>
 </main></div><dialog id="object-dialog" aria-labelledby="object-title-label"><form id="object-form" novalidate>
-  <header class="object-head"><label id="object-title-label" for="object-title">Name</label><input id="object-title" type="text" autocomplete="off" enterkeyhint="done" placeholder="e.g. Zavrt pod hrebenom"/></header>
+  <header class="object-head"><label id="object-title-label" for="object-title">Name</label><input id="object-title" type="text" autocomplete="off" enterkeyhint="done" placeholder="e.g. Sinkhole below the ridge"/></header>
   <table class="object-table"><tbody>
     <tr><th scope="row">Saved as</th><td id="object-name-preview"></td></tr>
     <tr><th scope="row">Position</th><td><div id="object-position" aria-live="polite">Waiting for GPS fix…</div><div class="position-actions"><button id="object-pick" type="button">Pick in model</button><button id="object-use-gps" type="button" hidden>Use GPS</button></div></td></tr>
@@ -147,7 +147,7 @@
   <div class="dialog-actions"><button type="button" id="object-cancel">Cancel</button><button type="submit" id="object-save" class="primary" disabled>Save</button></div>
 </form></dialog><dialog id="objects-dialog" aria-labelledby="objects-heading"><h2 id="objects-heading">Field objects (<span id="objects-count">0</span>)</h2>
   <p class="objects-hint">Stored on this device until you delete them. Export saves j_mobil.zip for Therion: one survey per object with an entrance station fixed in lat-long, its thconfig and the photos in _data.</p>
-  <label class="objects-team" for="objects-team">Zameral <input id="objects-team" type="text" autocomplete="off" placeholder="Name"/></label>
+  <label class="objects-team" for="objects-team">Surveyed by <input id="objects-team" type="text" autocomplete="off" placeholder="Name"/></label>
   <p id="objects-skipped" class="objects-hint"></p>
   <ul id="objects-list" class="objects-list"></ul>
   <div class="dialog-actions"><button type="button" id="objects-export" class="primary">Export to Therion</button><button type="button" id="objects-close">Close</button></div>
