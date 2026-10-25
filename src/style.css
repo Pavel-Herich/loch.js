@@ -249,3 +249,8 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
 /* Centred on the point: 22 px outside size including the border (border-box), so half of it is the offset. */
 #selection-ring{position:absolute;left:0;top:0;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px #09131c,inset 0 0 0 1px #09131c;pointer-events:none;z-index:1}
 #dock .label-toggle.on{background:#215a75}
+/* Viewing a saved object: fields read-only, no position, photo or delete controls until Edit. */
+#object-dialog.viewing .position-actions,#object-dialog.viewing .photo-add,#object-dialog.viewing .object-photos button{display:none}
+#object-dialog.viewing #object-title,#object-dialog.viewing #object-note{border-color:transparent;background:transparent;resize:none}
+#object-dialog.viewing tr:has(.object-photos:empty){display:none}
+#object-dialog.viewing #object-title{outline:none}

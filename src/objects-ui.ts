@@ -81,6 +81,7 @@ export class FieldObjects {
       photoInput.value = ''; this.renderPhotos();
     });
     $<HTMLButtonElement>('#object-cancel').addEventListener('click', () => recorder.close());
+    $<HTMLButtonElement>('#object-edit').addEventListener('click', () => { this.setViewing(false); title.focus(); });
     recorder.addEventListener('close', () => {
       if (this.picking) return;
       this.stopGps();
@@ -115,8 +116,18 @@ export class FieldObjects {
     this.renderMarkers(); this.options.onChange();
   }
 
-  /** View and edit an object, e.g. after tapping its marker. */
+  /** View an object, e.g. after tapping its marker; Edit makes it editable. */
   open(object: FieldObject) { this.openRecorder(object); }
+
+  /** Read-only view of a saved object: no typing, picking or photo changes until Edit. */
+  private setViewing(viewing: boolean) {
+    $<HTMLDialogElement>('#object-dialog').classList.toggle('viewing', viewing);
+    $<HTMLInputElement>('#object-title').readOnly = viewing;
+    $<HTMLTextAreaElement>('#object-note').readOnly = viewing;
+    $<HTMLButtonElement>('#object-edit').hidden = !viewing;
+    $<HTMLButtonElement>('#object-save').hidden = viewing;
+    $<HTMLButtonElement>('#object-cancel').textContent = viewing ? 'Close' : 'Cancel';
+  }
 
   /** New object at the current GPS position, or an existing one to view and edit. */
   private openRecorder(object?: FieldObject) {
@@ -126,6 +137,8 @@ export class FieldObjects {
     $<HTMLTextAreaElement>('#object-note').value = object?.note ?? '';
     $<HTMLElement>('#object-error').textContent = '';
     $<HTMLButtonElement>('#object-save').textContent = object ? 'Save changes' : 'Save';
+    // A saved object opens for viewing; a new one straight for typing.
+    this.setViewing(Boolean(object));
     this.photos = object ? [...object.photos] : []; this.position = object?.position ?? null;
     this.renderPhotos(); this.updatePreview();
     if (object) {
@@ -136,7 +149,8 @@ export class FieldObjects {
       $<HTMLButtonElement>('#object-pick').disabled = !this.options.getOrigin();
     } else this.startGps();
     recorder.showModal();
-    if (!object) $<HTMLInputElement>('#object-title').focus();
+    // Viewing: keep the focus (and its ring) off the read-only name.
+    if (object) $<HTMLButtonElement>('#object-cancel').focus(); else $<HTMLInputElement>('#object-title').focus();
   }
 
   private viewerPhotos: FieldPhoto[] = [];
