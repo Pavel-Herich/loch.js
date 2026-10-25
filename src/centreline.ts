@@ -29,6 +29,8 @@ export class CentrelineScene {
   private range: AltitudeRange = { minZ: 0, maxZ: 0 };
   private originZ = 0;
   private stations: StationScene;
+  /** Stations of the current model, for search. */
+  stationDetails: Station[] = [];
   constructor(readonly group: THREE.Group, private onChange: () => void, labels?: HTMLCanvasElement) {
     this.stations = new StationScene(group, labels);
   }
@@ -60,7 +62,8 @@ export class CentrelineScene {
       this.group.add(lines); this.entries.push({ flags, lines });
     }
     if (!this.entries.length) material.dispose();
-    this.stations.setModel(model.stationDetails ?? [], origin);
+    this.stationDetails = model.stationDetails ?? [];
+    this.stations.setModel(this.stationDetails, origin);
     this.updateColors(); this.updateVisibility();
   }
 
@@ -86,6 +89,7 @@ export class CentrelineScene {
     }
   }
   clear() {
+    this.stationDetails = [];
     this.stations.clear();
     const materials = new Set<THREE.Material>();
     for (const { lines } of this.entries) { this.group.remove(lines); lines.geometry.dispose(); materials.add(lines.material); }

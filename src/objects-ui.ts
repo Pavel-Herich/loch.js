@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { errorMessage } from './location';
-import { currentSymbolScale } from './station-labels';
+import { symbolSizeAt } from './station-labels';
 import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
 
 type Options = {
@@ -329,7 +329,9 @@ export class FieldObjects {
       const z = this.options.heightAt(position.east, position.north) ?? position.height ?? origin.z;
       point.set(position.east - origin.x, position.north - origin.y, z - origin.z);
       // Same distance scaling as entrance symbols.
-      element.style.setProperty('--s', currentSymbolScale().toFixed(3));
+      // Depth in front of the camera; perspective w equals it.
+      const depth = -point.clone().applyMatrix4(camera.matrixWorldInverse).z;
+      element.style.setProperty('--s', symbolSizeAt(depth).toFixed(3));
       point.project(camera);
       const visible = point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
       element.hidden = !visible;

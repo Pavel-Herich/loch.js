@@ -15,17 +15,19 @@ import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators, metresPerPixel } from './indicators';
-import { FULL_SIZE_METRES_PER_PIXEL, setSymbolScale, symbolScale } from './station-labels';
+import { FULL_SIZE_METRES_PER_PIXEL, setSymbolView, symbolScale } from './station-labels';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
+import { WalkerControls } from './walker';
 import { ViewLocks } from './view-locks';
 import { FieldObjects } from './objects-ui';
 import { ObjectStore } from './objects';
 import { looksLikeSJTSK } from './geo';
 import { drawLayers, LayerStore, readShapefileLayer, type PointLayer } from './layers';
 import { LayerBrowser, type LayerHighlight } from './layers-ui';
-import { animateRotationCentre, RotationCentrePicker } from './pivot';
+import { searchModel, type SearchResult } from './search';
+import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
 import { modelFileFormat, parseModelFile } from './model-file';
 import './style.css';
@@ -107,6 +109,22 @@ const centreline = new CentrelineScene(lines, invalidateView, document.querySele
 initializeCentrelineControls(centreline);
 const indicators = initializeIndicators(canvas, () => camera, () => controls.target);
 const autorotate = initializeAutorotateControls(controls);
+const walker = new WalkerControls(controls, canvas);
+const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
+const walkerIndicator = document.querySelector<HTMLElement>('#walker-indicator')!;
+walkerCheckbox.checked = false;
+function setWalker(enabled: boolean) {
+  pivotPicker.enabled = false;
+  walker.enabled = enabled; walkerCheckbox.checked = enabled;
+  walkerIndicator.setAttribute('aria-pressed', String(enabled));
+  walkerIndicator.title = enabled ? 'Walker on: drag to look, wheel/pinch to walk. Click to return to orbiting' : 'Walker: move through the cave from the camera position';
+}
+walkerIndicator.title = 'Walker: move through the cave from the camera position';
+walkerCheckbox.addEventListener('change', () => setWalker(walkerCheckbox.checked));
+walkerIndicator.addEventListener('click', () => setWalker(!walker.enabled));
+walkerIndicator.addEventListener('keydown', event => {
+  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setWalker(!walker.enabled); }
+});
 controls.addEventListener('change', invalidateView);
 const pivotButton = document.querySelector<HTMLButtonElement>('#pivot-toggle')!;
 const pivotHint = document.querySelector<HTMLElement>('#pivot-hint')!;
@@ -130,6 +148,35 @@ const pivotPicker = new RotationCentrePicker({
 });
 pivotButton.addEventListener('click', () => { pivotPicker.enabled = !pivotPicker.enabled; });
 document.querySelector<HTMLButtonElement>('#pivot-menu')!.addEventListener('click', () => { pivotPicker.enabled = true; });
+// Safari ignores user-scalable=no for pinches; block its page gestures so only the model zooms.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(type, event => event.preventDefault(), { passive: false });
+
+/** Double click or double tap on the model sets the rotation centre there. */
+function centreAt(clientX: number, clientY: number) {
+  if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  const point = pickModelPoint(camera, [walls, surfaceGroup, lines], ndc, rect.height, controls.target);
+  if (!point) return;
+  animateRotationCentre(camera, controls, point);
+  pivotMarker.hidden = true; void pivotMarker.offsetWidth; pivotMarker.hidden = false;
+}
+canvas.addEventListener('dblclick', event => { event.preventDefault(); centreAt(event.clientX, event.clientY); });
+// Touch has no reliable dblclick: two short taps within 300 ms and 30 px.
+let tapStart: { id: number; x: number; y: number; time: number } | undefined;
+let lastTap: { x: number; y: number; time: number } | undefined;
+canvas.addEventListener('pointerdown', event => {
+  if (event.pointerType === 'touch') tapStart = event.isPrimary ? { id: event.pointerId, x: event.clientX, y: event.clientY, time: event.timeStamp } : undefined;
+});
+canvas.addEventListener('pointerup', event => {
+  if (event.pointerType !== 'touch' || !tapStart || tapStart.id !== event.pointerId) return;
+  const short = event.timeStamp - tapStart.time < 250 && Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y) < 10;
+  tapStart = undefined;
+  if (!short) { lastTap = undefined; return; }
+  if (lastTap && event.timeStamp - lastTap.time < 300 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 30) {
+    lastTap = undefined; centreAt(event.clientX, event.clientY);
+  } else lastTap = { x: event.clientX, y: event.clientY, time: event.timeStamp };
+});
 // Picking an object position: same tap-to-pick as the rotation centre, without moving the view.
 let resolveObjectPick: ((point: THREE.Vector3 | undefined) => void) | undefined;
 const objectPicker = new RotationCentrePicker({
@@ -430,6 +477,10 @@ function finishFileLoading() {
 }
 detail.addEventListener('change', () => { loadingError = false; invalidateView(); });
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
+// iOS shows Photo Library / Take Photo / Browse when it cannot map every accepted
+// extension to a document type (.lox, .shp…). A generic data type opens Files directly.
+const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+if (iOS) chooser.accept = 'application/octet-stream';
 chooser.addEventListener('change', () => { openFiles(Array.from(chooser.files ?? [])); });
 /** A model opens as before; files with a .shp are imported as a point layer instead. */
 function openFiles(files: File[]) {
@@ -478,6 +529,43 @@ function focusOn(local: THREE.Vector3) {
   }
   animateRotationCentre(camera, controls, local);
 }
+const searchDialog = document.querySelector<HTMLDialogElement>('#search-dialog')!;
+const searchInput = document.querySelector<HTMLInputElement>('#search-input')!;
+const searchBody = document.querySelector<HTMLElement>('#search-results')!;
+const searchSummary = document.querySelector<HTMLElement>('#search-summary')!;
+const KIND_TEXT: Record<SearchResult['kind'], string> = { cave: 'cave', survey: 'survey', station: 'station' };
+let searchTimer = 0;
+function runSearch() {
+  const query = searchInput.value;
+  const { results, total } = searchModel(query, centreline.stationDetails);
+  searchSummary.textContent = !query.trim() ? 'Station numbers list every survey that uses them; add @survey to narrow, e.g. 12@krasna.'
+    : !centreline.stationDetails.length ? 'This model has no named stations.'
+    : total ? `${total} found${total > results.length ? `, first ${results.length} shown` : ''}` : 'Nothing found';
+  searchBody.replaceChildren(...results.map(result => {
+    const row = document.createElement('tr'); row.tabIndex = 0;
+    const name = document.createElement('td'), title = document.createElement('strong'), kind = document.createElement('span');
+    title.textContent = result.title; kind.className = 'kind';
+    kind.textContent = result.kind === 'survey' ? `survey · ${result.count} stations` : KIND_TEXT[result.kind];
+    name.append(title, kind);
+    const survey = document.createElement('td'); survey.textContent = result.survey;
+    const altitude = document.createElement('td'); altitude.textContent = `${Math.round(result.altitude)} m`;
+    row.append(name, survey, altitude);
+    const go = () => {
+      searchDialog.close();
+      focusOn(new THREE.Vector3(result.position[0] - worldOrigin.x, result.position[1] - worldOrigin.y, result.position[2] - worldOrigin.z));
+      // Ring at the view centre marks the found place.
+      setTimeout(() => { pivotMarker.hidden = true; void pivotMarker.offsetWidth; pivotMarker.hidden = false; }, 280);
+    };
+    row.addEventListener('click', go);
+    row.addEventListener('keydown', event => { if (event.key === 'Enter') go(); });
+    return row;
+  }));
+}
+searchInput.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = window.setTimeout(runSearch, 150); });
+document.querySelector<HTMLButtonElement>('#search-open')!.addEventListener('click', () => {
+  runSearch(); searchDialog.showModal(); searchInput.focus(); searchInput.select();
+});
+document.querySelector<HTMLButtonElement>('#search-close')!.addEventListener('click', () => searchDialog.close());
 new LayerBrowser({
   getLayers: () => pointLayers,
   removeLayer: async id => {
@@ -507,9 +595,14 @@ function frame(time = performance.now()) {
   requestAnimationFrame(frame);
   autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
   if (sceneDirty) {
-    // One symbol size per frame: whole model in view → 30 %, 100 m scale bar → 100 %.
+    // Symbol size: zoom relative to the model (whole model → 25 %, 100 m scale → 100 %),
+    // then nearer than the rotation centre larger, farther smaller.
     const height = canvas.clientHeight;
-    if (height > 0 && !activeBox.isEmpty()) setSymbolScale(symbolScale(metresPerPixel(camera, controls.target, height), activeBox.getSize(new THREE.Vector3()).length() / height));
+    if (height > 0 && !activeBox.isEmpty()) {
+      const targetDepth = camera instanceof THREE.PerspectiveCamera
+        ? controls.target.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3())) : undefined;
+      setSymbolView(symbolScale(metresPerPixel(camera, controls.target, height), activeBox.getSize(new THREE.Vector3()).length() / height), targetDepth);
+    }
     indicators.update();
     updateLocationDot();
     fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);

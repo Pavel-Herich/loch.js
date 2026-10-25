@@ -1,4 +1,5 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="toast" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="layer-points" aria-label="SHP layer points" hidden></canvas><div id="object-markers" aria-label="Field objects" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="toast" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="layer-points" aria-label="SHP layer points" hidden></canvas><div id="object-markers" aria-label="Field objects" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
+  <div id="top-right">
   <div id="top-indicators">
     <div id="compass-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="Compass">
       <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="compass-index" d="m31 1 3 5 3-5z"/>
@@ -8,16 +9,28 @@
     <div id="tilt-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="View tilt">
       <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="tilt-horizon" d="M8 34h52M34 8v5m0 42v5"/><g id="tilt-arrow"><path class="tilt-direction" d="M17 34h31"/><path class="tilt-tip" d="m52 34-9-5v10z"/></g><circle cx="34" cy="34" r="2" fill="currentColor"/></svg><span id="tilt-value">0°</span>
     </div>
+    <div id="legend"></div>
     <div id="projection-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="Projection">
       <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/>
         <g id="projection-perspective" class="projection-box"><path d="M21 21h26v26H21zM29 29h10v10H29zM21 21l8 8M47 21l-8 8M21 47l8-8M47 47l-8-8"/></g>
         <g id="projection-orthographic" class="projection-box" hidden><path d="M22 28h18v18H22zM28 22h18v18H28zM22 28l6-6M40 28l6-6M22 46l6-6M40 46l6-6"/></g>
       </svg><span id="projection-value">Persp</span>
     </div>
-    <div id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></div>
-    <div id="legend"></div>
+    <div id="walker-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="Walker">
+      <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/>
+        <g class="walker-figure" transform="translate(19 18) scale(1.25)">
+          <circle cx="11" cy="3.2" r="2.6" fill="currentColor"/>
+          <path d="m10.6 7.2-1.8 8.4m1.6-7.2-4.6 4.2m5.2-3.8 3.2 3.4 2.6-.8M8.8 15.6l-2.4 4.2-2.4 3.2m4.8-7.4 3.6 3.2 1.8 4.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+        </g>
+      </svg><span>Walk</span>
+    </div>
   </div>
-</aside><header id="toolbar">
+  <div id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></div>
+  </div>
+</aside><div id="left-tools"><button id="search-open" type="button" aria-label="Search" title="Search station number, cave or survey"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m15.5 15.5 5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button><button id="object-add" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
+    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  </svg></button></div><header id="toolbar">
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
@@ -58,6 +71,7 @@
       </div></details>
     </div></details>
     <details class="menu"><summary>View</summary><div class="menu-items">
+      <label><input id="walker" type="checkbox"/> Walker</label>
       <label><input id="autorotate" type="checkbox"/> Autorotate</label>
       <label><input id="perspective" type="checkbox" checked/> Perspective</label>
       <label><input id="lock-tilt" type="checkbox"/> Lock tilt</label>
@@ -85,10 +99,6 @@
   <button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu-panel" title="Menu"><span class="hamburger" aria-hidden="true"></span></button>
   <button id="open-toggle" type="button" aria-label="Open file" title="Open a model (LOX, Survex .3d, Compass .plt) or an SHP layer (.shp with .dbf, .prj)"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2h8.8A1.5 1.5 0 0 1 21 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-  </svg></button>
-  <button id="object-add" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
-    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
   </svg></button>
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="pivot-toggle" type="button" aria-label="Set rotation centre" aria-pressed="false" title="Set rotation centre: click the model"><svg viewBox="0 0 24 24" aria-hidden="true">
@@ -124,6 +134,11 @@
   <p id="objects-skipped" class="objects-hint"></p>
   <ul id="objects-list" class="objects-list"></ul>
   <div class="dialog-actions"><button type="button" id="objects-export" class="primary">Export to Therion</button><button type="button" id="objects-close">Close</button></div>
+</dialog><dialog id="search-dialog" aria-labelledby="search-heading"><h2 id="search-heading">Search</h2>
+  <div class="search-row"><input id="search-input" type="search" autocomplete="off" enterkeyhint="search" placeholder="Station number, cave or survey (12@krasna)" aria-label="Search"/></div>
+  <p id="search-summary" class="objects-hint">Station numbers list every survey that uses them; add @survey to narrow, e.g. 12@krasna.</p>
+  <div class="layer-table search-results"><table class="object-table"><thead><tr><th scope="col">Name</th><th scope="col">Survey</th><th scope="col">Alt.</th></tr></thead><tbody id="search-results"></tbody></table></div>
+  <div class="dialog-actions"><button type="button" id="search-close">Close</button></div>
 </dialog><dialog id="layers-dialog" aria-labelledby="layers-heading"><h2 id="layers-heading">SHP files</h2>
   <p id="layers-empty" class="objects-hint">No SHP layers yet. Open a .shp (with its .dbf, .prj and .cpg) with the folder button.</p>
   <div id="layers-body">

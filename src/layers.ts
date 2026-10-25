@@ -1,6 +1,6 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { guessCoordinates, layerPoints, nameField, parseDbf, parseShp, type CoordinateGuess, type LayerPoint } from './shapefile';
-import { currentSymbolScale, LabelOccupancy } from './station-labels';
+import { LabelOccupancy, symbolSizeAt } from './station-labels';
 
 export type PointLayer = { id: string; name: string; color: string; source: string; points: LayerPoint[] };
 
@@ -35,7 +35,7 @@ export async function readShapefileLayer(files: File[], index: number): Promise<
     points: layerPoints(points, guess, record => field ? records[record]?.[field] ?? '' : '', record => records[record]),
   };
   const named = field ? `, names from ${field}` : dbfFile ? '' : ', no .dbf (no names)';
-  return { layer, summary: `${shp.name} · ${layer.points.length} points (${layer.source}${named}) pinned to the terrain` };
+  return { layer, summary: `${shp.name} · ${layer.points.length} points (${layer.source}${named}) at their own heights${points.some(point => point.z === null) ? ' (terrain where missing)' : ''}` };
 }
 
 /** Imported point layers, kept on the device and drawn on one overlay canvas. */
@@ -85,8 +85,8 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
   occupancy.reset(width, height);
   for (const layer of layers) for (let index = 0; index < layer.points.length; index++) {
     const point = layer.points[index];
-    // Pinned to the model's terrain where it exists; elsewhere the file height or the model centre.
-    const z = heightAt(point.east, point.north) ?? point.z ?? origin.z;
+    // The file's own height when it has one; otherwise pinned to the model's terrain (or the model centre).
+    const z = point.z ?? heightAt(point.east, point.north) ?? origin.z;
     const x = point.east - origin.x, y = point.north - origin.y, h = z - origin.z;
     const w = m[3] * x + m[7] * y + m[11] * h + m[15];
     if (w <= 0) continue;
@@ -94,7 +94,7 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     const cz = (m[2] * x + m[6] * y + m[10] * h + m[14]) / w;
     if (Math.abs(cx) > 1.02 || Math.abs(cy) > 1.02 || Math.abs(cz) > 1) continue;
     const sx = (cx + 1) / 2 * width, sy = (1 - cy) / 2 * height;
-    const size = currentSymbolScale(), radius = Math.max(RADIUS * size, 1.5);
+    const size = symbolSizeAt(w), radius = Math.max(RADIUS * size, 1.5);
     context.beginPath(); context.arc(sx, sy, radius, 0, Math.PI * 2);
     context.fillStyle = layer.color; context.fill();
     context.lineWidth = 1; context.strokeStyle = '#09131c'; context.stroke();

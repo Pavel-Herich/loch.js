@@ -81,7 +81,7 @@ export class LayerBrowser {
     const layer = this.layer(), origin = this.options.getOrigin();
     if (!layer || !origin) return undefined;
     const point = layer.points[this.pointIndex()];
-    const z = this.options.heightAt(point.east, point.north) ?? point.z ?? origin.z;
+    const z = point.z ?? this.options.heightAt(point.east, point.north) ?? origin.z;
     return new THREE.Vector3(point.east - origin.x, point.north - origin.y, z - origin.z);
   }
 
