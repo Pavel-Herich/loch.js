@@ -15,7 +15,7 @@ import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators, metresPerPixel } from './indicators';
-import { FULL_SIZE_METRES_PER_PIXEL, setSymbolView, symbolScale } from './station-labels';
+import { FULL_SIZE_METRES_PER_PIXEL, setSymbolView } from './station-labels';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
@@ -264,8 +264,8 @@ canvas.addEventListener('click', event => {
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
   if (measuring) { addMeasurePoint(event.clientX, event.clientY); return; }
   const hit = symbolAt(event.clientX, event.clientY);
-  // The tapped point is ringed; the ring moves with the next tapped point.
-  if (hit) { select(hit.position); hit.open(); } else infoCard.hidden = true;
+  // The tapped point is ringed; the ring moves with the next tapped point and goes with a tap beside them.
+  if (hit) { select(hit.position); hit.open(); } else { infoCard.hidden = true; select(null); }
 });
 // Measuring: tap points (snapping to entrances, objects, SHP points, shown stations and the GPS
 // position, else the model under the finger); the card gives the last leg and the total.
@@ -806,9 +806,8 @@ function frame(time = performance.now()) {
     // then nearer than the rotation centre larger, farther smaller.
     const height = canvas.clientHeight;
     if (height > 0 && !activeBox.isEmpty()) {
-      const targetDepth = camera instanceof THREE.PerspectiveCamera
-        ? controls.target.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3())) : undefined;
-      setSymbolView(symbolScale(metresPerPixel(camera, controls.target, height), activeBox.getSize(new THREE.Vector3()).length() / height), targetDepth);
+      const perDepth = camera instanceof THREE.PerspectiveCamera ? 2 * Math.tan(THREE.MathUtils.degToRad(camera.getEffectiveFOV()) / 2) / height : undefined;
+      setSymbolView(activeBox.getSize(new THREE.Vector3()).length() / height, metresPerPixel(camera, controls.target, height), perDepth);
     }
     surfaceScene.updateCamera(camera.position);
     indicators.update();

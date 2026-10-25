@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ENTRANCE_LABELS, nextLabel, STATION_LABELS } from '../src/dock';
 import { stationLabel, STATION_ENTRANCE, type Station } from '../src/lox-stations';
 import { stationLabelMode, type StationOptions } from '../src/stations';
-import { FULL_SIZE_METRES_PER_PIXEL, symbolScale, symbolSize } from '../src/station-labels';
+import { FULL_SIZE_METRES_PER_PIXEL, setSymbolView, symbolScale, symbolSizeAt } from '../src/station-labels';
 
 const station = (flags: number, comment?: string): Station => ({ id: 1, surveyId: 2, name: '7', comment, flags, position: [0, 0, 1286.4], survey: 'krasna_dita', fullSurvey: 'krasna_dita.index' });
 const options: StationOptions = { stations: true, entrance: true, fixed: false, continuation: false, label: 'number', entranceLabel: 'name', surface: true, underground: true, splay: true };
@@ -40,13 +40,24 @@ describe('dock label cycles', () => {
     expect(symbolScale(.5, .4)).toBe(1);
   });
 
-  it('makes nearer symbols larger and farther ones smaller, within 25–100 %', () => {
-    expect(symbolSize(.5, 1000, 1000)).toBeCloseTo(.5, 9);
-    expect(symbolSize(.5, 500, 1000)).toBeCloseTo(1, 9);
-    expect(symbolSize(.5, 1500, 1000)).toBeCloseTo(1 / 3, 9);
-    expect(symbolSize(.5, 5000, 1000)).toBe(.25);
-    expect(symbolSize(.5, 100, 1000)).toBe(1);
-    // Orthographic: no depth, zoom only.
-    expect(symbolSize(.5, 3000)).toBe(.5);
+  it('sizes each symbol by its own real distance in perspective, within 25–100 %', () => {
+    const fit = 40, perDepth = .001; // 1 mm per pixel per metre of distance
+    setSymbolView(fit, 999, perDepth);
+    expect(symbolSizeAt(FULL_SIZE_METRES_PER_PIXEL / perDepth)).toBeCloseTo(1, 9);
+    expect(symbolSizeAt(30)).toBe(1);
+    expect(symbolSizeAt(fit / perDepth)).toBeCloseTo(.25, 9);
+    expect(symbolSizeAt(1e7)).toBe(.25);
+    const sizes = [100, 1000, 5000, 20000, 40000].map(symbolSizeAt);
+    for (let i = 1; i < sizes.length; i++) expect(sizes[i]).toBeLessThanOrEqual(sizes[i - 1]);
+  });
+  it('keeps near symbols full size however close the rotation centre is', () => {
+    // Zoomed right up to the centre: only the distance of each symbol counts.
+    setSymbolView(40, .0001, .001);
+    expect(symbolSizeAt(50)).toBe(1);
+  });
+  it('uses the zoom alone in orthographic views', () => {
+    setSymbolView(40, 4);
+    expect(symbolSizeAt(10)).toBe(symbolSizeAt(30000));
+    expect(symbolSizeAt(10)).toBeCloseTo(symbolScale(4, 40), 9);
   });
 });

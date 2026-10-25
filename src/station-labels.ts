@@ -24,20 +24,24 @@ export function symbolScale(metresPerPixel: number, fitMetresPerPixel: number) {
 }
 
 /**
- * Size of one symbol: the zoom part scaled by real distance, so a symbol nearer
- * than the viewed spot (the rotation centre) is larger and a farther one smaller.
- * Orthographic views have no depth, so `targetDepth` is undefined there.
+ * The same rule per symbol, from the screen scale at the symbol's own real distance:
+ * in perspective a nearer symbol has fewer metres per pixel and so is larger. It does
+ * not depend on the rotation centre, which may sit right in front of the camera
+ * after zooming in.
  */
-export function symbolSize(zoomScale: number, depth: number, targetDepth?: number) {
-  const perspective = targetDepth && depth > 0 ? targetDepth / depth : 1;
-  return Math.min(1, Math.max(SYMBOL_MIN_SIZE, zoomScale * perspective));
+let view = { fit: 0, metresPerPixel: 1, perDepth: undefined as number | undefined };
+/**
+ * Set once per frame. `perDepth` (perspective) is metres per pixel per metre of distance;
+ * orthographic views pass their single `metresPerPixel` instead.
+ */
+export function setSymbolView(fitMetresPerPixel: number, metresPerPixel: number, perDepth?: number) {
+  view = { fit: fitMetresPerPixel, metresPerPixel, perDepth };
 }
-
-let view = { scale: 1, targetDepth: undefined as number | undefined };
-/** Set once per frame from the view; every symbol overlay reads the same values. */
-export function setSymbolView(scale: number, targetDepth?: number) { view = { scale, targetDepth }; }
-/** Size for a symbol at this depth in front of the camera. */
-export function symbolSizeAt(depth: number) { return symbolSize(view.scale, depth, view.targetDepth); }
+/** Size for a symbol at this depth in front of the camera, 25–100 %. */
+export function symbolSizeAt(depth: number) {
+  const metresPerPixel = view.perDepth !== undefined && depth > 0 ? depth * view.perDepth : view.metresPerPixel;
+  return symbolScale(metresPerPixel, view.fit);
+}
 const OMEGA_SCALE = .18;
 
 
