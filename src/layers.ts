@@ -70,8 +70,7 @@ const occupancy = new LabelOccupancy();
 
 /** Labels follow the entrance label button: names, altitudes (terrain height) or none. */
 export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], camera: Camera, width: number, height: number,
-  origin: Vector3, heightAt: (east: number, north: number) => number | undefined, label: string = 'none',
-  highlight: { layerId: string; index: number } | null = null) {
+  origin: Vector3, heightAt: (east: number, north: number) => number | undefined, label: string = 'none') {
   const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
     canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
@@ -98,15 +97,6 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     context.beginPath(); context.arc(sx, sy, radius, 0, Math.PI * 2);
     context.fillStyle = layer.color; context.fill();
     context.lineWidth = 1; context.strokeStyle = '#09131c'; context.stroke();
-    if (highlight && highlight.layerId === layer.id && highlight.index === index) {
-      // Point selected in File → SHP files.
-      // A bold white ring with a dark edge, readable on any terrain.
-      context.beginPath(); context.arc(sx, sy, radius + 8, 0, Math.PI * 2);
-      context.lineWidth = 6; context.strokeStyle = '#09131c'; context.stroke();
-      context.lineWidth = 3; context.strokeStyle = '#ffffff'; context.stroke();
-      context.beginPath(); context.arc(sx, sy, radius + 14, 0, Math.PI * 2);
-      context.lineWidth = 1.5; context.strokeStyle = layer.color; context.stroke();
-    }
     const text = label === 'name' ? point.label : label === 'altitude' ? `${Math.round(z)} m` : '';
     if (!text) continue;
     // Skip labels that would overlap ones already drawn, as for station labels.

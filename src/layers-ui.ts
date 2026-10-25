@@ -16,12 +16,6 @@ type Options = {
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
-/** A mostly horizontal swipe of 40 px or more: −1 back (to the right), +1 on (to the left). */
-export function swipeStep(dx: number, dy: number) {
-  if (Math.abs(dx) < 40 || Math.abs(dx) < 1.5 * Math.abs(dy)) return 0;
-  return dx < 0 ? 1 : -1;
-}
-
 /** One entry per shape: points as they are, lines and polygons by their first vertex. */
 export function browsablePoints(layer: PointLayer) {
   const indices: number[] = [];
@@ -56,16 +50,6 @@ export class LayerBrowser {
     });
     $<HTMLButtonElement>('#layer-prev').addEventListener('click', () => this.step(-1));
     $<HTMLButtonElement>('#layer-next').addEventListener('click', () => this.step(1));
-    // Swipe across the attributes: left for the next point, right for the previous one.
-    const swipe = $<HTMLElement>('#layer-swipe');
-    let start: { x: number; y: number; id: number } | undefined;
-    swipe.addEventListener('pointerdown', event => { start = { x: event.clientX, y: event.clientY, id: event.pointerId }; });
-    swipe.addEventListener('pointercancel', () => { start = undefined; });
-    swipe.addEventListener('pointerup', event => {
-      if (!start || start.id !== event.pointerId) return;
-      const step = swipeStep(event.clientX - start.x, event.clientY - start.y); start = undefined;
-      if (step) this.step(step);
-    });
     $<HTMLButtonElement>('#layer-show').addEventListener('click', () => {
       const local = this.localPoint();
       if (!local) return;

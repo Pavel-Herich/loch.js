@@ -25,7 +25,7 @@ import { FieldObjects } from './objects-ui';
 import { ObjectStore } from './objects';
 import { looksLikeSJTSK } from './geo';
 import { drawLayers, LayerStore, readShapefileLayer, type PointLayer } from './layers';
-import { LayerBrowser, type LayerHighlight } from './layers-ui';
+import { LayerBrowser } from './layers-ui';
 import { searchModel, type SearchResult } from './search';
 import { browsablePoints } from './layers-ui';
 import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
@@ -203,7 +203,7 @@ function showInfo(title: string, rows: [string, string][], actions: InfoAction[]
 document.querySelector<HTMLButtonElement>('#info-close')!.addEventListener('click', () => { infoCard.hidden = true; });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
-  infoCard.hidden = true;
+  infoCard.hidden = true; select(null);
   if (measuring) setMeasuring(false);
 });
 const SYMBOL_HIT_PIXELS = 16;
@@ -264,9 +264,8 @@ canvas.addEventListener('click', event => {
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
   if (measuring) { addMeasurePoint(event.clientX, event.clientY); return; }
   const hit = symbolAt(event.clientX, event.clientY);
-  // A point shown from File → SHP files stays marked until another point is tapped.
-  if (hit && layerHighlight && hit.key !== `shp:${layerHighlight.layerId}:${layerHighlight.index}`) { layerHighlight = null; invalidateView(); }
-  if (hit) hit.open(); else infoCard.hidden = true;
+  // The tapped point is ringed; the ring moves with the next tapped point.
+  if (hit) { select(hit.position); hit.open(); } else infoCard.hidden = true;
 });
 // Measuring: tap points (snapping to entrances, objects, SHP points, shown stations and the GPS
 // position, else the model under the finger); the card gives the last leg and the total.
@@ -707,7 +706,15 @@ async function importLayer(files: File[]) {
     announce(`Cannot import SHP layer: ${exceptionMessage(error)}`, true);
   }
 }
-let layerHighlight: LayerHighlight = null;
+/** Ringed point (file coordinates): the one shown from File → SHP files or tapped last. */
+let selection: MeasurePoint | null = null;
+const selectionRing = document.querySelector<HTMLElement>('#selection-ring')!;
+function select(point: MeasurePoint | null) { selection = point; invalidateView(); }
+function updateSelectionRing() {
+  const screen = selection && hasModel ? markerScreenPosition(new THREE.Vector3(selection.east - worldOrigin.x, selection.north - worldOrigin.y, selection.z - worldOrigin.z), camera, canvas.clientWidth, canvas.clientHeight) : undefined;
+  selectionRing.hidden = !screen?.onScreen;
+  if (screen?.onScreen) selectionRing.style.transform = `translate(${screen.x}px, ${screen.y}px)`;
+}
 /** Centre a scene point and zoom in to full-size symbols if the view is farther out. */
 function focusOn(local: THREE.Vector3) {
   const height = canvas.clientHeight || 1, wanted = FULL_SIZE_METRES_PER_PIXEL * .7;
@@ -771,13 +778,18 @@ new LayerBrowser({
   heightAt: (east, north) => surfaceScene.heightAt(east, north),
   getOrigin: () => hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y) ? worldOrigin : undefined,
   focus: focusOn,
-  setHighlight: highlight => { layerHighlight = highlight; if (highlight) showSymbols(); invalidateView(); },
+  setHighlight: highlight => {
+    const layer = highlight && pointLayers.find(item => item.id === highlight.layerId), point = layer?.points[highlight!.index];
+    if (!point) { select(null); return; }
+    showSymbols();
+    select({ name: point.label, east: point.east, north: point.north, z: point.z ?? surfaceScene.heightAt(point.east, point.north) ?? worldOrigin.z });
+  },
 });
 function updateLayers() {
   const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
   const symbols = symbolOptions();
   layerCanvas.hidden = !georeferenced || !layersVisible.checked || !symbols.visible || !pointLayers.length;
-  if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north), symbols.label, layerHighlight);
+  if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north), symbols.label);
 }
 document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
 document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e => { lines.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
@@ -801,6 +813,7 @@ function frame(time = performance.now()) {
     surfaceScene.updateCamera(camera.position);
     indicators.update();
     updateLocationDot();
+    updateSelectionRing();
     fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);
     updateLayers();
     measureCanvas.hidden = !measuring || (!measured.length && !surfaceLink);
