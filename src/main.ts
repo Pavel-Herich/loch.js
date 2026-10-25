@@ -156,7 +156,9 @@ for (const type of ['gesturestart', 'gesturechange', 'gestureend']) document.add
 
 /** Double click or double tap on the model sets the rotation centre there. */
 function centreAt(clientX: number, clientY: number) {
-  if (walker.enabled || pivotPicker.enabled || objectPicker.enabled || measuring) return;
+  if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
+  // A double tap while measuring centres the view and adds no point.
+  cancelPendingMeasure(); lastCentreAt = performance.now();
   const rect = canvas.getBoundingClientRect();
   const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
   const point = pickModelPoint(camera, [walls, surfaceGroup, lines], ndc, rect.height, controls.target);
@@ -262,7 +264,7 @@ canvas.addEventListener('click', event => {
   // A drag that rotated or panned is not a click.
   if (!clickStart || Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) > 6) return;
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
-  if (measuring) { addMeasurePoint(event.clientX, event.clientY); return; }
+  if (measuring) { queueMeasurePoint(event.clientX, event.clientY); return; }
   const hit = symbolAt(event.clientX, event.clientY);
   // The tapped point is ringed; the ring moves with the next tapped point and goes with a tap beside them.
   if (hit) { select(hit.position); hit.open(); } else { infoCard.hidden = true; select(null); }
@@ -276,7 +278,7 @@ let measured: (MeasurePoint & { gps?: boolean })[] = [];
 let surfaceLink: { from: MeasurePoint; to: MeasurePoint; above?: number; sideways?: MeasurePoint } | undefined;
 const MEASURE_HINT = 'Tap points to measure: entrances, objects, SHP points, your location or the model · Esc ends';
 function setMeasuring(on: boolean) {
-  measuring = on; measured = []; surfaceLink = undefined;
+  measuring = on; measured = []; surfaceLink = undefined; cancelPendingMeasure();
   if (on) { pivotPicker.enabled = false; if (walker.enabled) setWalker(false); }
   measureButton.setAttribute('aria-pressed', String(on));
   measureButton.title = on ? 'Stop measuring' : 'Measure distances: tap points, entrances, objects or your location';
@@ -285,6 +287,19 @@ function setMeasuring(on: boolean) {
   invalidateView();
 }
 measureButton.addEventListener('click', () => setMeasuring(!measuring));
+/** A tap adds its point only once it is clearly not the first half of a double tap. */
+const DOUBLE_TAP_MS = 300;
+let pendingMeasure: { timer: number; x: number; y: number } | undefined;
+/** On touch the double tap is recognised before the second tap's click arrives. */
+let lastCentreAt = 0;
+function cancelPendingMeasure() { if (pendingMeasure) { clearTimeout(pendingMeasure.timer); pendingMeasure = undefined; } }
+function queueMeasurePoint(clientX: number, clientY: number) {
+  if (performance.now() - lastCentreAt < 400) return;
+  if (pendingMeasure && Math.hypot(clientX - pendingMeasure.x, clientY - pendingMeasure.y) < 30) { cancelPendingMeasure(); return; }
+  cancelPendingMeasure();
+  const timer = window.setTimeout(() => { pendingMeasure = undefined; addMeasurePoint(clientX, clientY); }, DOUBLE_TAP_MS);
+  pendingMeasure = { timer, x: clientX, y: clientY };
+}
 function addMeasurePoint(clientX: number, clientY: number) {
   const hit = symbolAt(clientX, clientY, true);
   let point: (MeasurePoint & { gps?: boolean }) | undefined = hit ? { ...hit.position, gps: hit.gps } : undefined;
