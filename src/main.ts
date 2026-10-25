@@ -273,7 +273,7 @@ const measureButton = document.querySelector<HTMLButtonElement>('#measure-toggle
 const measureCanvas = document.querySelector<HTMLCanvasElement>('#measure-overlay')!;
 let measuring = false;
 let measured: (MeasurePoint & { gps?: boolean })[] = [];
-let surfaceLink: { from: MeasurePoint; to: MeasurePoint; above?: number } | undefined;
+let surfaceLink: { from: MeasurePoint; to: MeasurePoint; above?: number; sideways?: MeasurePoint } | undefined;
 const MEASURE_HINT = 'Tap points to measure: entrances, objects, SHP points, your location or the model · Esc ends';
 function setMeasuring(on: boolean) {
   measuring = on; measured = []; surfaceLink = undefined;
@@ -307,7 +307,11 @@ function nearestToSurface() {
   if (!from) return;
   const found = surfaceScene.nearestPoint(from.east, from.north, from.z);
   if (!found) { announce('No surface in this model to measure to.', true); return; }
-  surfaceLink = { from, to: { name: 'Surface', east: found.east, north: found.north, z: found.z }, above: surfaceScene.heightAt(from.east, from.north) };
+  const sideways = surfaceScene.nearestHorizontalPoint(from.east, from.north, from.z);
+  surfaceLink = {
+    from, to: { name: 'Surface', east: found.east, north: found.north, z: found.z }, above: surfaceScene.heightAt(from.east, from.north),
+    ...(sideways ? { sideways: { name: 'Surface (horizontal)', east: sideways.east, north: sideways.north, z: sideways.z } } : {}),
+  };
   showMeasure(); invalidateView();
 }
 function showMeasure() {
@@ -329,6 +333,7 @@ function showMeasure() {
     const onSurface = leg.slope < .5;
     showInfo(`${surfaceLink.from.name} → nearest surface`, [
       ['Nearest', onSurface ? '0 m · the point is on the surface' : `${metres(leg.slope)} · inclination ${Math.round(leg.inclination)}°${leg.horizontal >= .5 ? ` · bearing ${degrees(leg.bearing)}` : ''}`],
+      ['Horizontal', surfaceLink.sideways ? (() => { const out = segment(surfaceLink.from, surfaceLink.sideways); return out.horizontal < .5 ? '0 m' : `${metres(out.horizontal)} · bearing ${degrees(out.bearing)}`; })() : 'the terrain never reaches this height'],
       ['Vertical', above === undefined ? 'outside the surface' : `${signedMetres(above - surfaceLink.from.z)} to the terrain above`],
       ['Surface x y z', position(surfaceLink.to)],
     ], actions);

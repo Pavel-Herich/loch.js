@@ -71,6 +71,30 @@ export function nearestSurfacePoint(grid: Grid, east: number, north: number, z: 
   return Number.isFinite(bestDistance) ? { east: best.x, north: best.y, z: best.z, distance: bestDistance } : undefined;
 }
 
+/**
+ * Nearest point straight out sideways: where the terrain passes the point's own height
+ * (the contour at z), closest in the horizontal plane. Grid edges whose ends lie on
+ * either side of z are crossed at a linearly interpolated point.
+ */
+export function nearestHorizontalSurfacePoint(grid: Grid, east: number, north: number, z: number) {
+  const [x0, y0, xx, xy, yx, yy] = grid.calibration;
+  const { width, height, heights } = grid;
+  let best: { east: number; north: number; z: number; distance: number } | undefined;
+  const consider = (c: number, r: number, dc: number, dr: number) => {
+    const a = heights[r * width + c], b = heights[(r + dr) * width + c + dc];
+    if (!Number.isFinite(a) || !Number.isFinite(b) || (a - z) * (b - z) > 0 || a === b) return;
+    const t = (z - a) / (b - a), column = c + dc * t, row = r + dr * t;
+    const x = x0 + xx * column + xy * row, y = y0 + yx * column + yy * row;
+    const distance = Math.hypot(x - east, y - north);
+    if (!best || distance < best.distance) best = { east: x, north: y, z, distance };
+  };
+  for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) {
+    if (c + 1 < width) consider(c, r, 1, 0);
+    if (r + 1 < height) consider(c, r, 0, 1);
+  }
+  return best;
+}
+
 /** Whole metres, as everywhere in the app's field values. */
 export const metres = (value: number) => `${Math.round(value)} m`;
 export const signedMetres = (value: number) => `${Math.round(value) > 0 ? '+' : ''}${Math.round(value)} m`;

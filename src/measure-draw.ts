@@ -1,10 +1,10 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { metres, segment, type MeasurePoint } from './measure';
 
-const LINE = '#ffd84d', LINK = '#7fe3ff', OUTLINE = '#09131c';
+const LINE = '#ffd84d', LINK = '#7fe3ff', SIDEWAYS = '#9cff5a', OUTLINE = '#09131c';
 
 /** Measured points joined by a line with each length, plus the dashed link to the nearest surface point. */
-export function drawMeasure(canvas: HTMLCanvasElement, points: MeasurePoint[], link: { from: MeasurePoint; to: MeasurePoint } | undefined,
+export function drawMeasure(canvas: HTMLCanvasElement, points: MeasurePoint[], link: { from: MeasurePoint; to: MeasurePoint; sideways?: MeasurePoint } | undefined,
   camera: Camera, width: number, height: number, origin: Vector3) {
   const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
@@ -43,5 +43,7 @@ export function drawMeasure(canvas: HTMLCanvasElement, points: MeasurePoint[], l
   };
   for (let i = 1; i < points.length; i++) line(points[i - 1], points[i], LINE, false, metres(segment(points[i - 1], points[i]).slope));
   if (link) { line(link.from, link.to, LINK, true, metres(segment(link.from, link.to).slope)); dot(link.to, LINK); }
+  // The horizontal way out to the slope, in green.
+  if (link?.sideways) { line(link.from, link.sideways, SIDEWAYS, true, metres(segment(link.from, link.sideways).horizontal)); dot(link.sideways, SIDEWAYS); }
   for (const point of points) dot(point, LINE);
 }

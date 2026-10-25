@@ -1,4 +1,4 @@
-import { nearestSurfacePoint } from './measure';
+import { nearestHorizontalSurfacePoint, nearestSurfacePoint } from './measure';
 import * as THREE from 'three';
 import { surfaceHeightAt, surfacePoint, type Surface, type SurfaceBitmap } from './lox-surface';
 
@@ -97,6 +97,16 @@ export class SurfaceScene {
     let best: ReturnType<typeof nearestSurfacePoint>;
     for (const grid of this.grids) {
       const found = nearestSurfacePoint(grid, x, y, z);
+      if (found && (!best || found.distance < best.distance)) best = found;
+    }
+    return best;
+  }
+
+  /** Nearest point where the terrain passes this height, measured horizontally. */
+  nearestHorizontalPoint(x: number, y: number, z: number) {
+    let best: ReturnType<typeof nearestHorizontalSurfacePoint>;
+    for (const grid of this.grids) {
+      const found = nearestHorizontalSurfacePoint(grid, x, y, z);
       if (found && (!best || found.distance < best.distance)) best = found;
     }
     return best;

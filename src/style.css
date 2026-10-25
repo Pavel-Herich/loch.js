@@ -254,3 +254,26 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
 #object-dialog.viewing #object-title,#object-dialog.viewing #object-note{border-color:transparent;background:transparent;resize:none}
 #object-dialog.viewing tr:has(.object-photos:empty){display:none}
 #object-dialog.viewing #object-title{outline:none}
+/* Phone on its side: the top bar runs down the left edge and the dock down the right edge,
+   their icons upright; the scale stays centred at the top. */
+@media (orientation:landscape) and (max-height:520px){
+  #top{top:calc(8px + env(safe-area-inset-top,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));left:max(8px,env(safe-area-inset-left,0px));right:auto;flex-direction:row;align-items:flex-start;gap:8px}
+  #top-head{width:auto;height:100%}
+  #top-bar{flex-direction:column;justify-content:space-between;width:auto;height:100%;padding:6px 4px;gap:2px}
+  #menu-cell{align-self:center;gap:2px}
+  #menu-toggle,#search-open,#open-toggle,#surface-toggle{padding:3px 5px}
+  .orientation-indicator svg{width:30px;height:30px}
+  .orientation-indicator{gap:0;font-size:10px}
+  #compass-indicator,#tilt-indicator,#projection-indicator,#walker-indicator{padding:1px 2px}
+  #legend{font-size:10px;column-gap:3px}
+  .ramp{height:38px;width:7px}
+  #top-head .scale-indicator{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%)}
+  .menu-items{max-height:calc(100dvh - 90px)}
+  #dock{left:auto;right:max(8px,env(safe-area-inset-right,0px));bottom:auto;top:50%;transform:translateY(-50%);flex-direction:column;max-width:none;max-height:calc(100% - 16px)}
+  #dock button{width:36px;height:34px}
+  .dock-separator{width:24px;height:4px;margin:0}
+  #bottom-stack,#toast,#info-card{bottom:calc(8px + env(safe-area-inset-bottom,0px))}
+  #bottom-stack,#info-card{width:min(440px,calc(100% - 240px))}
+  #info-card{max-height:calc(100dvh - 60px)}
+  #pivot-hint{bottom:calc(8px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 240px)}
+}

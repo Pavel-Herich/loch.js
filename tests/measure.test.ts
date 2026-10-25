@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { degrees, nearestSurfacePoint, segment, signedMetres } from '../src/measure';
+import { degrees, nearestHorizontalSurfacePoint, nearestSurfacePoint, segment, signedMetres } from '../src/measure';
 
 const point = (east: number, north: number, z: number) => ({ name: '', east, north, z });
 
@@ -40,6 +40,14 @@ describe('nearestSurfacePoint', () => {
     expect(result.east).toBeCloseTo(50, 3);
     expect(result.z).toBeCloseTo(50, 3);
     expect(result.north).toBeCloseTo(100, 3);
+  });
+  it('goes out sideways to where the slope passes the point\'s height', () => {
+    // z = x: at height 40 the terrain is at x = 40, 60 m west of x = 100.
+    const result = nearestHorizontalSurfacePoint(grid, 100, 100, 40)!;
+    expect(result.distance).toBeCloseTo(60, 6);
+    expect(result.east).toBeCloseTo(40, 6); expect(result.north).toBeCloseTo(100, 6); expect(result.z).toBe(40);
+    // Below the whole terrain there is no way out sideways.
+    expect(nearestHorizontalSurfacePoint(grid, 100, 100, -5)).toBeUndefined();
   });
   it('is the vertical distance under flat terrain', () => {
     const flat = { ...grid, heights: new Float64Array(width * height).fill(500) };
