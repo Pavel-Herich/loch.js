@@ -75,7 +75,7 @@ export class SurfaceScene {
   transparency = true;
   opacity = DEFAULT_SURFACE_OPACITY;
   imageOverlay = true;
-  private undersideOpaque = { value: 1 };
+  private undersideOpaque = { value: 0 };
   private cameraBelow = { value: 0 };
   private origin = new THREE.Vector3();
   private lowest = Infinity;
@@ -203,7 +203,7 @@ export function initializeSurfaceControls(surface: SurfaceScene) {
   const transparency = document.querySelector<HTMLInputElement>('#surface-transparency')!;
   const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
   const underside = document.querySelector<HTMLInputElement>('#surface-opaque-underside')!;
-  underside.checked = true;
+  underside.checked = false;
   underside.addEventListener('change', () => surface.setOpaqueUnderside(underside.checked));
   const opacity = document.querySelector<HTMLInputElement>('#surface-opacity')!;
   const value = document.querySelector<HTMLOutputElement>('#surface-opacity-value')!;

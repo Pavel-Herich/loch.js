@@ -74,7 +74,7 @@
       <details class="control-group"><summary>Surface</summary><div class="surface-controls">
         <label><input id="surface-image-overlay" type="checkbox" checked/> Image overlay</label>
         <label><input id="surface-transparency" type="checkbox" checked/> Transparency</label>
-        <label><input id="surface-opaque-underside" type="checkbox" checked/> Opaque underside</label>
+        <label><input id="surface-opaque-underside" type="checkbox"/> Opaque underside</label>
         <label id="surface-opacity-control" class="surface-opacity" for="surface-opacity">Opacity <output id="surface-opacity-value" for="surface-opacity">50%</output><input id="surface-opacity" type="range" min="0" max="100" step="1" value="50"/></label>
       </div></details>
     </div></details>
@@ -159,10 +159,10 @@
 </dialog><dialog id="layers-dialog" aria-labelledby="layers-heading"><h2 id="layers-heading">SHP files</h2>
   <p id="layers-empty" class="objects-hint">No SHP layers yet. Open a .shp (with its .dbf, .prj and .cpg) with the folder button.</p>
   <div id="layers-body">
-    <div class="layer-pick"><span id="layers-swatch" class="layer-swatch" aria-hidden="true"></span><select id="layers-select" aria-label="Layer"></select><button type="button" id="layer-remove">Remove layer</button></div>
-    <p id="layers-source" class="objects-hint"></p>
+    <ul id="layers-list" class="layers-list" role="listbox" aria-label="Layers"></ul>
+    <div class="layer-source"><span id="layers-swatch" class="layer-swatch" aria-hidden="true"></span><p id="layers-source" class="objects-hint"></p><button type="button" id="layer-remove">Remove layer</button></div>
     <div class="layer-nav"><button type="button" id="layer-prev" aria-label="Previous point">‹</button><select id="layer-point" aria-label="Point"></select><button type="button" id="layer-next" aria-label="Next point">›</button></div>
-    <div class="layer-table"><table class="object-table"><tbody id="layer-attributes"></tbody></table></div>
+    <div class="layer-table" id="layer-swipe" title="Swipe left or right for the next or previous point"><table class="object-table"><tbody id="layer-attributes"></tbody></table></div>
   </div>
   <div class="dialog-actions"><button type="button" id="layer-show" class="primary">Show in model</button><button type="button" id="layers-close">Close</button></div>
 </dialog><dialog id="photo-viewer" aria-label="Photo"><img id="photo-viewer-img" alt=""/><div class="viewer-bar"><button type="button" id="photo-viewer-prev" aria-label="Previous photo">‹</button><span id="photo-viewer-count"></span><button type="button" id="photo-viewer-next" aria-label="Next photo">›</button><button type="button" id="photo-viewer-close" class="primary">Close</button></div></dialog><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

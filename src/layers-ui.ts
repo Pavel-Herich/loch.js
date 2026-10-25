@@ -16,6 +16,12 @@ type Options = {
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
+/** A mostly horizontal swipe of 40 px or more: −1 back (to the right), +1 on (to the left). */
+export function swipeStep(dx: number, dy: number) {
+  if (Math.abs(dx) < 40 || Math.abs(dx) < 1.5 * Math.abs(dy)) return 0;
+  return dx < 0 ? 1 : -1;
+}
+
 /** One entry per shape: points as they are, lines and polygons by their first vertex. */
 export function browsablePoints(layer: PointLayer) {
   const indices: number[] = [];
@@ -40,14 +46,26 @@ export class LayerBrowser {
     $<HTMLButtonElement>('#layers-close').addEventListener('click', () => dialog.close());
     // The close event arrives after Show in model has marked its point; keep that mark.
     dialog.addEventListener('close', () => { if (!this.keepHighlight) options.setHighlight(null); this.keepHighlight = false; });
-    $<HTMLSelectElement>('#layers-select').addEventListener('change', event => {
-      this.layerId = (event.target as HTMLSelectElement).value; this.position = 0; this.render();
+    $<HTMLElement>('#layers-list').addEventListener('click', event => {
+      const item = (event.target as HTMLElement).closest<HTMLElement>('li[data-id]');
+      if (!item || item.dataset.id === this.layerId) return;
+      this.layerId = item.dataset.id!; this.position = 0; this.render();
     });
     $<HTMLSelectElement>('#layer-point').addEventListener('change', event => {
       this.position = Number((event.target as HTMLSelectElement).value); this.render();
     });
     $<HTMLButtonElement>('#layer-prev').addEventListener('click', () => this.step(-1));
     $<HTMLButtonElement>('#layer-next').addEventListener('click', () => this.step(1));
+    // Swipe across the attributes: left for the next point, right for the previous one.
+    const swipe = $<HTMLElement>('#layer-swipe');
+    let start: { x: number; y: number; id: number } | undefined;
+    swipe.addEventListener('pointerdown', event => { start = { x: event.clientX, y: event.clientY, id: event.pointerId }; });
+    swipe.addEventListener('pointercancel', () => { start = undefined; });
+    swipe.addEventListener('pointerup', event => {
+      if (!start || start.id !== event.pointerId) return;
+      const step = swipeStep(event.clientX - start.x, event.clientY - start.y); start = undefined;
+      if (step) this.step(step);
+    });
     $<HTMLButtonElement>('#layer-show').addEventListener('click', () => {
       const local = this.localPoint();
       if (!local) return;
@@ -87,14 +105,21 @@ export class LayerBrowser {
 
   private render() {
     const layers = this.options.getLayers(), layer = this.layer();
-    const select = $<HTMLSelectElement>('#layers-select'), pointSelect = $<HTMLSelectElement>('#layer-point');
+    const list = $<HTMLElement>('#layers-list'), pointSelect = $<HTMLSelectElement>('#layer-point');
     const table = $<HTMLElement>('#layer-attributes'), remove = $<HTMLButtonElement>('#layer-remove');
     remove.dataset.armed = 'false'; remove.textContent = 'Remove layer';
     $<HTMLElement>('#layers-empty').hidden = Boolean(layer);
     $<HTMLElement>('#layers-body').hidden = !layer;
     if (!layer) { this.options.setHighlight(null); return; }
     this.layerId = layer.id;
-    select.replaceChildren(...layers.map(item => new Option(`${item.name} (${browsablePoints(item).length})`, item.id, false, item.id === layer.id)));
+    list.replaceChildren(...layers.map(item => {
+      const row = document.createElement('li'), swatch = document.createElement('span'), name = document.createElement('span'), count = document.createElement('span');
+      row.dataset.id = item.id; row.setAttribute('role', 'option'); row.setAttribute('aria-selected', String(item.id === layer.id));
+      swatch.className = 'layer-swatch'; swatch.style.background = item.color;
+      name.textContent = item.name; count.className = 'count'; count.textContent = String(browsablePoints(item).length);
+      row.append(swatch, name, count); return row;
+    }));
+    list.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
     const indices = browsablePoints(layer);
     this.position = Math.min(this.position, indices.length - 1);
     pointSelect.replaceChildren(...indices.map((index, position) => new Option(layer.points[index].label || `#${position + 1}`, String(position), false, position === this.position)));

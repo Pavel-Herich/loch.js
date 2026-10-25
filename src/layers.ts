@@ -100,8 +100,12 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     context.lineWidth = 1; context.strokeStyle = '#09131c'; context.stroke();
     if (highlight && highlight.layerId === layer.id && highlight.index === index) {
       // Point selected in File → SHP files.
-      context.beginPath(); context.arc(sx, sy, radius + 6, 0, Math.PI * 2);
-      context.lineWidth = 2.5; context.strokeStyle = '#ffffff'; context.stroke();
+      // A bold white ring with a dark edge, readable on any terrain.
+      context.beginPath(); context.arc(sx, sy, radius + 8, 0, Math.PI * 2);
+      context.lineWidth = 6; context.strokeStyle = '#09131c'; context.stroke();
+      context.lineWidth = 3; context.strokeStyle = '#ffffff'; context.stroke();
+      context.beginPath(); context.arc(sx, sy, radius + 14, 0, Math.PI * 2);
+      context.lineWidth = 1.5; context.strokeStyle = layer.color; context.stroke();
     }
     const text = label === 'name' ? point.label : label === 'altitude' ? `${Math.round(z)} m` : '';
     if (!text) continue;

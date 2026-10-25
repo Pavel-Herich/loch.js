@@ -231,3 +231,17 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
 #measure-overlay{position:absolute;inset:0;pointer-events:none;z-index:1}
 #surface-toggle[aria-pressed="true"] .off-stroke{display:none}
 .scale-indicator.approximate .scale-ruler{opacity:.7}
+/* Dock icons without frames; the pressed ones keep a filled background. */
+#dock button{border-color:transparent;background:transparent}
+@media(hover:hover){#dock button:hover{background:#29425180}}
+#dock button[aria-pressed="true"],#dock .label-toggle.on{background:#215a75;border-color:transparent}
+/* SHP files: scrollable layer list at the top. */
+.layers-list{list-style:none;margin:0 16px 8px;padding:0;max-height:min(30dvh,190px);overflow:auto;border:1px solid #3c5668;border-radius:8px}
+.layers-list li{display:flex;align-items:center;gap:8px;padding:.5rem .7rem;border-bottom:1px solid #253b4b;cursor:pointer}
+.layers-list li:last-child{border-bottom:0}
+.layers-list li[aria-selected="true"]{background:#215a75;color:#fff}
+.layers-list .count{margin-left:auto;color:#9fb6c6;font-variant-numeric:tabular-nums}
+.layers-list li[aria-selected="true"] .count{color:#d7ecff}
+.layer-source{display:flex;align-items:center;gap:8px;padding:0 16px 8px}
+.layer-source p{flex:1;margin:0;padding:0}
+#layer-swipe{touch-action:pan-y}

@@ -207,18 +207,18 @@ document.addEventListener('keydown', event => {
   if (measuring) setMeasuring(false);
 });
 const SYMBOL_HIT_PIXELS = 16;
-type SymbolHit = { distance: number; open: () => void; name: string; position: MeasurePoint; gps?: boolean };
+type SymbolHit = { distance: number; open: () => void; name: string; position: MeasurePoint; gps?: boolean; key?: string };
 /** Nearest visible symbol under the pointer; `measuring` also snaps to shown stations and the GPS position. */
 function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHit | undefined {
   const symbols = symbolOptions();
   if (!hasModel || (!symbols.visible && !measuring)) return undefined;
   const rect = canvas.getBoundingClientRect(), point = new THREE.Vector3();
   let best: SymbolHit | undefined;
-  const consider = (east: number, north: number, z: number, name: string, open: () => void, gps = false) => {
+  const consider = (east: number, north: number, z: number, name: string, open: () => void, gps = false, key?: string) => {
     point.set(east - worldOrigin.x, north - worldOrigin.y, z - worldOrigin.z).project(camera);
     if (point.z < -1 || point.z > 1) return;
     const distance = Math.hypot(rect.left + (point.x + 1) / 2 * rect.width - clientX, rect.top + (1 - point.y) / 2 * rect.height - clientY);
-    if (distance <= SYMBOL_HIT_PIXELS && (!best || distance < best.distance)) best = { distance, open, name, position: { name, east, north, z }, gps };
+    if (distance <= SYMBOL_HIT_PIXELS && (!best || distance < best.distance)) best = { distance, open, name, position: { name, east, north, z }, gps, key };
   };
   if (measuring && deviceLocation.active && deviceLocation.state.kind === 'fix') {
     const fix = deviceLocation.state.fix;
@@ -251,7 +251,7 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
         ['Layer', layer.name], ['x  y', `${Math.round(shp.east)}  ${Math.round(shp.north)}`],
         ['Z (file)', shp.z === null ? '' : `${shp.z.toFixed(2)} m`], ['Terrain height', terrain === undefined ? '' : `${Math.round(terrain)} m`],
         ...Object.entries(shp.attributes ?? {}),
-      ]));
+      ]), false, `shp:${layer.id}:${index}`);
     });
   }
   return best;
@@ -264,6 +264,8 @@ canvas.addEventListener('click', event => {
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
   if (measuring) { addMeasurePoint(event.clientX, event.clientY); return; }
   const hit = symbolAt(event.clientX, event.clientY);
+  // A point shown from File → SHP files stays marked until another point is tapped.
+  if (hit && layerHighlight && hit.key !== `shp:${layerHighlight.layerId}:${layerHighlight.index}`) { layerHighlight = null; invalidateView(); }
   if (hit) hit.open(); else infoCard.hidden = true;
 });
 // Measuring: tap points (snapping to entrances, objects, SHP points, shown stations and the GPS
