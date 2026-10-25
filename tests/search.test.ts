@@ -27,6 +27,11 @@ describe('search', () => {
       ['station', '12'], ['station', '12'], ['cave', 'Demanovska hora 12']]);
   });
 
+  it('ignores stray control characters in names', () => {
+    const odd = [station('1', 'jelenia_priepast', 'jelenia_priepast', 1486, STATION_ENTRANCE, 'Jelenia priepas\u009dť')];
+    expect(searchModel('jelenia priepast', odd).results).toMatchObject([{ kind: 'cave', title: 'Jelenia priepasť' }]);
+  });
+
   it('narrows a number with @survey', () => {
     expect(searchModel('12@krasna', stations).results.map(r => r.survey)).toEqual(['krasna_dita.ohniste']);
   });

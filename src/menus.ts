@@ -25,6 +25,8 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
     // The status line shows with the menu, and on its own while a file loads or reports an error.
     status.hidden = !open && !statusPinned;
     toolbar.classList.toggle('collapsed', !open);
+    // The model title shows only with the menu open.
+    document.body.classList.toggle('menu-open', open);
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
   }
@@ -45,7 +47,8 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
     });
   }
   document.addEventListener('pointerdown', event => {
-    if (!toolbar.contains(event.target as Node)) close();
+    // The Menu button lives in the top bar, outside the panel: it toggles by itself.
+    if (!toolbar.contains(event.target as Node) && !toggle.contains(event.target as Node)) close();
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;

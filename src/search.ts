@@ -14,7 +14,10 @@ export type SearchResult = {
   count?: number;
 };
 
-const fold = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+/** Invisible control characters (e.g. a stray U+009D from a mis-decoded ť in survey data). */
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200d\ufeff]/g;
+const fold = (text: string) => text.replace(CONTROL, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const clean = (text: string) => text.replace(CONTROL, '').trim();
 
 /**
  * Find stations by number (all surveys that use it, each with its survey path),
@@ -35,7 +38,7 @@ export function searchModel(query: string, stations: Station[], limit = 200): { 
     if (temporaryStation(station)) continue;
     const survey = fold(station.survey), path = fold(station.fullSurvey);
     if (!surveyPart && station.flags & STATION_ENTRANCE && station.comment && caveMatches(fold(station.comment))) {
-      caves.push({ kind: 'cave', title: station.comment.trim(), survey: station.fullSurvey || station.survey, altitude: station.position[2], position: station.position });
+      caves.push({ kind: 'cave', title: clean(station.comment), survey: station.fullSurvey || station.survey, altitude: station.position[2], position: station.position });
     }
     if (fold(station.name) === namePart && (!surveyPart || survey.includes(surveyPart) || path.includes(surveyPart))) {
       numbers.push({ kind: 'station', title: station.name, survey: station.fullSurvey || station.survey, altitude: station.position[2], position: station.position });

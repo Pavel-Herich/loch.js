@@ -27,6 +27,8 @@ import { looksLikeSJTSK } from './geo';
 import { drawLayers, LayerStore, readShapefileLayer, type PointLayer } from './layers';
 import { LayerBrowser, type LayerHighlight } from './layers-ui';
 import { searchModel, type SearchResult } from './search';
+import { browsablePoints } from './layers-ui';
+import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationState } from './location';
 import { modelFileFormat, parseModelFile } from './model-file';
@@ -176,6 +178,67 @@ canvas.addEventListener('pointerup', event => {
   if (lastTap && event.timeStamp - lastTap.time < 300 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 30) {
     lastTap = undefined; centreAt(event.clientX, event.clientY);
   } else lastTap = { x: event.clientX, y: event.clientY, time: event.timeStamp };
+});
+// Tap or click a symbol (entrance, SHP point, field object) to see what it is.
+const infoCard = document.querySelector<HTMLElement>('#info-card')!;
+const infoTitle = document.querySelector<HTMLElement>('#info-title')!;
+const infoRows = document.querySelector<HTMLElement>('#info-rows')!;
+function showInfo(title: string, rows: [string, string][]) {
+  infoTitle.textContent = title;
+  infoRows.replaceChildren(...rows.filter(([, value]) => value !== '').map(([key, value]) => {
+    const row = document.createElement('tr'), th = document.createElement('th'), td = document.createElement('td');
+    th.scope = 'row'; th.textContent = key; td.textContent = value; row.append(th, td); return row;
+  }));
+  infoCard.hidden = false;
+}
+document.querySelector<HTMLButtonElement>('#info-close')!.addEventListener('click', () => { infoCard.hidden = true; });
+document.addEventListener('keydown', event => { if (event.key === 'Escape') infoCard.hidden = true; });
+const SYMBOL_HIT_PIXELS = 16;
+function symbolAt(clientX: number, clientY: number) {
+  const symbols = symbolOptions();
+  if (!symbols.visible || !hasModel) return undefined;
+  const rect = canvas.getBoundingClientRect(), point = new THREE.Vector3();
+  let best: { distance: number; open: () => void } | undefined;
+  const consider = (east: number, north: number, z: number, open: () => void) => {
+    point.set(east - worldOrigin.x, north - worldOrigin.y, z - worldOrigin.z).project(camera);
+    if (point.z < -1 || point.z > 1) return;
+    const distance = Math.hypot(rect.left + (point.x + 1) / 2 * rect.width - clientX, rect.top + (1 - point.y) / 2 * rect.height - clientY);
+    if (distance <= SYMBOL_HIT_PIXELS && (!best || distance < best.distance)) best = { distance, open };
+  };
+  if (lines.visible) for (const station of centreline.stationDetails) {
+    if (!(station.flags & STATION_ENTRANCE) || temporaryStation(station)) continue;
+    const [east, north, z] = station.position;
+    consider(east, north, z, () => showInfo(station.comment?.trim() || `${station.name}@${station.survey}`, [
+      ['Type', 'Cave entrance'], ['Station', `${station.name}@${station.survey}`], ['Survey', station.fullSurvey],
+      ['Altitude', `${z.toFixed(1)} m`], ['x  y', `${Math.round(east)}  ${Math.round(north)}`],
+    ]));
+  }
+  const georeferenced = looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
+  if (georeferenced && document.querySelector<HTMLInputElement>('#objects-visible')!.checked) for (const object of fieldObjects.objects) {
+    const position = object.position;
+    if (!position) continue;
+    consider(position.east, position.north, surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z, () => fieldObjects.open(object));
+  }
+  if (georeferenced && layersVisible.checked) for (const layer of pointLayers) {
+    browsablePoints(layer).forEach((index, position) => {
+      const shp = layer.points[index], terrain = surfaceScene.heightAt(shp.east, shp.north);
+      consider(shp.east, shp.north, shp.z ?? terrain ?? worldOrigin.z, () => showInfo(shp.label || `${layer.name} #${position + 1}`, [
+        ['Layer', layer.name], ['x  y', `${Math.round(shp.east)}  ${Math.round(shp.north)}`],
+        ['Z (file)', shp.z === null ? '' : `${shp.z.toFixed(2)} m`], ['Terrain height', terrain === undefined ? '' : `${Math.round(terrain)} m`],
+        ...Object.entries(shp.attributes ?? {}),
+      ]));
+    });
+  }
+  return best;
+}
+let clickStart: { x: number; y: number } | undefined;
+canvas.addEventListener('pointerdown', event => { clickStart = { x: event.clientX, y: event.clientY }; });
+canvas.addEventListener('click', event => {
+  // A drag that rotated or panned is not a click.
+  if (!clickStart || Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) > 6) return;
+  if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
+  const hit = symbolAt(event.clientX, event.clientY);
+  if (hit) hit.open(); else infoCard.hidden = true;
 });
 // Picking an object position: same tap-to-pick as the rotation centre, without moving the view.
 let resolveObjectPick: ((point: THREE.Vector3 | undefined) => void) | undefined;

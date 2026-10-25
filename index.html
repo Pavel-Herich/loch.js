@@ -1,6 +1,7 @@
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><div id="toast" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="layer-points" aria-label="SHP layer points" hidden></canvas><div id="object-markers" aria-label="Field objects" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><aside id="model-indicators" class="overlay" aria-label="Model indicators"><h2 id="project-title" hidden></h2>
-  <div id="top-right">
-  <div id="top-indicators">
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover"/><meta name="theme-color" content="#162531"/><link rel="icon" type="image/svg+xml" href="/icon.svg"/><title>loch.js</title></head><body><div id="app"><main><canvas id="view" aria-label="3D cave model"></canvas><div id="location-dot" aria-hidden="true" hidden></div><div id="location-info" role="status" aria-live="polite" hidden></div><section id="info-card" aria-labelledby="info-title" hidden><header><h2 id="info-title"></h2><button type="button" id="info-close" aria-label="Close">×</button></header><table class="object-table"><tbody id="info-rows"></tbody></table></section><div id="toast" role="status" aria-live="polite" hidden></div><div id="pivot-hint" role="status" hidden>Click the model to set the rotation centre · Esc cancels</div><div id="pivot-marker" aria-hidden="true" hidden></div><canvas id="layer-points" aria-label="SHP layer points" hidden></canvas><div id="object-markers" aria-label="Field objects" hidden></div><canvas id="station-labels" aria-label="Station labels" hidden></canvas><div id="top">
+  <div id="top-bar">
+    <div id="scale-cell"><div id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></div><button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu-panel" title="Menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M5 12h14M5 17h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Menu</span></button></div>
+    <aside id="model-indicators" aria-label="Model indicators">
     <div id="compass-indicator" class="orientation-indicator" role="button" tabindex="0" aria-pressed="false" aria-label="Compass">
       <svg viewBox="0 0 68 68" aria-hidden="true"><circle class="indicator-ring" cx="34" cy="34" r="23"/><path class="compass-index" d="m31 1 3 5 3-5z"/>
         <g id="compass-rose"><text class="compass-north" x="34" y="10">N</text><text x="61" y="38">E</text><text x="34" y="65">S</text><text x="7" y="38">W</text><path class="compass-needle-north" d="m34 14-5 20h10z"/><path class="compass-needle-south" d="m34 54-5-20h10z"/></g><circle cx="34" cy="34" r="2" fill="currentColor"/>
@@ -21,16 +22,19 @@
         <g class="walker-figure" transform="translate(19 18) scale(1.25)">
           <circle cx="11" cy="3.2" r="2.6" fill="currentColor"/>
           <path d="m10.6 7.2-1.8 8.4m1.6-7.2-4.6 4.2m5.2-3.8 3.2 3.4 2.6-.8M8.8 15.6l-2.4 4.2-2.4 3.2m4.8-7.4 3.6 3.2 1.8 4.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- A bottle of borovička in the walking hand. -->
+          <g class="borovicka" transform="rotate(-18 17.6 12.6)">
+            <rect x="16.2" y="11.2" width="3" height="5.6" rx="1" fill="#8fd18a" stroke="#09131c" stroke-width=".5"/>
+            <rect x="17.1" y="8.6" width="1.2" height="2.8" rx=".4" fill="#8fd18a" stroke="#09131c" stroke-width=".5"/>
+            <rect x="16.95" y="8" width="1.5" height=".9" rx=".3" fill="#d9b44a"/>
+            <rect x="16.5" y="12.8" width="2.4" height="1.8" fill="#f2f0e6" opacity=".9"/>
+          </g>
         </g>
       </svg><span>Walk</span>
     </div>
+    </aside>
   </div>
-  <div id="scale-indicator" class="scale-indicator" role="img" aria-label="View scale"><span id="scale-value"></span><div id="scale-ruler" class="scale-ruler"></div></div>
-  </div>
-</aside><div id="left-tools"><button id="search-open" type="button" aria-label="Search" title="Search station number, cave or survey"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m15.5 15.5 5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button><button id="object-add" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
-    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
-    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
-  </svg></button></div><header id="toolbar">
+  <header id="toolbar">
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
@@ -95,8 +99,13 @@
     </div></details>
   </nav>
   </div>
-  <div id="dock" role="toolbar" aria-label="Quick tools">
-  <button id="menu-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="menu-panel" title="Menu"><span class="hamburger" aria-hidden="true"></span></button>
+  <input id="file" type="file" accept=".lox,.3d,.plt,.shp,.dbf,.prj,.cpg" multiple aria-label="Open cave model or SHP layer" hidden/>
+  </header>
+  <h2 id="project-title" hidden></h2>
+  <div id="status" role="status">Loading sample cave…</div>
+</div>
+<div id="dock" role="toolbar" aria-label="Quick tools">
+  <button id="search-open" type="button" aria-label="Search" title="Search station number, cave or survey"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m15.5 15.5 5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></button>
   <button id="open-toggle" type="button" aria-label="Open file" title="Open a model (LOX, Survex .3d, Compass .plt) or an SHP layer (.shp with .dbf, .prj)"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.2l2 2h8.8A1.5 1.5 0 0 1 21 8.5V18a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
   </svg></button>
@@ -109,6 +118,10 @@
   <button id="locate-toggle" type="button" aria-label="Show my location" aria-pressed="false" title="Show my location (GPS)"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path fill="currentColor" d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7zm0 9.6A2.6 2.6 0 1 1 12 6.4a2.6 2.6 0 0 1 0 5.2z"/>
   </svg></button>
+  <button id="object-add" type="button" aria-label="Record object here" title="Record object here (position, name, note, photo)"><svg viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 2.5a6.2 6.2 0 0 0-6.2 6.2c0 4.6 6.2 11.8 6.2 11.8s1.5-1.7 3-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="8.7" r="2.2" fill="currentColor"/>
+    <path d="M18 12.5v8M14 16.5h8" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+  </svg></button>
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="entrance-toggle" type="button" aria-pressed="false" aria-label="Show cave entrances" title="Show cave entrances"><svg viewBox="0 0 24 24" aria-hidden="true">
     <path d="M3.5 19.5h4.4c0-2-3-3-3-6.4 0-4 3.2-6.6 6.6-6.6 3.6 0 5.7 2.8 5.4 6.2-.3 3-1.9 4.8-3.5 6.3v.5h4.6" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
@@ -116,9 +129,8 @@
   <button id="entrance-label-toggle" class="label-toggle" type="button" aria-label="Entrance labels: off" title="Entrance labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 19.5h4.4c0-2-3-3-3-6.4 0-4 3.2-6.6 6.6-6.6 3.6 0 5.7 2.8 5.4 6.2-.3 3-1.9 4.8-3.5 6.3v.5h4.6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
   <span class="dock-separator" aria-hidden="true"></span>
   <button id="station-label-toggle" class="label-toggle" type="button" aria-label="Station labels: off" title="Station labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
-  </div>
-  <input id="file" type="file" accept=".lox,.3d,.plt,.shp,.dbf,.prj,.cpg" multiple aria-label="Open cave model or SHP layer" hidden/>
-</header></main><footer id="status" role="status">Loading sample cave…</footer></div><dialog id="object-dialog" aria-labelledby="object-title-label"><form id="object-form" novalidate>
+</div>
+</main></div><dialog id="object-dialog" aria-labelledby="object-title-label"><form id="object-form" novalidate>
   <header class="object-head"><label id="object-title-label" for="object-title">Name</label><input id="object-title" type="text" autocomplete="off" enterkeyhint="done" placeholder="e.g. Zavrt pod hrebenom"/></header>
   <table class="object-table"><tbody>
     <tr><th scope="row">Saved as</th><td id="object-name-preview"></td></tr>
@@ -130,7 +142,7 @@
   <div class="dialog-actions"><button type="button" id="object-cancel">Cancel</button><button type="submit" id="object-save" class="primary" disabled>Save</button></div>
 </form></dialog><dialog id="objects-dialog" aria-labelledby="objects-heading"><h2 id="objects-heading">Field objects (<span id="objects-count">0</span>)</h2>
   <p class="objects-hint">Stored on this device until you delete them. Export saves j_mobil.zip for Therion: one survey per object with an entrance station fixed in lat-long, its thconfig and the photos in _data.</p>
-  <label class="objects-team" for="objects-team">Zameral <input id="objects-team" type="text" autocomplete="off"/></label>
+  <label class="objects-team" for="objects-team">Zameral <input id="objects-team" type="text" autocomplete="off" placeholder="Name"/></label>
   <p id="objects-skipped" class="objects-hint"></p>
   <ul id="objects-list" class="objects-list"></ul>
   <div class="dialog-actions"><button type="button" id="objects-export" class="primary">Export to Therion</button><button type="button" id="objects-close">Close</button></div>

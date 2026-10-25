@@ -19,7 +19,6 @@ type Options = {
   geolocation?: Pick<Geolocation, 'watchPosition' | 'clearWatch'>;
 };
 
-const TEAM_KEY = 'loch.js.therion-team';
 
 export type SymbolOptions = { visible: boolean; label: 'none' | 'name' | 'altitude' | string };
 
@@ -101,12 +100,10 @@ export class FieldObjects {
     });
     $<HTMLButtonElement>('#objects-close').addEventListener('click', () => list.close());
     $<HTMLButtonElement>('#objects-export').addEventListener('click', () => void this.export());
+    // Zameral starts empty (only a faint "Name" hint); it is typed for each export.
     const team = $<HTMLInputElement>('#objects-team');
-    try { team.value = localStorage.getItem(TEAM_KEY) ?? 'P. Herich'; } catch { team.value = 'P. Herich'; }
-    team.addEventListener('input', () => {
-      stripField(team);
-      try { localStorage.setItem(TEAM_KEY, team.value); } catch { /* Storage may be disabled. */ }
-    });
+    team.value = '';
+    team.addEventListener('input', () => stripField(team));
     const visible = $<HTMLInputElement>('#objects-visible');
     visible.checked = true;
     visible.addEventListener('change', () => { this.markersVisible = visible.checked; options.onChange(); });
@@ -117,6 +114,9 @@ export class FieldObjects {
     try { this.objects = await this.options.store.list(); } catch { this.objects = []; }
     this.renderMarkers(); this.options.onChange();
   }
+
+  /** View and edit an object, e.g. after tapping its marker. */
+  open(object: FieldObject) { this.openRecorder(object); }
 
   /** New object at the current GPS position, or an existing one to view and edit. */
   private openRecorder(object?: FieldObject) {
