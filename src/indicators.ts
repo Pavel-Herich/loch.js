@@ -52,12 +52,14 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
   const scale = document.querySelector<HTMLElement>('#scale-indicator')!;
   const ruler = document.querySelector<HTMLElement>('#scale-ruler')!;
   const scaleValue = document.querySelector<HTMLElement>('#scale-value')!;
+  // The ruler never grows past its cell, so it cannot push into the icons beside it.
+  const cell = document.querySelector<HTMLElement>('#scale-cell');
   let previous = '';
   visible.checked = true;
   function update() {
     if (!visible.checked) return;
     const camera = getCamera(), orientation = viewOrientation(camera);
-    const size = viewScale(camera, getTarget(), canvas.clientHeight);
+    const size = viewScale(camera, getTarget(), canvas.clientHeight, cell?.clientWidth ? Math.min(140, cell.clientWidth - 6) : 140);
     scale.hidden = !size;
     const bearing = Math.round(orientation.bearing) % 360, angle = Math.round(orientation.tilt);
     const state = `${orientation.bearing.toFixed(2)}:${orientation.tilt.toFixed(2)}:${size?.distance}:${size?.pixels.toFixed(2)}`;

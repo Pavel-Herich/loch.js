@@ -128,15 +128,12 @@ walkerIndicator.addEventListener('keydown', event => {
   if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setWalker(!walker.enabled); }
 });
 controls.addEventListener('change', invalidateView);
-const pivotButton = document.querySelector<HTMLButtonElement>('#pivot-toggle')!;
 const pivotHint = document.querySelector<HTMLElement>('#pivot-hint')!;
 const pivotMarker = document.querySelector<HTMLElement>('#pivot-marker')!;
 let pivotMarkerTimer = 0;
 const pivotPicker = new RotationCentrePicker({
   canvas, controls, getCamera: () => camera, getRoots: () => [walls, surfaceGroup, lines],
   onModeChange: active => {
-    pivotButton.setAttribute('aria-pressed', String(active));
-    pivotButton.title = active ? 'Cancel setting the rotation centre' : 'Set rotation centre: click the model';
     pivotHint.textContent = 'Click the model to set the rotation centre · Esc cancels';
     pivotHint.hidden = !active;
   },
@@ -148,7 +145,6 @@ const pivotPicker = new RotationCentrePicker({
     pivotMarkerTimer = window.setTimeout(() => { pivotMarker.hidden = true; }, 1500);
   },
 });
-pivotButton.addEventListener('click', () => { pivotPicker.enabled = !pivotPicker.enabled; });
 document.querySelector<HTMLButtonElement>('#pivot-menu')!.addEventListener('click', () => { pivotPicker.enabled = true; });
 // Safari ignores user-scalable=no for pinches; block its page gestures so only the model zooms.
 for (const type of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(type, event => event.preventDefault(), { passive: false });
@@ -628,6 +624,9 @@ searchInput.addEventListener('input', () => { clearTimeout(searchTimer); searchT
 document.querySelector<HTMLButtonElement>('#search-open')!.addEventListener('click', () => {
   runSearch(); searchDialog.showModal(); searchInput.focus(); searchInput.select();
 });
+// Dock shortcuts for File → Field objects… and File → SHP files….
+document.querySelector<HTMLButtonElement>('#objects-browse')!.addEventListener('click', () => document.querySelector<HTMLButtonElement>('#objects-open')!.click());
+document.querySelector<HTMLButtonElement>('#layers-browse')!.addEventListener('click', () => document.querySelector<HTMLButtonElement>('#layers-open')!.click());
 document.querySelector<HTMLButtonElement>('#search-close')!.addEventListener('click', () => searchDialog.close());
 new LayerBrowser({
   getLayers: () => pointLayers,
