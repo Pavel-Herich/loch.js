@@ -20,12 +20,9 @@ function run<T>(mode: IDBTransactionMode, action: (store: IDBObjectStore) => IDB
 }
 
 export async function saveLastModel(file: File) {
-  // The same file again (name, size, date) is not copied a second time.
-  const kept = await run<{ name: string; size?: number; modified?: number } | undefined>('readonly', store => store.get(KEY)).catch(() => undefined);
-  if (kept && kept.name === file.name && kept.size === file.size && kept.modified === file.lastModified) return;
   // A File is stored as its bytes with name and type; ask the browser to keep them.
   await globalThis.navigator?.storage?.persist?.().catch(() => false);
-  await run('readwrite', store => store.put({ name: file.name, type: file.type, size: file.size, modified: file.lastModified, blob: file, saved: new Date().toISOString() }, KEY));
+  await run('readwrite', store => store.put({ name: file.name, type: file.type, blob: file, saved: new Date().toISOString() }, KEY));
 }
 
 export async function loadLastModel(): Promise<File | undefined> {
