@@ -1,6 +1,6 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { stationLabel, type Station, type StationLabel } from './lox-stations';
-import { clusterPoints, drawCluster, mergeClusters, setDrawnClusters, summarise, type Cluster } from './clusters';
+import { claimSymbol, symbolHidden } from './declutter';
 
 const CELL = 4;
 const HEIGHT = 20;
@@ -118,7 +118,7 @@ export class StationLabels {
 
   draw(camera: Camera, width: number, height: number, origin: Vector3, mode: StationLabel | ((station: Station) => StationLabel), visible: (station: Station) => boolean, marker?: (station: Station) => StationMarker | undefined) {
     const canvas = this.canvas;
-    if (!canvas || canvas.hidden || width <= 0 || height <= 0) { setDrawnClusters('entrance', []); return; }
+    if (!canvas || canvas.hidden || width <= 0 || height <= 0) return;
     const ratio = Math.min(globalThis.devicePixelRatio || 1, 2, Math.sqrt(8_388_608 / (width * height)));
     if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
       canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
@@ -144,26 +144,13 @@ export class StationLabels {
       screenX = (cx / w + 1) * width / 2; screenY = (1 - cy / w) * height / 2; screenDepth = w;
       return true;
     };
-    // Crowded entrances become count bubbles (mild clustering); their members draw no Ω or label.
-    const clustered = new Set<Station>();
-    const bubbles: Cluster[] = [];
-    if (marker) {
-      const entrances: Station[] = [], screen: { x: number; y: number }[] = [];
-      for (const list of [this.commented, this.ordinary]) for (const station of list) {
-        if (marker(station) !== 'entrance' || !visible(station) || !project(station)) continue;
-        entrances.push(station); screen.push({ x: screenX, y: screenY });
-      }
-      const { groups } = clusterPoints(screen);
-      for (const group of groups) for (const index of group) clustered.add(entrances[index]);
-      bubbles.push(...mergeClusters(groups.map(group => summarise(group, screen, index => entrances[index].position as [number, number, number]))));
-    }
-    setDrawnClusters('entrance', bubbles);
     if (marker) {
       const mark = (station: Station) => {
-        if (clustered.has(station)) return;
         const symbol = marker(station);
         if (!symbol || !visible(station) || !project(station)) return;
         const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
+        // Small entrances that would touch one already drawn hide behind it.
+        if (symbol === 'entrance' && !claimSymbol(station, screenX, screenY, 7 * size, size)) return;
         drawStationMarker(context, symbol, screenX, screenY, size);
         const radius = 10 * markerScale(symbol) * size;
         const x = Math.max(0, screenX - radius), y = Math.max(0, screenY - radius);
@@ -171,16 +158,12 @@ export class StationLabels {
       };
       for (const station of this.commented) mark(station);
       for (const station of this.ordinary) mark(station);
-      for (const bubble of bubbles) {
-        drawCluster(context, bubble, '#ffffff');
-        this.occupancy.reserve(Math.max(0, bubble.x - 12), Math.max(0, bubble.y - 12), 24, 24);
-      }
     }
     if (mode === 'none') return;
     const modeFor = typeof mode === 'function' ? mode : () => mode;
     const draw = (station: Station) => {
       const labelMode = modeFor(station);
-      if (labelMode === 'none' || clustered.has(station) || !visible(station) || !project(station)) return;
+      if (labelMode === 'none' || symbolHidden(station) || !visible(station) || !project(station)) return;
       const symbol = marker?.(station);
       const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
       const left = screenX + (symbol ? 10 * markerScale(symbol) * size + 4 : 3), top = screenY - HEIGHT / 2;
@@ -213,7 +196,7 @@ export class StationLabels {
     if (mode !== 'comments') for (const station of this.ordinary) draw(station);
   }
   clear() {
-    this.commented = []; this.ordinary = []; setDrawnClusters('entrance', []);
+    this.commented = []; this.ordinary = [];
     if (this.canvas) { this.canvas.hidden = true; this.canvas.width = 0; this.canvas.height = 0; }
   }
 }

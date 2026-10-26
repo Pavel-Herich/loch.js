@@ -6,11 +6,15 @@ describe('vertical section', () => {
   const section = makeSection(new Vector3(0, 0, 10), new Vector3(100, 0, -40), 20)!;
   it('keeps a vertical slab around the line, whatever the height', () => {
     expect(inSection(section, { x: 50, y: 9 })).toBe(true);
-    expect(inSection(section, { x: 500, y: -9 })).toBe(true);
+    expect(inSection(section, { x: 105, y: -9 })).toBe(true);
+    // Only a little past the ends: 10 % of the length, at least 10 m.
+    expect(inSection(section, { x: 500, y: -9 })).toBe(false);
+    expect(inSection(section, { x: -11, y: 0 })).toBe(false);
     expect(inSection(section, { x: 50, y: 11 })).toBe(false);
     for (const [y, inside] of [[9, true], [11, false], [-11, false]] as const) {
       const point = new Vector3(30, y, -300);
       expect(section.planes.every(plane => plane.distanceToPoint(point) >= 0)).toBe(inside);
+      expect(section.planes.every(plane => plane.distanceToPoint(new Vector3(200, y, 0)) >= 0)).toBe(false);
     }
   });
   it('looks straight across the line, a on the left', () => {

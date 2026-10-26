@@ -87,13 +87,6 @@ function bindLabels(button: HTMLButtonElement, select: HTMLSelectElement, parent
 }
 
 export function initializeDock() {
-  bindToggle(query('#projection-indicator'), query('#perspective'),
-    pressed => pressed ? 'Orthographic projection. Click for perspective' : 'Perspective projection. Click for orthographic', true,
-    pressed => {
-      query('#projection-perspective').toggleAttribute('hidden', pressed);
-      query('#projection-orthographic').toggleAttribute('hidden', !pressed);
-      query('#projection-value').textContent = pressed ? 'Ortho' : 'Persp';
-    });
   bindToggle(query('#surface-toggle'), query('#surface'), pressed => pressed ? 'Hide surface' : 'Show surface');
   bindToggle(query('#entrance-toggle'), query('#station-entrance'),
     pressed => pressed ? 'Hide cave entrances' : 'Show cave entrances');

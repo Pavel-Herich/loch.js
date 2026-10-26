@@ -34,13 +34,15 @@ import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './p
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
 import { fetchUnderlay, UNDERLAY_SERVICES } from './underlay';
+import { forgetStoredUnderlays, loadStoredUnderlay, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
+import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
 import { formatDistance, navigate } from './navigation';
 import { drawTrack, TrackRecorder, trackGpx, trackTherion } from './track';
 import { forgetLastModel, loadLastModel, saveLastModel } from './model-store';
 import { viewOrientation } from './indicators';
-import { clusterAt, setDrawnClusters } from './clusters';
+import { resetSymbolSpace, symbolHidden } from './declutter';
 import { initializeLayout } from './layout';
 import { degrees, metres, segment, signedMetres, type MeasurePoint, type Segment } from './measure';
 import { drawMeasure } from './measure-draw';
@@ -126,21 +128,37 @@ const indicators = initializeIndicators(canvas, () => camera, () => controls.tar
 const autorotate = initializeAutorotateControls(controls);
 const walker = new WalkerControls(controls, canvas);
 const walkerCheckbox = document.querySelector<HTMLInputElement>('#walker')!;
-const walkerIndicator = document.querySelector<HTMLElement>('#walker-indicator')!;
+// The projection switch cycles Persp → Ortho → Walk (the Walker, in perspective) → Persp.
+const projectionIndicator = document.querySelector<HTMLElement>('#projection-indicator')!;
 walkerCheckbox.checked = false;
+function syncProjection() {
+  const mode = walker.enabled ? 'walk' : document.querySelector<HTMLInputElement>('#perspective')!.checked ? 'persp' : 'ortho';
+  document.querySelector('#projection-perspective')!.toggleAttribute('hidden', mode !== 'persp');
+  document.querySelector('#projection-orthographic')!.toggleAttribute('hidden', mode !== 'ortho');
+  document.querySelector('#projection-walker')!.toggleAttribute('hidden', mode !== 'walk');
+  document.querySelector('#projection-value')!.textContent = { persp: 'Persp', ortho: 'Ortho', walk: 'Walk' }[mode];
+  projectionIndicator.setAttribute('aria-pressed', String(mode !== 'persp'));
+  projectionIndicator.title = { persp: 'Perspective. Click for orthographic', ortho: 'Orthographic. Click for the Walker', walk: 'Walker: drag to look, wheel/pinch to walk. Click for perspective' }[mode];
+  projectionIndicator.setAttribute('aria-label', projectionIndicator.title);
+}
 function setWalker(enabled: boolean) {
   pivotPicker.enabled = false;
   walker.enabled = enabled; walkerCheckbox.checked = enabled;
-  walkerIndicator.setAttribute('aria-pressed', String(enabled));
-  walkerIndicator.title = enabled ? 'Walker on: drag to look, wheel/pinch to walk. Click to return to orbiting' : 'Walker: move through the cave from the camera position';
+  syncProjection();
   // Like the projection switch, a view mode change flashes the model's red box.
   flashBoundingBox();
 }
-walkerIndicator.title = 'Walker: move through the cave from the camera position';
+function cycleProjection() {
+  const perspectiveBox = document.querySelector<HTMLInputElement>('#perspective')!;
+  if (walker.enabled) setWalker(false);
+  else if (perspectiveBox.checked) { perspectiveBox.checked = false; perspectiveBox.dispatchEvent(new Event('change')); }
+  else { perspectiveBox.checked = true; perspectiveBox.dispatchEvent(new Event('change')); setWalker(true); }
+  syncProjection();
+}
 walkerCheckbox.addEventListener('change', () => setWalker(walkerCheckbox.checked));
-walkerIndicator.addEventListener('click', () => setWalker(!walker.enabled));
-walkerIndicator.addEventListener('keydown', event => {
-  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setWalker(!walker.enabled); }
+projectionIndicator.addEventListener('click', cycleProjection);
+projectionIndicator.addEventListener('keydown', event => {
+  if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); cycleProjection(); }
 });
 controls.addEventListener('change', invalidateView);
 const pivotHint = document.querySelector<HTMLElement>('#pivot-hint')!;
@@ -216,7 +234,7 @@ document.querySelector<HTMLButtonElement>('#info-close')!.addEventListener('clic
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   infoCard.hidden = true; select(null);
-  if (sectionPicks) { sectionPicks = undefined; pivotHint.hidden = true; }
+  if (sectionPicks) { sectionPicks = undefined; pivotHint.hidden = true; sectionToggle.setAttribute('aria-pressed', String(Boolean(section))); }
   if (measuring) setMeasuring(false);
 });
 const SYMBOL_HIT_PIXELS = 16;
@@ -227,7 +245,9 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   if (!hasModel || (!symbols.visible && !measuring)) return undefined;
   const rect = canvas.getBoundingClientRect(), point = new THREE.Vector3();
   let best: SymbolHit | undefined;
-  const consider = (east: number, north: number, z: number, name: string, open: () => void, gps = false, key?: string) => {
+  const consider = (east: number, north: number, z: number, name: string, open: () => void, gps = false, key?: string, ref?: object) => {
+    // A symbol hidden behind another cannot be tapped.
+    if (ref && symbolHidden(ref)) return;
     point.set(east - worldOrigin.x, north - worldOrigin.y, z - worldOrigin.z).project(camera);
     if (point.z < -1 || point.z > 1) return;
     const distance = Math.hypot(rect.left + (point.x + 1) / 2 * rect.width - clientX, rect.top + (1 - point.y) / 2 * rect.height - clientY);
@@ -250,7 +270,7 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
     consider(east, north, z, name, () => showInfo(name, [
       ['Type', 'Cave entrance'], ['Station', `${station.name}@${station.survey}`], ['Survey', station.fullSurvey],
       ['Altitude', `${z.toFixed(1)} m`], ['x  y', `${Math.round(east)}  ${Math.round(north)}`],
-    ], navigateActions({ name, east, north, z })));
+    ], navigateActions({ name, east, north, z })), false, undefined, station);
   }
   const georeferenced = looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
   if (georeferenced && document.querySelector<HTMLInputElement>('#objects-visible')!.checked) for (const object of fieldObjects.objects) {
@@ -261,7 +281,7 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
       ['x  y  z', `${Math.round(position.east)}  ${Math.round(position.north)}  ${position.height === null ? '–' : Math.round(position.height)}`],
       ['Note', object.note], ['Photos', object.photos.length ? String(object.photos.length) : ''],
     ], [{ label: 'Open', primary: true, run: () => { infoCard.hidden = true; fieldObjects.open(object); } },
-      ...navigateActions({ name: object.title || object.name, east: position.east, north: position.north, z: surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z })]));
+      ...navigateActions({ name: object.title || object.name, east: position.east, north: position.north, z: surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z })]), false, undefined, object);
   }
   if (georeferenced && layersVisible.checked) for (const layer of pointLayers) {
     browsablePoints(layer).forEach((index, position) => {
@@ -271,7 +291,7 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
         ['Layer', layer.name], ['x  y', `${Math.round(shp.east)}  ${Math.round(shp.north)}`],
         ['Z (file)', shp.z === null ? '' : `${shp.z.toFixed(2)} m`], ['Terrain height', terrain === undefined ? '' : `${Math.round(terrain)} m`],
         ...Object.entries(shp.attributes ?? {}),
-      ], navigateActions({ name, east: shp.east, north: shp.north, z })), false, `shp:${layer.id}:${index}`);
+      ], navigateActions({ name, east: shp.east, north: shp.north, z })), false, `shp:${layer.id}:${index}`, shp);
     });
   }
   return best;
@@ -284,9 +304,6 @@ canvas.addEventListener('click', event => {
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
   if (sectionPicks) { addSectionPick(event.clientX, event.clientY); return; }
   if (measuring) { queueMeasurePoint(event.clientX, event.clientY); return; }
-  // A count bubble zooms in, where its objects separate again.
-  const rect = canvas.getBoundingClientRect(), bubble = clusterAt(event.clientX - rect.left, event.clientY - rect.top);
-  if (bubble) { infoCard.hidden = true; zoomInto(new THREE.Vector3(bubble.east - worldOrigin.x, bubble.north - worldOrigin.y, bubble.z - worldOrigin.z)); return; }
   const hit = symbolAt(event.clientX, event.clientY);
   // The tapped point is ringed; the ring moves with the next tapped point and goes with a tap beside them.
   if (hit) { select(hit.position); hit.open(); } else { infoCard.hidden = true; select(null); }
@@ -436,8 +453,12 @@ const track = new TrackRecorder();
 const trackCanvas = document.querySelector<HTMLCanvasElement>('#track-overlay')!;
 const trackRecord = document.querySelector<HTMLInputElement>('#track-record')!;
 trackRecord.checked = false;
+const trackToggle = document.querySelector<HTMLButtonElement>('#track-toggle')!;
+trackToggle.addEventListener('click', () => { trackRecord.checked = !trackRecord.checked; trackRecord.dispatchEvent(new Event('change')); });
 trackRecord.addEventListener('change', () => {
   track.recording = trackRecord.checked;
+  trackToggle.setAttribute('aria-pressed', String(track.recording));
+  trackToggle.title = track.recording ? `Recording GPS track (${track.points.length} points). Click to stop` : 'Record GPS track';
   if (track.recording && !deviceLocation.active) toggleLocation();
   showLocationState(deviceLocation.state);
 });
@@ -461,6 +482,9 @@ document.querySelector<HTMLButtonElement>('#track-export-th')!.addEventListener(
   download(`${trackName()}.th`, trackTherion(track.points, trackName()), 'text/plain');
 });
 document.querySelector<HTMLButtonElement>('#track-clear')!.addEventListener('click', () => { track.clear(); announce('Track cleared.'); invalidateView(); });
+document.querySelector<HTMLButtonElement>('#maps-forget')!.addEventListener('click', () => {
+  void forgetStoredUnderlays().then(() => announce('Saved map underlays are forgotten; they download again when chosen.')).catch(() => undefined);
+});
 document.querySelector<HTMLButtonElement>('#model-forget')!.addEventListener('click', () => {
   void forgetLastModel().then(() => announce('The saved model is forgotten; the sample cave opens next time.')).catch(() => undefined);
 });
@@ -474,10 +498,19 @@ const sectionWidthValue = document.querySelector<HTMLOutputElement>('#section-wi
 let section: Section | undefined, sectionFlipped = false;
 let sectionPicks: THREE.Vector3[] | undefined;
 const SECTION_HINT = 'Tap two points on the model for the section line · Esc cancels';
+const sectionToggle = document.querySelector<HTMLButtonElement>('#section-toggle')!;
 function startSectionPick() {
   if (measuring) setMeasuring(false);
+  // Out of the way, so the model can be tapped.
+  menus.close();
   sectionPicks = []; pivotHint.textContent = SECTION_HINT; pivotHint.hidden = false; infoCard.hidden = true;
+  sectionToggle.setAttribute('aria-pressed', 'true');
 }
+sectionToggle.addEventListener('click', () => {
+  if (sectionPicks) { sectionPicks = undefined; pivotHint.hidden = true; sectionToggle.setAttribute('aria-pressed', String(Boolean(section))); }
+  else if (section) applySection(undefined);
+  else startSectionPick();
+});
 function addSectionPick(clientX: number, clientY: number) {
   const rect = canvas.getBoundingClientRect();
   const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
@@ -495,6 +528,7 @@ function addSectionPick(clientX: number, clientY: number) {
 }
 function applySection(next: Section | undefined, turnView = false) {
   section = next;
+  sectionToggle.setAttribute('aria-pressed', String(Boolean(next)));
   renderer.clippingPlanes = next ? next.planes : [];
   sectionPanel.hidden = !next;
   if (next) {
@@ -510,6 +544,60 @@ function applySection(next: Section | undefined, turnView = false) {
   invalidateView();
 }
 document.querySelector<HTMLButtonElement>('#section-menu')!.addEventListener('click', startSectionPick);
+// Export of the section: a 1:1000 profile drawing, an image of the view, or the stations in it.
+const sectionExportMenu = document.querySelector<HTMLElement>('#section-export-menu')!;
+document.querySelector<HTMLButtonElement>('#section-export')!.addEventListener('click', () => { sectionExportMenu.hidden = !sectionExportMenu.hidden; });
+document.addEventListener('pointerdown', event => {
+  if (!sectionExportMenu.hidden && !sectionExportMenu.parentElement!.contains(event.target as Node)) sectionExportMenu.hidden = true;
+});
+function sectionStations(): ProfileStation[] {
+  return centreline.stationDetails.filter(station => !temporaryStation(station)).map(station => ({
+    name: station.flags & STATION_ENTRANCE && station.comment?.trim() ? station.comment.trim() : `${station.name}@${station.survey}`,
+    x: station.position[0] - worldOrigin.x, y: station.position[1] - worldOrigin.y, z: station.position[2] - worldOrigin.z,
+    entrance: Boolean(station.flags & STATION_ENTRANCE),
+  }));
+}
+function sectionShots() {
+  const shots: [THREE.Vector3, THREE.Vector3][] = [];
+  lines.updateMatrixWorld(true);
+  lines.traverse(object => {
+    if (!(object instanceof THREE.LineSegments) || !object.visible) return;
+    const position = object.geometry.getAttribute('position');
+    for (let i = 0; i + 1 < position.count; i += 2) shots.push([
+      new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(object.matrixWorld),
+      new THREE.Vector3().fromBufferAttribute(position, i + 1).applyMatrix4(object.matrixWorld)]);
+  });
+  return shots;
+}
+sectionExportMenu.addEventListener('click', event => {
+  const kind = (event.target as HTMLElement).closest<HTMLElement>('[data-export]')?.dataset.export;
+  if (!kind || !section) return;
+  sectionExportMenu.hidden = true;
+  const name = `section_${Math.round(section.lineBearing)}deg_${Math.round(section.length)}m`;
+  const title = `${document.querySelector('#project-title')?.textContent?.trim() || 'loch.js'}: section ${Math.round(section.length)} m`;
+  if (kind === 'svg') {
+    const current = section, dx = current.b.x - current.a.x, dy = current.b.y - current.a.y, length = Math.hypot(dx, dy);
+    const terrainAt = (s: number) => surfaceScene.heightAt(current.a.x + dx / length * s + worldOrigin.x, current.a.y + dy / length * s + worldOrigin.y);
+    download(`${name}.svg`, sectionSvg(current, sectionShots(), sectionStations(), terrainAt, worldOrigin.z, title), 'image/svg+xml');
+  } else if (kind === 'csv') download(`${name}.csv`, sectionCsv(section, sectionStations(), worldOrigin.z), 'text/csv');
+  else {
+    // The 3D view and its symbol overlays, drawn the moment after a fresh render.
+    renderer.render(scene, camera);
+    const image = document.createElement('canvas'); image.width = canvas.width; image.height = canvas.height;
+    const context = image.getContext('2d')!;
+    context.fillStyle = '#09131c'; context.fillRect(0, 0, image.width, image.height);
+    context.drawImage(canvas, 0, 0);
+    for (const overlay of Array.from(document.querySelectorAll<HTMLCanvasElement>('#station-labels, #layer-points, #track-overlay, #measure-overlay'))) {
+      if (!overlay.hidden && overlay.width) context.drawImage(overlay, 0, 0, image.width, image.height);
+    }
+    image.toBlob(blob => {
+      if (!blob) return;
+      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${name}.png`;
+      document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+    }, 'image/png');
+  }
+});
+
 document.querySelector<HTMLButtonElement>('#section-end')!.addEventListener('click', () => applySection(undefined));
 document.querySelector<HTMLButtonElement>('#section-flip')!.addEventListener('click', () => { if (section) { sectionFlipped = !sectionFlipped; applySection(section, true); } });
 sectionWidth.addEventListener('input', () => {
@@ -571,6 +659,26 @@ document.querySelector<HTMLButtonElement>('#export-go')!.addEventListener('click
 // Scene → Surface → Underlay: ZBGIS orthophoto, ZBGIS base map or the geological map draped on the surface.
 const underlaySelect = document.querySelector<HTMLSelectElement>('#surface-underlay')!;
 underlaySelect.value = 'lox';
+const underlayToggle = document.querySelector<HTMLButtonElement>('#underlay-toggle')!;
+const underlayMenu = document.querySelector<HTMLElement>('#underlay-menu')!;
+function syncUnderlayMenu() {
+  for (const item of Array.from(underlayMenu.querySelectorAll<HTMLButtonElement>('[data-underlay]'))) item.setAttribute('aria-checked', String(item.dataset.underlay === underlaySelect.value));
+  underlayToggle.classList.toggle('on', underlaySelect.value !== 'lox');
+}
+underlayToggle.addEventListener('click', () => {
+  syncUnderlayMenu(); underlayMenu.hidden = !underlayMenu.hidden;
+  underlayToggle.setAttribute('aria-expanded', String(!underlayMenu.hidden));
+});
+underlayMenu.addEventListener('click', event => {
+  const item = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-underlay]');
+  if (!item) return;
+  underlayMenu.hidden = true; underlayToggle.setAttribute('aria-expanded', 'false');
+  if (underlaySelect.value !== item.dataset.underlay) { underlaySelect.value = item.dataset.underlay!; underlaySelect.dispatchEvent(new Event('change')); }
+});
+document.addEventListener('pointerdown', event => {
+  if (!underlayMenu.hidden && !underlayMenu.contains(event.target as Node) && !underlayToggle.contains(event.target as Node)) { underlayMenu.hidden = true; underlayToggle.setAttribute('aria-expanded', 'false'); }
+});
+underlaySelect.addEventListener('change', syncUnderlayMenu);
 let underlayRequest: AbortController | undefined;
 underlaySelect.addEventListener('change', () => {
   underlayRequest?.abort(); underlayRequest = undefined;
@@ -578,23 +686,34 @@ underlaySelect.addEventListener('change', () => {
   if (!service) { surfaceScene.setUnderlay(undefined); return; }
   const extent = surfaceScene.extent();
   if (!extent || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y)) {
-    announce('Map underlays need a model with a surface in S-JTSK.', true); underlaySelect.value = 'lox'; return;
+    announce('Map underlays need a model with a surface in S-JTSK.', true); underlaySelect.value = 'lox'; syncUnderlayMenu(); return;
   }
   const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
   if (!overlay.checked) { overlay.checked = true; overlay.dispatchEvent(new Event('change')); }
   const request = underlayRequest = new AbortController();
-  const size = Math.min(renderer.capabilities.maxTextureSize, 4096);
-  announce(`Loading ${service.title}…`);
-  void fetchUnderlay(service, extent, size, (done, total) => announce(`Loading ${service.title}… ${done}/${total}`), request.signal).then(({ canvas: image, width, height }) => {
+  // Phones run out of graphics memory with two large surface images: 2048 px there, 4096 on a computer.
+  const size = Math.min(renderer.capabilities.maxTextureSize, matchMedia('(pointer: coarse)').matches ? 2048 : 4096);
+  const key = underlayKey(service.id, extent, size);
+  const show = (image: TexImageSource, width: number, height: number, note: string) => {
     if (request !== underlayRequest) return;
-    const texture = new THREE.CanvasTexture(image);
+    const texture = image instanceof HTMLCanvasElement ? new THREE.CanvasTexture(image) : new THREE.Texture(image);
+    texture.needsUpdate = true;
     texture.flipY = false; texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4;
     surfaceScene.setUnderlay({ texture, extent, width, height });
-    announce(`${service.title} ${service.attribution}`);
+    announce(`${service.title} ${service.attribution}${note}`);
+  };
+  // A copy kept on the device first (works offline), then the service.
+  void loadStoredUnderlay(key).catch(() => undefined).then(async stored => {
+    if (stored) { show(await createImageBitmap(stored.blob, { imageOrientation: 'none' }), stored.width, stored.height, ` · saved copy from ${stored.saved.slice(0, 10)}`); return; }
+    announce(`Loading ${service.title}…`);
+    const { canvas: image, width, height } = await fetchUnderlay(service, extent, size, (done, total) => announce(`Loading ${service.title}… ${done}/${total}`), request.signal);
+    show(image, width, height, ' · saved for offline use');
+    image.toBlob(blob => { if (blob) void storeUnderlay(key, { blob, width, height, saved: new Date().toISOString() }).catch(() => undefined); },
+      service.format === 'image/jpeg' ? 'image/jpeg' : 'image/png', .9);
   }).catch(error => {
     if (request !== underlayRequest || (error as Error).name === 'AbortError') return;
     announce(`${service.title}: ${exceptionMessage(error)}`, true);
-    underlaySelect.value = 'lox'; surfaceScene.setUnderlay(undefined);
+    underlaySelect.value = 'lox'; syncUnderlayMenu(); surfaceScene.setUnderlay(undefined);
   });
 });
 
@@ -705,10 +824,11 @@ const perspective = document.querySelector<HTMLInputElement>('#perspective')!;
 perspective.checked = true;
 perspective.addEventListener('change', () => {
   camera = setPerspective(camera, controls, perspective.checked, activeBox);
-  flashBoundingBox();
+  flashBoundingBox(); syncProjection();
 });
 // Dock buttons mirror menu controls, so wire them after those controls are initialized.
 initializeDock();
+syncProjection();
 const wallsCulling = document.querySelector<HTMLInputElement>('#walls-culling')!;
 wallsCulling.checked = false;
 function applyWallCulling() {
@@ -813,7 +933,7 @@ async function loadFile(file: File) {
   const id = ++loadId;
   // A section and a map underlay belong to the model they were made for.
   applySection(undefined);
-  underlayRequest?.abort(); underlayRequest = undefined; underlaySelect.value = 'lox';
+  underlayRequest?.abort(); underlayRequest = undefined; underlaySelect.value = 'lox'; syncUnderlayMenu();
   collapseAfterRender = false;
   menus.expand();
   largeWorker?.terminate(); largeWorker = undefined;
@@ -974,13 +1094,6 @@ function updateSelectionRing() {
   if (screen?.onScreen) selectionRing.style.transform = `translate(${screen.x}px, ${screen.y}px)`;
 }
 /** Centre a scene point and zoom in to full-size symbols if the view is farther out. */
-/** Bring a point to the centre three times closer (count bubbles). */
-function zoomInto(local: THREE.Vector3, factor = 3) {
-  if (camera instanceof THREE.PerspectiveCamera) camera.position.sub(controls.target).divideScalar(factor).add(controls.target);
-  else { camera.zoom *= factor; camera.updateProjectionMatrix(); }
-  controls.update();
-  animateRotationCentre(camera, controls, local);
-}
 function focusOn(local: THREE.Vector3) {
   const height = canvas.clientHeight || 1, wanted = FULL_SIZE_METRES_PER_PIXEL * .7;
   const current = metresPerPixel(camera, controls.target, height);
@@ -1054,7 +1167,6 @@ function updateLayers() {
   const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
   const symbols = symbolOptions();
   layerCanvas.hidden = !georeferenced || !layersVisible.checked || !symbols.visible || !pointLayers.length;
-  if (layerCanvas.hidden) setDrawnClusters('shp', []);
   if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north), symbols.label);
 }
 document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; invalidateView(); });
@@ -1082,11 +1194,13 @@ function frame(time = performance.now()) {
     updateNavigation();
     trackCanvas.hidden = !hasModel || !track.points.length || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
     if (!trackCanvas.hidden) drawTrack(trackCanvas, track.points, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north));
+    // Overlapping small symbols hide behind earlier ones: entrances first, then field objects, then SHP points.
+    resetSymbolSpace();
+    centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
     fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);
     updateLayers();
     measureCanvas.hidden = !measuring || (!measured.length && !surfaceLink);
     if (!measureCanvas.hidden) drawMeasure(measureCanvas, measured, surfaceLink, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin);
-    centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
   }
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
     try {

@@ -64,7 +64,7 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   });
 
   const chooser = document.querySelector<HTMLInputElement>('#file')!;
-  for (const button of [document.querySelector('#open')!, document.querySelector('#open-toggle')!]) button.addEventListener('click', () => {
+  for (const button of [document.querySelector('#open')!]) button.addEventListener('click', () => {
     closeDropdowns();
     chooser.value = '';
     chooser.click();
@@ -98,6 +98,8 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
     expand() {
       statusPinned = true; setOpen(!panel.hidden);
     },
+    /** Close the menu (its dropdowns only, where the menu stays open). */
+    close,
     /** Keep the menu open (computer layout) or let it close again. */
     pin(value: boolean) {
       pinned = value; setOpen(value);

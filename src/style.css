@@ -126,7 +126,7 @@ body:not(.menu-open) #project-title{display:none}
 #object-markers{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
 .object-marker{position:absolute;left:0;top:0;width:0;height:0;will-change:transform}
 /* Hollow diamond: black edge outside, orange band, empty middle. */
-.object-marker::before{content:"";position:absolute;left:-4px;top:-4px;width:8px;height:8px;background:transparent;border:2px solid #ff9f1a;box-shadow:0 0 0 1.2px #09131c;transform:rotate(45deg) scale(var(--s,1))}
+.object-marker::before{content:"";box-sizing:border-box;position:absolute;left:-4.5px;top:-4.5px;width:9px;height:9px;background:transparent;border:2px solid #ff9f1a;box-shadow:0 0 0 1.2px #09131c;transform:rotate(45deg) scale(var(--s,1))}
 .object-marker span{position:absolute;left:calc(3px + 7px * var(--s,1));top:-9px;white-space:nowrap;font-size:12px;color:#ffd9a3;text-shadow:0 0 3px #09131c,0 0 3px #09131c}
 #object-dialog,#objects-dialog,#layers-dialog,#search-dialog,#export-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
 #object-dialog::backdrop,#objects-dialog::backdrop,#layers-dialog::backdrop,#search-dialog::backdrop,#export-dialog::backdrop{background:#0009}
@@ -211,12 +211,12 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
 /* The indicators join the bar's own row so that all its items are spread evenly. */
 #model-indicators{display:contents}
 #model-indicators[hidden]{display:none}
-/* Menu and Search on top, the folder under Menu; the fourth slot stays empty. */
-#menu-cell{display:grid;grid-template-columns:auto auto;align-content:space-between;align-self:stretch;gap:4px 2px}
-#menu-toggle,#search-open,#open-toggle,#surface-toggle{display:flex;align-items:center;justify-content:center;gap:6px;padding:4px 8px;border:0;border-radius:8px;background:transparent;color:inherit;font-size:12px}
-#menu-toggle svg,#search-open svg,#open-toggle svg,#surface-toggle svg{width:24px;height:24px}
+/* Menu, Search and REC on top; Underlay, Surface and Section under them. */
+#menu-cell{position:relative;display:grid;grid-template-columns:auto auto auto;align-content:space-between;align-self:stretch;gap:4px 2px}
+#menu-toggle,#search-open,#track-toggle,#underlay-toggle,#surface-toggle,#section-toggle{display:flex;align-items:center;justify-content:center;gap:6px;padding:4px 8px;border:0;border-radius:8px;background:transparent;color:inherit;font-size:12px}
+#menu-toggle svg,#search-open svg,#track-toggle svg,#underlay-toggle svg,#surface-toggle svg,#section-toggle svg{width:24px;height:24px}
 #menu-toggle span{display:none}
-#menu-toggle:hover,#search-open:hover,#open-toggle:hover,#surface-toggle:hover{background:#29425180}
+#menu-toggle:hover,#search-open:hover,#track-toggle:hover,#underlay-toggle:hover,#surface-toggle:hover,#section-toggle:hover{background:#29425180}
 #menu-toggle[aria-expanded="true"]{background:#215a75b3;color:#8ed9ff}
 @media(max-width:450px){#model-indicators{gap:1px}#compass-indicator,#tilt-indicator,#projection-indicator,#walker-indicator{padding:2px 1px}.orientation-indicator svg{width:38px;height:38px}#legend{column-gap:4px}.ramp{width:8px}}
 .objects-team input::placeholder,#object-title::placeholder,#search-input::placeholder{color:#7f97a8;opacity:1}
@@ -248,7 +248,7 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
 .layer-source p{flex:1;margin:0;padding:0}
 #layers-dialog .layer-nav{padding:10px 16px 0}
 /* Centred on the point: 22 px outside size including the border (border-box), so half of it is the offset. */
-#selection-ring{position:absolute;left:0;top:0;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 1px #09131c,inset 0 0 0 1px #09131c;pointer-events:none;z-index:1}
+#selection-ring{position:absolute;left:0;top:0;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #ffd84d;border-radius:50%;box-shadow:0 0 0 1px #09131c,inset 0 0 0 1px #09131c;pointer-events:none;z-index:1}
 #dock .label-toggle.on{background:#215a75}
 /* Viewing a saved object: fields read-only, no position, photo or delete controls until Edit. */
 #object-dialog.viewing .position-actions,#object-dialog.viewing .photo-add,#object-dialog.viewing .object-photos button{display:none}
@@ -258,11 +258,13 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
 /* Phone on its side: the top bar runs down the left edge and the dock down the right edge,
    their icons upright; the scale stays centred at the top. */
 @media (orientation:landscape) and (max-height:520px){
-  #top{top:calc(8px + env(safe-area-inset-top,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));left:max(8px,env(safe-area-inset-left,0px));right:auto;flex-direction:row;align-items:flex-start;gap:8px}
+  /* Full height, so the bar's centre is the screen's centre, as for the dock on the right. */
+  #top{top:0;bottom:0;left:max(8px,env(safe-area-inset-left,0px));right:auto;flex-direction:row;align-items:flex-start;gap:8px}
+  #toolbar{margin-top:calc(8px + env(safe-area-inset-top,0px))}
   #top-head{width:auto;height:100%;justify-content:center}
   #top-bar{flex-direction:column;justify-content:flex-start;width:auto;height:auto;max-height:100%;padding:6px 4px;gap:8px}
   #menu-cell{align-self:center;gap:2px}
-  #menu-toggle,#search-open,#open-toggle,#surface-toggle{padding:3px 5px}
+  #menu-toggle,#search-open,#track-toggle,#underlay-toggle,#surface-toggle,#section-toggle{padding:3px 5px}
   .orientation-indicator svg{width:30px;height:30px}
   .orientation-indicator{gap:0;font-size:10px}
   #compass-indicator,#tilt-indicator,#projection-indicator,#walker-indicator{padding:1px 2px}
@@ -293,12 +295,12 @@ body.computer #dock button{background:#162531}
 body.computer #top-head{width:auto;align-items:flex-start}
 body.computer #top-bar{width:auto;justify-content:flex-start;gap:14px;padding:6px 12px 6px 8px}
 /* The info card is as see-through as the top bar: translucent on phones, opaque on a computer. */
-#info-card,#info-card header,#info-card .info-actions{background:#15263499}
-#info-card{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+#info-card{background:#15263499}
+#info-card header,#info-card .info-actions{background:transparent}
+#info-card .info-actions{justify-content:flex-end}
+#info-card h2{text-shadow:0 0 3px #09131c}
 #info-card .object-table th,#info-card .object-table td{text-shadow:0 0 3px #09131c}
-body.computer #info-card,body.computer #info-card header,body.computer #info-card .info-actions{background:#162531}
-.object-cluster{position:absolute;left:-11px;top:-11px;width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:#162531e6;border:2px solid #ff9f1a;box-shadow:0 0 0 1.2px #09131c;color:#fff;font:bold 11px system-ui,sans-serif;will-change:transform}
-.object-cluster.wide{left:-14px;top:-14px;width:28px;height:28px;font-size:10px}
+body.computer #info-card{background:#162531}
 #track-overlay{position:absolute;inset:0;pointer-events:none}
 /* Navigation to an object: arrow (turn from where the phone points), distance, height, bearing. */
 #nav-panel{display:flex;align-items:center;gap:10px;max-width:100%;padding:6px 8px 6px 10px;border:1px solid #8ed9ff;border-radius:10px;background:#15263499;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:auto;font-variant-numeric:tabular-nums}
@@ -309,7 +311,7 @@ body.computer #info-card,body.computer #info-card header,body.computer #info-car
 #nav-text strong{display:block;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #nav-stop{flex:none;width:32px;height:32px;padding:0;font-size:1.1rem}
 body.computer #nav-panel{background:#162531}
-#section-panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;max-width:100%;padding:6px 10px;border:1px solid #678599;border-radius:10px;background:#15263499;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:auto;font-size:.85rem}
+#section-panel{position:relative;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:8px;max-width:100%;padding:6px 10px;border:1px solid #678599;border-radius:10px;background:#15263499;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:auto;font-size:.85rem}
 #section-panel[hidden]{display:none}
 #section-text{width:100%;text-align:center;text-shadow:0 0 3px #09131c}
 .section-width{display:flex;align-items:center;gap:6px}
@@ -319,3 +321,12 @@ body.computer #section-panel{background:#162531}
 .export-form{display:flex;flex-direction:column;gap:10px;padding:4px 16px 0}
 .export-form label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:#b8ccd9}
 .export-form select{padding:.45rem;border:1px solid #678599;border-radius:6px;background:#09131c;color:#eaf3ff;font:inherit}
+#track-toggle[aria-pressed="true"]{color:#ff5a5a}
+#track-toggle:not([aria-pressed="true"]) .rec-dot{opacity:.55}
+#section-toggle[aria-pressed="true"],#underlay-toggle.on{color:#8ed9ff}
+.underlay-menu{position:absolute;z-index:6;top:calc(100% + 6px);left:0;min-width:210px;padding:4px;border:1px solid #678599;border-radius:8px;background:#162531;box-shadow:0 8px 24px #0006}
+.underlay-menu[hidden]{display:none}
+.underlay-menu button{display:block;width:100%;padding:.55rem .7rem;border:0;border-radius:4px;background:transparent;text-align:left;color:inherit}
+.underlay-menu button[aria-checked="true"]{background:#215a75;color:#fff}
+@media(hover:hover){.underlay-menu button:hover{background:#294251}}
+.section-export-menu{top:auto;bottom:calc(100% + 6px);left:auto;right:0}

@@ -2,7 +2,7 @@ import { Matrix4, type Camera, type Vector3 } from 'three';
 import { guessCoordinates, layerPoints, nameField, parseDbf, parseShp, type CoordinateGuess, type LayerPoint } from './shapefile';
 import { LabelOccupancy, symbolShown, symbolSizeAt } from './station-labels';
 import { parsePointFile } from './formats';
-import { clusterPoints, drawCluster, mergeClusters, setDrawnClusters, summarise, type Cluster } from './clusters';
+import { claimSymbol } from './declutter';
 
 export type PointLayer = { id: string; name: string; color: string; source: string; points: LayerPoint[] };
 
@@ -98,9 +98,7 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
   const m = new Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
   context.font = '11px system-ui, sans-serif'; context.textBaseline = 'middle'; context.lineJoin = 'round';
   occupancy.reset(width, height);
-  const bubbles: Cluster[] = [];
   for (const layer of layers) {
-    // Project the layer's points first, so crowded ones can be drawn as one count bubble.
     const items: { point: LayerPoint; x: number; y: number; w: number; z: number }[] = [];
     for (const point of layer.points) {
       if (!symbolShown(point.east, point.north)) continue;
@@ -114,12 +112,10 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
       if (Math.abs(cx) > 1.02 || Math.abs(cy) > 1.02 || Math.abs(cz) > 1) continue;
       items.push({ point, x: (cx + 1) / 2 * width, y: (1 - cy) / 2 * height, w, z });
     }
-    const { groups, clustered } = clusterPoints(items);
-    const layerBubbles = mergeClusters(groups.map(group => summarise(group, items, index => [items[index].point.east, items[index].point.north, items[index].z])));
-    items.forEach((item, index) => {
-      if (clustered[index]) return;
-      const { point, x: sx, y: sy, w, z } = item;
+    for (const { point, x: sx, y: sy, w, z } of items) {
       const size = symbolSizeAt(w), radius = Math.max(RADIUS * size, 1.5);
+      // Small points that would touch one already drawn hide behind it.
+      if (!claimSymbol(point, sx, sy, Math.max(RADIUS * size, 1.6) + 2.6, size)) continue;
       // Hollow ring: black edge outside, the layer colour, and the terrain showing through the middle.
       const ring = Math.max(RADIUS * size, 1.6);
       context.beginPath(); context.arc(sx, sy, ring + 1.9, 0, Math.PI * 2);
@@ -127,16 +123,13 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
       context.beginPath(); context.arc(sx, sy, ring, 0, Math.PI * 2);
       context.lineWidth = 2.6; context.strokeStyle = layer.color; context.stroke();
       const text = label === 'name' ? point.label : label === 'altitude' ? `${Math.round(z)} m` : '';
-      if (!text) return;
+      if (!text) continue;
       // Skip labels that would overlap ones already drawn, as for station labels.
       const left = sx + radius + 3, top = sy - 8, textWidth = context.measureText(text).width + 4;
-      if (left < 0 || top < 0 || left + textWidth > width || top + 16 > height || occupancy.overlaps(left, top, textWidth, 16)) return;
+      if (left < 0 || top < 0 || left + textWidth > width || top + 16 > height || occupancy.overlaps(left, top, textWidth, 16)) continue;
       occupancy.reserve(left, top, textWidth, 16);
       context.lineWidth = 3; context.strokeStyle = '#09131c'; context.fillStyle = layer.color;
       context.strokeText(text, left, sy); context.fillText(text, left, sy);
-    });
-    for (const bubble of layerBubbles) drawCluster(context, bubble, layer.color);
-    bubbles.push(...layerBubbles);
+    }
   }
-  setDrawnClusters('shp', bubbles);
 }

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { errorMessage } from './location';
 import { symbolShown, symbolSizeAt } from './station-labels';
-import { clusterPoints, mergeClusters, setDrawnClusters, summarise } from './clusters';
+import { claimSymbol } from './declutter';
 import { seaLevelAltitude } from './geoid';
 import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
 
@@ -350,10 +350,8 @@ export class FieldObjects {
     const origin = this.options.getOrigin();
     const symbols = this.options.getSymbols();
     this.markers.hidden = !origin || !this.markersVisible || !symbols.visible || !this.objects.length;
-    for (const bubble of Array.from(this.markers.querySelectorAll('.object-cluster'))) bubble.remove();
-    if (this.markers.hidden || !origin) { setDrawnClusters('object', []); return; }
+    if (this.markers.hidden || !origin) return;
     const point = new THREE.Vector3();
-    const shown: { element: HTMLElement; x: number; y: number; east: number; north: number; z: number }[] = [];
     for (const element of Array.from(this.markers.children) as HTMLElement[]) {
       const object = this.objects.find(item => item.id === element.dataset.id);
       const position = object?.position;
@@ -363,7 +361,8 @@ export class FieldObjects {
       // Same distance scaling as entrance symbols.
       // Depth in front of the camera; perspective w equals it.
       const depth = -point.clone().applyMatrix4(camera.matrixWorldInverse).z;
-      element.style.setProperty('--s', symbolSizeAt(depth).toFixed(3));
+      const size = symbolSizeAt(depth);
+      element.style.setProperty('--s', size.toFixed(3));
       point.project(camera);
       const visible = point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
       element.hidden = !visible;
@@ -371,19 +370,9 @@ export class FieldObjects {
       label.textContent = symbols.label === 'name' ? object!.title : symbols.label === 'altitude' ? `${Math.round(z)} m` : '';
       if (!visible) continue;
       const x = (point.x + 1) / 2 * width, y = (1 - point.y) / 2 * height;
+      // Small objects that would touch a symbol already drawn hide behind it.
+      if (!claimSymbol(object!, x, y, 6.5 * size, size)) { element.hidden = true; continue; }
       element.style.transform = `translate(${x}px, ${y}px)`;
-      shown.push({ element, x, y, east: position.east, north: position.north, z });
     }
-    // Crowded objects become one count bubble (mild clustering).
-    const { groups, clustered } = clusterPoints(shown);
-    shown.forEach((item, index) => { if (clustered[index]) item.element.hidden = true; });
-    const bubbles = mergeClusters(groups.map(group => summarise(group, shown, index => [shown[index].east, shown[index].north, shown[index].z])));
-    for (const bubble of bubbles) {
-      const element = document.createElement('div'); element.className = 'object-cluster';
-      element.textContent = String(bubble.count); element.classList.toggle('wide', bubble.count >= 100);
-      element.style.transform = `translate(${bubble.x}px, ${bubble.y}px)`;
-      this.markers.append(element);
-    }
-    setDrawnClusters('object', bubbles);
   }
 }
