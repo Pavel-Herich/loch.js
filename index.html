@@ -39,7 +39,7 @@
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
-    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><hr/><button id="track-export-gpx" type="button">Export track (GPX)</button><button id="track-export-th" type="button">Export track (Therion)</button><button id="track-clear" type="button">Clear track</button><hr/><button id="model-forget" type="button">Forget saved model</button></div></details>
+    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><hr/><button id="export-open" type="button">Export points…</button><button id="track-export-gpx" type="button">Export track (GPX)</button><button id="track-export-th" type="button">Export track (Therion)</button><button id="track-clear" type="button">Clear track</button><hr/><button id="model-forget" type="button">Forget saved model</button></div></details>
     <details class="menu"><summary>Scene</summary><div class="menu-items">
       <details class="control-group"><summary>Visibility</summary><div class="group-items">
         <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
@@ -71,6 +71,7 @@
       </div></details>
       <details class="control-group"><summary>Surface</summary><div class="surface-controls">
         <label><input id="surface-image-overlay" type="checkbox" checked/> Image overlay</label>
+        <label>Underlay <select id="surface-underlay" aria-label="Surface underlay"><option value="lox" selected>LOX image</option><option value="ortho">ZBGIS orthophoto</option><option value="zbgis">ZBGIS base map</option><option value="geology">Geological map 1:50 000</option></select></label>
         <label><input id="surface-transparency" type="checkbox" checked/> Transparency</label>
         <label><input id="surface-opaque-underside" type="checkbox"/> Opaque underside</label>
         <label id="surface-opacity-control" class="surface-opacity" for="surface-opacity">Opacity <output id="surface-opacity-value" for="surface-opacity">50%</output><input id="surface-opacity" type="range" min="0" max="100" step="1" value="50"/></label>
@@ -103,7 +104,7 @@
     </div></details>
   </nav>
   </div>
-  <input id="file" type="file" accept=".lox,.3d,.plt,.shp,.dbf,.prj,.cpg" multiple aria-label="Open cave model or SHP layer" hidden/>
+  <input id="file" type="file" accept=".lox,.3d,.plt,.shp,.dbf,.prj,.cpg,.gpx,.kml,.kmz,.geojson,.json,.csv,.txt" multiple aria-label="Open cave model or SHP layer" hidden/>
   </header>
 </div>
 <div id="dock" role="toolbar" aria-label="Quick tools">
@@ -164,4 +165,16 @@
   <div class="layer-nav"><button type="button" id="layer-prev" aria-label="Previous point">‹</button><select id="layer-point" aria-label="Point"></select><button type="button" id="layer-next" aria-label="Next point">›</button></div>
   </div>
   <div class="dialog-actions"><button type="button" id="layer-show" class="primary">Show in model</button><button type="button" id="layers-close">Close</button></div>
+</dialog><dialog id="export-dialog" aria-labelledby="export-heading"><h2 id="export-heading">Export points</h2>
+  <p class="objects-hint">Points in the model's S-JTSK (cs ijtsk) coordinates; KML and GPX (and GeoJSON WGS 84) are converted to WGS 84 latitude/longitude.</p>
+  <div class="export-form">
+    <label>What <select id="export-what"></select></label>
+    <label>Format <select id="export-format">
+      <option value="geojson">GeoJSON (S-JTSK, EPSG:5514)</option><option value="geojson-wgs">GeoJSON (WGS 84)</option>
+      <option value="shp">Shapefile (S-JTSK, zip)</option><option value="kml">KML (Google Earth)</option>
+      <option value="gpx">GPX waypoints</option><option value="csv">CSV (x y z, lat lon)</option>
+    </select></label>
+    <p id="export-count" class="objects-hint"></p>
+  </div>
+  <div class="dialog-actions"><button type="button" id="export-go" class="primary">Export</button><button type="button" id="export-close">Close</button></div>
 </dialog><dialog id="photo-viewer" aria-label="Photo"><img id="photo-viewer-img" alt=""/><div class="viewer-bar"><button type="button" id="photo-viewer-prev" aria-label="Previous photo">‹</button><span id="photo-viewer-count"></span><button type="button" id="photo-viewer-next" aria-label="Next photo">›</button><button type="button" id="photo-viewer-close" class="primary">Close</button></div></dialog><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

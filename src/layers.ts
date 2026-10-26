@@ -1,6 +1,7 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { guessCoordinates, layerPoints, nameField, parseDbf, parseShp, type CoordinateGuess, type LayerPoint } from './shapefile';
 import { LabelOccupancy, symbolShown, symbolSizeAt } from './station-labels';
+import { parsePointFile } from './formats';
 import { clusterPoints, drawCluster, mergeClusters, setDrawnClusters, summarise, type Cluster } from './clusters';
 
 export type PointLayer = { id: string; name: string; color: string; source: string; points: LayerPoint[] };
@@ -37,6 +38,20 @@ export async function readShapefileLayer(files: File[], index: number): Promise<
   };
   const named = field ? `, names from ${field}` : dbfFile ? '' : ', no .dbf (no names)';
   return { layer, summary: `${shp.name} · ${layer.points.length} points (${layer.source}${named}) at their own heights${points.some(point => point.z === null) ? ' (terrain where missing)' : ''}` };
+}
+
+/** GPX, KML/KMZ, GeoJSON or CSV as a point layer, like a shapefile. */
+export async function readPointFileLayer(file: File, index: number): Promise<{ layer: PointLayer; summary: string }> {
+  const parsed = await parsePointFile(file);
+  if (!parsed.points.length) throw new Error(`${file.name} has no points.`);
+  const guess: CoordinateGuess = parsed.wgs84 ? 'wgs84' : guessCoordinates(parsed.points);
+  const layer: PointLayer = {
+    id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${index}`,
+    name: file.name.replace(/\.[^.]+$/, ''), color: COLORS[index % COLORS.length], source: `${file.name.split('.').pop()!.toUpperCase()}, ${COORDINATE_TEXT[guess]}`,
+    points: layerPoints(parsed.points, guess, record => parsed.labels[record] ?? '', record => parsed.attributes[record]),
+  };
+  const heights = parsed.points.some(point => point.z === null) ? ' (terrain where missing)' : '';
+  return { layer, summary: `${file.name} · ${parsed.labels.length} items, ${layer.points.length} points (${layer.source}) at their own heights${heights}` };
 }
 
 /** Imported point layers, kept on the device and drawn on one overlay canvas. */

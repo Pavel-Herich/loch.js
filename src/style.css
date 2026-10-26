@@ -128,8 +128,8 @@ body:not(.menu-open) #project-title{display:none}
 /* Hollow diamond: black edge outside, orange band, empty middle. */
 .object-marker::before{content:"";position:absolute;left:-4px;top:-4px;width:8px;height:8px;background:transparent;border:2px solid #ff9f1a;box-shadow:0 0 0 1.2px #09131c;transform:rotate(45deg) scale(var(--s,1))}
 .object-marker span{position:absolute;left:calc(3px + 7px * var(--s,1));top:-9px;white-space:nowrap;font-size:12px;color:#ffd9a3;text-shadow:0 0 3px #09131c,0 0 3px #09131c}
-#object-dialog,#objects-dialog,#layers-dialog,#search-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
-#object-dialog::backdrop,#objects-dialog::backdrop,#layers-dialog::backdrop,#search-dialog::backdrop{background:#0009}
+#object-dialog,#objects-dialog,#layers-dialog,#search-dialog,#export-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
+#object-dialog::backdrop,#objects-dialog::backdrop,#layers-dialog::backdrop,#search-dialog::backdrop,#export-dialog::backdrop{background:#0009}
 #object-form{display:flex;flex-direction:column}
 .object-head{display:flex;flex-direction:column;gap:6px;padding:16px 16px 12px;border-bottom:1px solid #3c5668}
 .object-head label{font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;color:#b8ccd9}
@@ -150,9 +150,9 @@ body:not(.menu-open) #project-title{display:none}
 .photo-add:focus-within{outline:2px solid #8ed9ff;outline-offset:2px}
 .object-error{margin:0 16px;color:#ffb36b;font-size:.85rem}
 .object-error:empty{display:none}
-#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions,#search-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
+#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions,#search-dialog .dialog-actions,#export-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
 button.primary{background:#215a75;border-color:#8ed9ff}
-#objects-dialog h2,#layers-dialog h2,#search-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
+#objects-dialog h2,#layers-dialog h2,#search-dialog h2,#export-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
 .objects-hint{margin:0;padding:0 16px 8px;font-size:.8rem;color:#b8ccd9}
 .objects-list{list-style:none;margin:0;padding:0 16px;max-height:calc(100dvh - 230px);overflow:auto}
 .objects-list li{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid #253b4b}
@@ -316,3 +316,6 @@ body.computer #nav-panel{background:#162531}
 .section-width input{width:120px;accent-color:#8ed9ff}
 .section-width output{min-width:3.5em;font-variant-numeric:tabular-nums}
 body.computer #section-panel{background:#162531}
+.export-form{display:flex;flex-direction:column;gap:10px;padding:4px 16px 0}
+.export-form label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:#b8ccd9}
+.export-form select{padding:.45rem;border:1px solid #678599;border-radius:6px;background:#09131c;color:#eaf3ff;font:inherit}

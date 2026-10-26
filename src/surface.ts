@@ -1,6 +1,6 @@
 import { nearestHorizontalSurfacePoint, nearestSurfacePoint } from './measure';
 import * as THREE from 'three';
-import { surfaceHeightAt, surfacePoint, type Surface, type SurfaceBitmap } from './lox-surface';
+import { surfaceHeightAt, surfacePoint, type Calibration, type Surface, type SurfaceBitmap } from './lox-surface';
 
 // Loch lxSetup defaults: m_srf_transparency = true, m_srf_opacity = 0.5.
 export const DEFAULT_SURFACE_OPACITY = 0.5;
@@ -46,7 +46,15 @@ export function surfaceUV(surface: Surface, bitmap: SurfaceBitmap, width: number
 }
 
 type SurfaceMaterial = THREE.MeshBasicMaterial | THREE.MeshStandardMaterial;
-type SurfaceEntry = { image: THREE.MeshBasicMaterial; lit: THREE.MeshStandardMaterial; meshes: THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>[] };
+type SurfaceTile = { geometry: THREE.BufferGeometry; column: number; row: number; columns: number; rows: number };
+type SurfaceEntry = {
+  image: THREE.MeshBasicMaterial; lit: THREE.MeshStandardMaterial; meshes: THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>[];
+  surface: Surface; tiles: SurfaceTile[];
+  /** The LOX file's own image, kept to come back to from a map-service underlay. */
+  lox?: { texture: THREE.Texture; bitmap: SurfaceBitmap };
+};
+/** A map image covering [minEast, minNorth, maxEast, maxNorth] in file coordinates. */
+export type Underlay = { texture: THREE.Texture; extent: [number, number, number, number]; width: number; height: number };
 
 /** Earth brown for the terrain seen from below, mixed into its own colour so the relief still reads. */
 const UNDERSIDE = 'vec3(.56, .36, .22)';
@@ -154,7 +162,7 @@ export class SurfaceScene {
   add(surface: Surface, origin: THREE.Vector3) {
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
     const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
-    const entry: SurfaceEntry = { image: material, lit, meshes: [] };
+    const entry: SurfaceEntry = { image: material, lit, meshes: [], surface, tiles: [] };
     this.grids.push({ width: surface.width, height: surface.height, calibration: surface.calibration, heights: surface.heights });
     this.origin.copy(origin);
     for (const h of surface.heights) if (h < this.lowest) this.lowest = h;
@@ -166,7 +174,7 @@ export class SurfaceScene {
       shadeUnderside(surfaceMaterial, frontUp, this.undersideOpaque, this.cameraBelow);
     }
     this.entries.push(entry);
-    const tiles: { geometry: THREE.BufferGeometry; column: number; row: number; columns: number; rows: number }[] = [];
+    const tiles = entry.tiles;
     for (let row = 0; row < surface.height - 1; row += TILE_CELLS) {
       for (let column = 0; column < surface.width - 1; column += TILE_CELLS) {
         const columns = Math.min(TILE_CELLS, surface.width - column - 1), rows = Math.min(TILE_CELLS, surface.height - row - 1);
@@ -182,12 +190,13 @@ export class SurfaceScene {
     const texture = new THREE.TextureLoader().load(url, texture => {
       release();
       if (revision !== this.revision) { texture.dispose(); return; }
-      for (const tile of tiles) tile.geometry.setAttribute('uv', surfaceUV(surface, bitmap, texture.image.width, texture.image.height,
-        tile.column, tile.row, tile.columns, tile.rows));
       // surfaceUV already reverses image Y to texture V; avoid a second flip on upload.
       texture.flipY = false;
       texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4;
-      material.map = texture; material.needsUpdate = true; this.onChange();
+      entry.lox = { texture, bitmap };
+      // A map-service underlay chosen meanwhile stays on top.
+      if (!this.underlay) this.drape(entry, texture, bitmap.calibration, texture.image.width, texture.image.height);
+      this.onChange();
     }, undefined, () => {
       release(); texture.dispose();
       if (revision === this.revision) this.onError(new Error('Could not decode the LOX surface image.'));
@@ -195,7 +204,39 @@ export class SurfaceScene {
     this.pending.set(url, texture);
   }
 
+  private underlay: Underlay | undefined;
+  /** Put an image on a surface's tiles: `calibration` maps image pixels (row 0 at the bottom) to file coordinates. */
+  private drape(entry: SurfaceEntry, texture: THREE.Texture | null, calibration: Calibration, width: number, height: number) {
+    if (texture) for (const tile of entry.tiles) tile.geometry.setAttribute('uv', surfaceUV(entry.surface, { calibration } as SurfaceBitmap, width, height,
+      tile.column, tile.row, tile.columns, tile.rows));
+    entry.image.map = texture; entry.image.needsUpdate = true;
+  }
+  /** Extent of all surfaces in file coordinates: [minEast, minNorth, maxEast, maxNorth]. */
+  extent(): [number, number, number, number] | undefined {
+    if (!this.grids.length) return undefined;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const grid of this.grids) for (const [c, r] of [[0, 0], [grid.width - 1, 0], [0, grid.height - 1], [grid.width - 1, grid.height - 1]]) {
+      const [x0, y0, xx, xy, yx, yy] = grid.calibration, x = x0 + xx * c + xy * r, y = y0 + yx * c + yy * r;
+      minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+    }
+    return [minX, minY, maxX, maxY];
+  }
+  /** Drape a map-service image over the surface instead of the LOX image; undefined goes back to it. */
+  setUnderlay(underlay: Underlay | undefined) {
+    if (this.underlay && this.underlay !== underlay) this.underlay.texture.dispose();
+    this.underlay = underlay;
+    for (const entry of this.entries) {
+      if (underlay) {
+        const [minX, minY, maxX, maxY] = underlay.extent;
+        this.drape(entry, underlay.texture, [minX, minY, (maxX - minX) / underlay.width, 0, 0, (maxY - minY) / underlay.height], underlay.width, underlay.height);
+      } else if (entry.lox) this.drape(entry, entry.lox.texture, entry.lox.bitmap.calibration, entry.lox.texture.image.width, entry.lox.texture.image.height);
+      else this.drape(entry, null, [0, 0, 1, 0, 0, 1], 1, 1);
+    }
+    this.onChange();
+  }
+
   clear() {
+    this.underlay?.texture.dispose(); this.underlay = undefined;
     this.revision++;
     this.grids = []; this.lowest = Infinity; this.cameraBelow.value = 0;
     for (const [url, texture] of this.pending) { URL.revokeObjectURL(url); texture.dispose(); }
@@ -203,7 +244,7 @@ export class SurfaceScene {
     for (const child of [...this.group.children]) {
       this.group.remove(child); (child as THREE.Mesh).geometry.dispose();
     }
-    for (const entry of this.entries) { entry.image.map?.dispose(); entry.image.dispose(); entry.lit.dispose(); }
+    for (const entry of this.entries) { entry.image.map?.dispose(); entry.lox?.texture.dispose(); entry.image.dispose(); entry.lit.dispose(); }
     this.entries = [];
   }
 }

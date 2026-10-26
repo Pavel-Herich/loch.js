@@ -24,14 +24,17 @@ import { orbitTo, ViewLocks } from './view-locks';
 import { FieldObjects } from './objects-ui';
 import { ObjectStore } from './objects';
 import { looksLikeSJTSK } from './geo';
-import { drawLayers, LayerStore, readShapefileLayer, type PointLayer } from './layers';
+import { drawLayers, LayerStore, readShapefileLayer, type PointLayer, readPointFileLayer } from './layers';
+import { POINT_FORMATS, toCsv, toGeoJson, toGpx, toKml, toShapefile, type ExportPoint } from './formats';
 import { LayerBrowser } from './layers-ui';
 import { searchModel, type SearchResult } from './search';
 import { browsablePoints } from './layers-ui';
-import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
+import { STATION_ENTRANCE, temporaryStation, type Station } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
+import { fetchUnderlay, UNDERLAY_SERVICES } from './underlay';
+import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { formatDistance, navigate } from './navigation';
 import { drawTrack, TrackRecorder, trackGpx, trackTherion } from './track';
@@ -514,6 +517,87 @@ sectionWidth.addEventListener('input', () => {
   if (section) applySection(withWidth(section, SECTION_WIDTHS[Number(sectionWidth.value)]));
 });
 
+// File → Export points…: entrances, all stations, field objects or an imported layer, in GIS formats.
+const exportDialog = document.querySelector<HTMLDialogElement>('#export-dialog')!;
+const exportWhat = document.querySelector<HTMLSelectElement>('#export-what')!;
+const exportFormat = document.querySelector<HTMLSelectElement>('#export-format')!;
+const exportCount = document.querySelector<HTMLElement>('#export-count')!;
+function exportSources(): { id: string; title: string; points: () => ExportPoint[] }[] {
+  const stations = centreline.stationDetails.filter(station => !temporaryStation(station));
+  const station = (s: Station): ExportPoint => ({ name: s.comment?.trim() || `${s.name}@${s.survey}`, east: s.position[0], north: s.position[1], z: s.position[2],
+    attributes: { station: `${s.name}@${s.survey}`, survey: s.fullSurvey } });
+  return [
+    { id: 'entrances', title: 'Cave entrances', points: () => stations.filter(s => s.flags & STATION_ENTRANCE).map(station) },
+    { id: 'stations', title: 'All survey stations', points: () => stations.map(s => ({ ...station(s), name: `${s.name}@${s.survey}` })) },
+    { id: 'objects', title: 'Field objects', points: () => fieldObjects.objects.filter(o => o.position).map(o => ({
+      name: o.title || o.name, east: o.position!.east, north: o.position!.north,
+      z: surfaceScene.heightAt(o.position!.east, o.position!.north) ?? o.position!.height ?? 0, attributes: { id: o.name, note: o.note } })) },
+    ...pointLayers.map(layer => ({ id: `layer:${layer.id}`, title: `Layer ${layer.name}`, points: () => browsablePoints(layer).map(index => {
+      const p = layer.points[index];
+      return { name: p.label, east: p.east, north: p.north, z: p.z ?? surfaceScene.heightAt(p.east, p.north) ?? 0, attributes: p.attributes };
+    }) })),
+  ];
+}
+function updateExportCount() {
+  const source = exportSources().find(item => item.id === exportWhat.value);
+  const count = source?.points().length ?? 0;
+  exportCount.textContent = `${count} point${count === 1 ? '' : 's'}${!looksLikeSJTSK(worldOrigin.x, worldOrigin.y) ? ' · this model is not in S-JTSK: coordinates are local and WGS 84 formats are meaningless' : ''}`;
+}
+document.querySelector<HTMLButtonElement>('#export-open')!.addEventListener('click', () => {
+  document.querySelectorAll<HTMLDetailsElement>('#menus details').forEach(group => { group.open = false; });
+  exportWhat.replaceChildren(...exportSources().map(item => new Option(item.title, item.id)));
+  updateExportCount(); exportDialog.showModal(); document.querySelector<HTMLButtonElement>('#export-close')!.focus();
+});
+exportWhat.addEventListener('change', updateExportCount);
+document.querySelector<HTMLButtonElement>('#export-close')!.addEventListener('click', () => exportDialog.close());
+document.querySelector<HTMLButtonElement>('#export-go')!.addEventListener('click', () => {
+  const source = exportSources().find(item => item.id === exportWhat.value);
+  const points = source?.points() ?? [];
+  if (!source || !points.length) { announce('Nothing to export there.', true); return; }
+  const base = source.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const format = exportFormat.value;
+  if (format === 'shp') {
+    const files = toShapefile(points);
+    const blob = createZip(Object.entries(files).map(([extension, data]) => ({ name: `${base}.${extension}`, data })));
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${base}_shp.zip`;
+    document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+  } else if (format === 'kml') download(`${base}.kml`, toKml(points, source.title), 'application/vnd.google-earth.kml+xml');
+  else if (format === 'gpx') download(`${base}.gpx`, toGpx(points), 'application/gpx+xml');
+  else if (format === 'csv') download(`${base}.csv`, toCsv(points), 'text/csv');
+  else download(`${base}${format === 'geojson-wgs' ? '_wgs84' : ''}.geojson`, toGeoJson(points, format === 'geojson-wgs'), 'application/geo+json');
+  announce(`${points.length} points exported.`);
+});
+
+// Scene → Surface → Underlay: ZBGIS orthophoto, ZBGIS base map or the geological map draped on the surface.
+const underlaySelect = document.querySelector<HTMLSelectElement>('#surface-underlay')!;
+underlaySelect.value = 'lox';
+let underlayRequest: AbortController | undefined;
+underlaySelect.addEventListener('change', () => {
+  underlayRequest?.abort(); underlayRequest = undefined;
+  const service = UNDERLAY_SERVICES.find(item => item.id === underlaySelect.value);
+  if (!service) { surfaceScene.setUnderlay(undefined); return; }
+  const extent = surfaceScene.extent();
+  if (!extent || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y)) {
+    announce('Map underlays need a model with a surface in S-JTSK.', true); underlaySelect.value = 'lox'; return;
+  }
+  const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
+  if (!overlay.checked) { overlay.checked = true; overlay.dispatchEvent(new Event('change')); }
+  const request = underlayRequest = new AbortController();
+  const size = Math.min(renderer.capabilities.maxTextureSize, 4096);
+  announce(`Loading ${service.title}…`);
+  void fetchUnderlay(service, extent, size, (done, total) => announce(`Loading ${service.title}… ${done}/${total}`), request.signal).then(({ canvas: image, width, height }) => {
+    if (request !== underlayRequest) return;
+    const texture = new THREE.CanvasTexture(image);
+    texture.flipY = false; texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4;
+    surfaceScene.setUnderlay({ texture, extent, width, height });
+    announce(`${service.title} ${service.attribution}`);
+  }).catch(error => {
+    if (request !== underlayRequest || (error as Error).name === 'AbortError') return;
+    announce(`${service.title}: ${exceptionMessage(error)}`, true);
+    underlaySelect.value = 'lox'; surfaceScene.setUnderlay(undefined);
+  });
+});
+
 // Picking an object position: same tap-to-pick as the rotation centre, without moving the view.
 let resolveObjectPick: ((point: THREE.Vector3 | undefined) => void) | undefined;
 const objectPicker = new RotationCentrePicker({
@@ -727,8 +811,9 @@ function draw(model: Model, label: string) {
 }
 async function loadFile(file: File) {
   const id = ++loadId;
-  // A section belongs to the model it was drawn on.
+  // A section and a map underlay belong to the model they were made for.
   applySection(undefined);
+  underlayRequest?.abort(); underlayRequest = undefined; underlaySelect.value = 'lox';
   collapseAfterRender = false;
   menus.expand();
   largeWorker?.terminate(); largeWorker = undefined;
@@ -842,7 +927,8 @@ if (iOS) chooser.accept = 'application/octet-stream';
 chooser.addEventListener('change', () => { openFiles(Array.from(chooser.files ?? [])); });
 /** A model opens as before; files with a .shp are imported as a point layer instead. */
 function openFiles(files: File[]) {
-  if (files.some(file => file.name.toLowerCase().endsWith('.shp'))) { void importLayer(files); return; }
+  // Shapefiles and GPX, KML/KMZ, GeoJSON or CSV become point layers.
+  if (files.some(file => file.name.toLowerCase().endsWith('.shp') || POINT_FORMATS.some(extension => file.name.toLowerCase().endsWith(extension)))) { void importLayer(files); return; }
   const model = files.find(file => modelFileFormat(file.name));
   if (!model) return;
   void loadFile(model);
@@ -864,8 +950,10 @@ function announce(text: string, error = false) {
   clearTimeout(toastTimer); toastTimer = window.setTimeout(() => { toast.hidden = true; }, 6000);
 }
 async function importLayer(files: File[]) {
+  const pointFile = files.find(file => POINT_FORMATS.some(extension => file.name.toLowerCase().endsWith(extension)));
   try {
-    const { layer, summary } = await readShapefileLayer(files, pointLayers.length);
+    const { layer, summary } = files.some(file => file.name.toLowerCase().endsWith('.shp')) || !pointFile
+      ? await readShapefileLayer(files, pointLayers.length) : await readPointFileLayer(pointFile, pointLayers.length);
     pointLayers = [...pointLayers, layer];
     showSymbols();
     try { await layerStore.put(layer); } catch { /* Kept for this session only. */ }
@@ -873,7 +961,7 @@ async function importLayer(files: File[]) {
     announce(georeferenced ? summary : `${summary}. Open a model in S-JTSK to see it.`);
     invalidateView();
   } catch (error) {
-    announce(`Cannot import SHP layer: ${exceptionMessage(error)}`, true);
+    announce(`Cannot import layer: ${exceptionMessage(error)}`, true);
   }
 }
 /** Ringed point (file coordinates): the one shown from File → SHP files or tapped last. */
