@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { looksLikeSJTSK, wgs84ToSJTSK } from './geo';
+import { seaLevelAltitude } from './geoid';
 
 export type LocationFix = {
   /** EPSG:5514 / Therion ijtsk, metres. */
@@ -89,8 +90,9 @@ export class DeviceLocation {
     this.first = true;
     this.setState({ kind: 'waiting' });
     this.watch = geolocation.watchPosition(position => {
-      const { latitude, longitude, altitude, accuracy } = position.coords;
-      this.last = { latitude, longitude, altitude, accuracy };
+      const { latitude, longitude, accuracy } = position.coords;
+      // Android gives height above the ellipsoid; keep sea-level (≈ Bpv) height everywhere.
+      this.last = { latitude, longitude, altitude: seaLevelAltitude(position.coords.altitude, latitude, longitude), accuracy };
       this.update();
     }, error => {
       // A timeout only means no new fix yet; keep watching and keep the last one.

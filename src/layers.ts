@@ -5,8 +5,8 @@ import { LabelOccupancy, symbolSizeAt } from './station-labels';
 export type PointLayer = { id: string; name: string; color: string; source: string; points: LayerPoint[] };
 
 const COLORS = ['#ff5ad1', '#5ae0ff', '#ffe14d', '#9cff5a', '#c49bff', '#ff7a7a'];
-/** Full-size symbol radius in CSS pixels; it shrinks with distance like entrance symbols. */
-const RADIUS = 6;
+/** Full-size ring radius in CSS pixels: with its edges 13 px across, like a full-size entrance Ω. */
+const RADIUS = 3.9;
 
 const COORDINATE_TEXT: Record<CoordinateGuess, string> = {
   sjtsk: 'S-JTSK', 'jtsk-positive': 'S-JTSK (positive Y/X, flipped)', wgs84: 'WGS 84 → S-JTSK', unknown: 'unknown coordinates, used as they are',
@@ -95,7 +95,7 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     const sx = (cx + 1) / 2 * width, sy = (1 - cy) / 2 * height;
     const size = symbolSizeAt(w), radius = Math.max(RADIUS * size, 1.5);
     // Hollow ring: black edge outside, the layer colour, and the terrain showing through the middle.
-    const ring = Math.max(radius, 3);
+    const ring = Math.max(RADIUS * size, 1.6);
     context.beginPath(); context.arc(sx, sy, ring + 1.9, 0, Math.PI * 2);
     context.lineWidth = 1.4; context.strokeStyle = '#09131c'; context.stroke();
     context.beginPath(); context.arc(sx, sy, ring, 0, Math.PI * 2);

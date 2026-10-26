@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { errorMessage } from './location';
 import { symbolSizeAt } from './station-labels';
+import { seaLevelAltitude } from './geoid';
 import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
 
 type Options = {
@@ -16,6 +17,8 @@ type Options = {
   onSaved?: () => void;
   /** Let the user tap a point in the model; resolves with scene coordinates, or undefined when cancelled. */
   pickPoint: () => Promise<THREE.Vector3 | undefined>;
+  /** Centre the view on an object (scene coordinates) and ring it. */
+  showInModel?: (local: THREE.Vector3, object: FieldObject) => void;
   geolocation?: Pick<Geolocation, 'watchPosition' | 'clearWatch'>;
 };
 
@@ -82,6 +85,13 @@ export class FieldObjects {
     });
     $<HTMLButtonElement>('#object-cancel').addEventListener('click', () => recorder.close());
     $<HTMLButtonElement>('#object-edit').addEventListener('click', () => { this.setViewing(false); title.focus(); });
+    $<HTMLButtonElement>('#object-show').addEventListener('click', () => {
+      const object = this.editing, position = object?.position, origin = this.options.getOrigin();
+      if (!object || !position || !origin) return;
+      const z = this.options.heightAt(position.east, position.north) ?? position.height ?? origin.z;
+      this.returnToList = false; recorder.close();
+      this.options.showInModel?.(new THREE.Vector3(position.east - origin.x, position.north - origin.y, z - origin.z), object);
+    });
     recorder.addEventListener('close', () => {
       if (this.picking) return;
       this.stopGps();
@@ -98,6 +108,8 @@ export class FieldObjects {
     $<HTMLButtonElement>('#objects-open').addEventListener('click', () => {
       document.querySelectorAll<HTMLDetailsElement>('#menus details').forEach(group => { group.open = false; });
       this.renderList(); list.showModal();
+      // Open on the list, not in the Surveyed by field (which would pop up the keyboard).
+      $<HTMLButtonElement>('#objects-close').focus();
     });
     $<HTMLButtonElement>('#objects-close').addEventListener('click', () => list.close());
     $<HTMLButtonElement>('#objects-export').addEventListener('click', () => void this.export());
@@ -125,6 +137,7 @@ export class FieldObjects {
     $<HTMLInputElement>('#object-title').readOnly = viewing;
     $<HTMLTextAreaElement>('#object-note').readOnly = viewing;
     $<HTMLButtonElement>('#object-edit').hidden = !viewing;
+    $<HTMLButtonElement>('#object-show').hidden = !viewing || !this.editing?.position || !this.options.getOrigin() || !this.options.showInModel;
     $<HTMLButtonElement>('#object-save').hidden = viewing;
     $<HTMLButtonElement>('#object-cancel').textContent = viewing ? 'Close' : 'Cancel';
   }
@@ -184,11 +197,13 @@ export class FieldObjects {
     this.watch = geolocation.watchPosition(({ coords }) => {
       const [east, north] = wgs84ToSJTSK(coords.latitude, coords.longitude, coords.altitude ?? 0);
       const terrain = this.options.getOrigin() ? this.options.heightAt(east, north) : undefined;
+      // Sea-level (≈ Bpv) height: Android reports height above the ellipsoid.
+      const altitude = seaLevelAltitude(coords.altitude, coords.latitude, coords.longitude);
       this.position = {
         // Positions taken in the app are kept to whole metres.
         latitude: coords.latitude, longitude: coords.longitude, gpsAltitude: coords.altitude, accuracy: coords.accuracy,
-        east: Math.round(east), north: Math.round(north), height: roundOrNull(terrain ?? coords.altitude),
-        heightSource: terrain !== undefined ? 'surface' : coords.altitude !== null ? 'gps' : null,
+        east: Math.round(east), north: Math.round(north), height: roundOrNull(terrain ?? altitude),
+        heightSource: terrain !== undefined ? 'surface' : altitude !== null ? 'gps' : null,
         source: 'gps',
       };
       output.textContent = formatPosition(this.position);

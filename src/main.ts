@@ -245,7 +245,11 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   if (georeferenced && document.querySelector<HTMLInputElement>('#objects-visible')!.checked) for (const object of fieldObjects.objects) {
     const position = object.position;
     if (!position) continue;
-    consider(position.east, position.north, surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z, object.title || object.name, () => fieldObjects.open(object));
+    consider(position.east, position.north, surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z, object.title || object.name, () => showInfo(object.title || object.name, [
+      ['Type', 'Field object'], ['Saved as', object.name],
+      ['x  y  z', `${Math.round(position.east)}  ${Math.round(position.north)}  ${position.height === null ? '–' : Math.round(position.height)}`],
+      ['Note', object.note], ['Photos', object.photos.length ? String(object.photos.length) : ''],
+    ], [{ label: 'Open', primary: true, run: () => { infoCard.hidden = true; fieldObjects.open(object); } }]));
   }
   if (georeferenced && layersVisible.checked) for (const layer of pointLayers) {
     browsablePoints(layer).forEach((index, position) => {
@@ -438,6 +442,11 @@ const fieldObjects = new FieldObjects({
   getOrigin: () => hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y) ? worldOrigin : undefined,
   onChange: () => invalidateView(),
   pickPoint: pickObjectPoint,
+  showInModel: (local, object) => {
+    focusOn(local);
+    const position = object.position!;
+    select({ name: object.title, east: position.east, north: position.north, z: local.z + worldOrigin.z });
+  },
 });
 const deviceLocation = new DeviceLocation({
   scene,
