@@ -39,7 +39,7 @@ import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
 import { formatDistance, navigate } from './navigation';
-import { drawTrack, TrackRecorder, trackGpx, trackTherion } from './track';
+import { drawTracks, TrackStore, trackGpx, trackLength, trackTherion, type Track } from './track';
 import { forgetLastModel, loadLastModel, saveLastModel } from './model-store';
 import { viewOrientation } from './indicators';
 import { resetSymbolSpace, symbolHidden } from './declutter';
@@ -448,23 +448,82 @@ function updateNavigation() {
   navText.replaceChildren(title, `${formatDistance(way.horizontal)} · ${height === 0 ? 'same height' : `${height > 0 ? '↑' : '↓'} ${Math.abs(height)} m`} · ${Math.round(way.trueBearing) % 360}°${way.turn === undefined ? ' (no compass: arrow on the map)' : ''}`);
 }
 
-// GPS track: View → Record GPS track; kept in the browser until cleared.
-const track = new TrackRecorder();
+// Recording: GPS tracks kept on the device; started and stopped in the Recording window
+// (REC in the top bar, or View → Recording…), each shown, renamed, exported or deleted there.
+const tracks = new TrackStore();
 const trackCanvas = document.querySelector<HTMLCanvasElement>('#track-overlay')!;
-const trackRecord = document.querySelector<HTMLInputElement>('#track-record')!;
-trackRecord.checked = false;
 const trackToggle = document.querySelector<HTMLButtonElement>('#track-toggle')!;
-trackToggle.addEventListener('click', () => { trackRecord.checked = !trackRecord.checked; trackRecord.dispatchEvent(new Event('change')); });
-trackRecord.addEventListener('change', () => {
-  track.recording = trackRecord.checked;
-  trackToggle.setAttribute('aria-pressed', String(track.recording));
-  trackToggle.title = track.recording ? `Recording GPS track (${track.points.length} points). Click to stop` : 'Record GPS track';
-  if (track.recording && !deviceLocation.active) toggleLocation();
-  showLocationState(deviceLocation.state);
+const tracksDialog = document.querySelector<HTMLDialogElement>('#tracks-dialog')!;
+const tracksList = document.querySelector<HTMLElement>('#tracks-list')!;
+const tracksRecord = document.querySelector<HTMLButtonElement>('#tracks-record')!;
+const tracksStatus = document.querySelector<HTMLElement>('#tracks-status')!;
+void tracks.load().then(() => { renderTracks(); invalidateView(); });
+function trackSummary(track: Track) {
+  const date = new Date(track.created);
+  return `${track.points.length} ${track.points.length === 1 ? 'point' : 'points'} · ${formatDistance(trackLength(track))} · ${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+function syncRecording() {
+  const recording = tracks.recording;
+  trackToggle.setAttribute('aria-pressed', String(Boolean(recording)));
+  trackToggle.title = recording ? `Recording: ${trackSummary(recording)}` : 'Recording: GPS tracks';
+  tracksRecord.textContent = recording ? 'Stop recording' : 'Start recording';
+  tracksRecord.classList.toggle('recording', Boolean(recording));
+  tracksStatus.textContent = recording ? `● ${recording.points.length} ${recording.points.length === 1 ? 'point' : 'points'} · ${formatDistance(trackLength(recording))}` : '';
+}
+function renderTracks() {
+  syncRecording();
+  tracksList.replaceChildren(...[...tracks.tracks].reverse().map(track => {
+    const row = document.createElement('li'); row.style.setProperty('--track', track.color);
+    const shown = document.createElement('input'); shown.type = 'checkbox'; shown.checked = track.visible; shown.setAttribute('aria-label', `Show ${track.name}`);
+    shown.addEventListener('change', () => { tracks.setVisible(track.id, shown.checked); invalidateView(); });
+    const name = document.createElement('button'); name.type = 'button'; name.className = 'track-name'; name.textContent = track.name; name.style.color = track.color;
+    name.addEventListener('click', () => {
+      // Rename in place (no browser prompt, which installed apps may block).
+      const input = document.createElement('input'); input.className = 'track-name-input'; input.value = track.name; input.setAttribute('aria-label', 'Track name');
+      let finished = false;
+      const done = () => { if (finished) return; finished = true; tracks.rename(track.id, input.value); renderTracks(); };
+      input.addEventListener('keydown', event => { if (event.key === 'Enter') done(); if (event.key === 'Escape') { event.stopPropagation(); finished = true; renderTracks(); } });
+      input.addEventListener('blur', done);
+      name.replaceWith(input); input.focus(); input.select();
+    });
+    const meta = document.createElement('div'); meta.className = 'track-meta'; meta.classList.toggle('recording', tracks.recording?.id === track.id);
+    meta.textContent = `${tracks.recording?.id === track.id ? '● recording · ' : ''}${trackSummary(track)}`;
+    const actions = document.createElement('div'); actions.className = 'track-actions';
+    const button = (label: string, run: () => void) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', run); actions.append(b); return b; };
+    const file = track.name.replace(/[^\w.-]+/g, '_');
+    button('Show', () => {
+      if (!track.points.length || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y)) return;
+      const east = track.points.reduce((sum, p) => sum + p.east, 0) / track.points.length, north = track.points.reduce((sum, p) => sum + p.north, 0) / track.points.length;
+      if (!track.visible) { tracks.setVisible(track.id, true); }
+      tracksDialog.close(); focusOn(new THREE.Vector3(east - worldOrigin.x, north - worldOrigin.y, (surfaceScene.heightAt(east, north) ?? worldOrigin.z) - worldOrigin.z));
+    }).disabled = !track.points.length;
+    button('GPX', () => download(`${file}.gpx`, trackGpx(track.points, track.name), 'application/gpx+xml')).disabled = !track.points.length;
+    button('Therion', () => download(`${file}.th`, trackTherion(track.points, track.name), 'text/plain')).disabled = !track.points.length;
+    const remove = button('Delete', () => {
+      if (remove.dataset.armed !== 'true') { remove.dataset.armed = 'true'; remove.textContent = 'Delete?'; return; }
+      tracks.remove(track.id); renderTracks(); invalidateView();
+    });
+    row.append(shown, name, meta, actions);
+    return row;
+  }));
+}
+function openTracks() {
+  document.querySelectorAll<HTMLDetailsElement>('#menus details').forEach(group => { group.open = false; });
+  renderTracks(); tracksDialog.showModal(); document.querySelector<HTMLButtonElement>('#tracks-close')!.focus();
+}
+trackToggle.addEventListener('click', openTracks);
+document.querySelector<HTMLButtonElement>('#tracks-open')!.addEventListener('click', openTracks);
+document.querySelector<HTMLButtonElement>('#tracks-close')!.addEventListener('click', () => tracksDialog.close());
+tracksRecord.addEventListener('click', () => {
+  if (tracks.recording) tracks.stop();
+  else { tracks.start(); if (!deviceLocation.active) toggleLocation(); }
+  renderTracks(); showLocationState(deviceLocation.state); invalidateView();
 });
 function recordFix(fix: LocationFix) {
-  if (track.add({ time: new Date().toISOString(), latitude: fix.latitude, longitude: fix.longitude, east: fix.east, north: fix.north,
-    height: fix.heightSource === 'model' ? null : Math.round(fix.height * 10) / 10, accuracy: fix.accuracy })) invalidateView();
+  if (tracks.add({ time: new Date().toISOString(), latitude: fix.latitude, longitude: fix.longitude, east: fix.east, north: fix.north,
+    height: fix.heightSource === 'model' ? null : Math.round(fix.height * 10) / 10, accuracy: fix.accuracy })) {
+    syncRecording(); if (tracksDialog.open) renderTracks(); invalidateView();
+  }
 }
 function download(name: string, text: string, type: string) {
   const link = document.createElement('a');
@@ -472,16 +531,6 @@ function download(name: string, text: string, type: string) {
   document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
 }
-const trackName = () => `track_${new Date().toISOString().slice(2, 19).replace(/[-:]/g, '').replace('T', '_')}`;
-document.querySelector<HTMLButtonElement>('#track-export-gpx')!.addEventListener('click', () => {
-  if (!track.points.length) { announce('No track recorded yet (View → Record GPS track).', true); return; }
-  download(`${trackName()}.gpx`, trackGpx(track.points, trackName()), 'application/gpx+xml');
-});
-document.querySelector<HTMLButtonElement>('#track-export-th')!.addEventListener('click', () => {
-  if (!track.points.length) { announce('No track recorded yet (View → Record GPS track).', true); return; }
-  download(`${trackName()}.th`, trackTherion(track.points, trackName()), 'text/plain');
-});
-document.querySelector<HTMLButtonElement>('#track-clear')!.addEventListener('click', () => { track.clear(); announce('Track cleared.'); invalidateView(); });
 document.querySelector<HTMLButtonElement>('#maps-forget')!.addEventListener('click', () => {
   void forgetStoredUnderlays().then(() => announce('Saved map underlays are forgotten; they download again when chosen.')).catch(() => undefined);
 });
@@ -758,7 +807,7 @@ function showLocationState(state: LocationState) {
     const accuracy = document.createElement('strong'); accuracy.textContent = text.accuracy;
     first.append(accuracy, ` · ${text.height}`);
     const second = document.createElement('div'); second.textContent = text.outside || text.coordinates;
-    if (track.recording) second.textContent += ` · REC ${track.points.length} pts, ${formatDistance(track.length)}`;
+    if (tracks.recording) second.textContent += ` · REC ${tracks.recording.points.length} pts, ${formatDistance(trackLength(tracks.recording))}`;
     locationInfo.append(first, second); locationInfo.hidden = false;
   }
   invalidateView();
@@ -1192,8 +1241,8 @@ function frame(time = performance.now()) {
     updateLocationDot();
     updateSelectionRing();
     updateNavigation();
-    trackCanvas.hidden = !hasModel || !track.points.length || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
-    if (!trackCanvas.hidden) drawTrack(trackCanvas, track.points, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north));
+    trackCanvas.hidden = !hasModel || !tracks.tracks.some(t => t.visible && t.points.length) || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
+    if (!trackCanvas.hidden) drawTracks(trackCanvas, tracks.tracks, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north));
     // Overlapping small symbols hide behind earlier ones: entrances first, then field objects, then SHP points.
     resetSymbolSpace();
     centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);

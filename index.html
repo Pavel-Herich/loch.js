@@ -34,7 +34,7 @@
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
-    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><hr/><button id="export-open" type="button">Export points…</button><button id="track-export-gpx" type="button">Export track (GPX)</button><button id="track-export-th" type="button">Export track (Therion)</button><button id="track-clear" type="button">Clear track</button><hr/><button id="model-forget" type="button">Forget saved model</button><button id="maps-forget" type="button">Forget saved maps</button></div></details>
+    <details class="menu"><summary>File</summary><div class="menu-items"><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><hr/><button id="export-open" type="button">Export points…</button><hr/><button id="model-forget" type="button">Forget saved model</button><button id="maps-forget" type="button">Forget saved maps</button></div></details>
     <details class="menu"><summary>Scene</summary><div class="menu-items">
       <details class="control-group"><summary>Visibility</summary><div class="group-items">
         <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
@@ -79,7 +79,7 @@
       <label><input id="lock-tilt" type="checkbox"/> Lock tilt</label>
       <button id="pivot-menu" type="button">Set rotation centre</button>
       <button id="locate-menu" type="button">My location (GPS)</button>
-      <label><input id="track-record" type="checkbox"/> Record GPS track</label>
+      <button id="tracks-open" type="button">Recording…</button>
       <button id="section-menu" type="button">Vertical section…</button>
       <hr/>
       <button id="plan" type="button" data-view="plan">Plan</button>
@@ -172,4 +172,9 @@
     <p id="export-count" class="objects-hint"></p>
   </div>
   <div class="dialog-actions"><button type="button" id="export-go" class="primary">Export</button><button type="button" id="export-close">Close</button></div>
+</dialog><dialog id="tracks-dialog" aria-labelledby="tracks-heading"><h2 id="tracks-heading">Recording</h2>
+  <div class="tracks-record"><button type="button" id="tracks-record" class="primary">Start recording</button><span id="tracks-status"></span></div>
+  <p class="objects-hint">GPS tracks kept on this device. Tap a name to rename it; the box shows or hides the track on the model.</p>
+  <ul id="tracks-list" class="tracks-list"></ul>
+  <div class="dialog-actions"><button type="button" id="tracks-close">Close</button></div>
 </dialog><dialog id="photo-viewer" aria-label="Photo"><img id="photo-viewer-img" alt=""/><div class="viewer-bar"><button type="button" id="photo-viewer-prev" aria-label="Previous photo">‹</button><span id="photo-viewer-count"></span><button type="button" id="photo-viewer-next" aria-label="Next photo">›</button><button type="button" id="photo-viewer-close" class="primary">Close</button></div></dialog><dialog id="about-dialog" aria-labelledby="about-title"><h2 id="about-title">About loch.js</h2><dl><dt>Version</dt><dd id="app-version"></dd><dt>Commit</dt><dd><code id="build-commit"></code></dd><dt>Built</dt><dd><time id="build-date"></time></dd></dl><form method="dialog"><button autofocus>Close</button></form></dialog><script type="module" src="/src/main.ts"></script></body></html>

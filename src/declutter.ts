@@ -1,10 +1,10 @@
 /**
  * Overlap hiding for object symbols (entrances, field objects, SHP points). While symbols are
- * small (zoomed out, up to 60 % of full size), a symbol that would touch one already drawn
+ * small (zoomed out, up to 70 % of full size), a symbol that would touch one already drawn
  * this frame is hidden behind it; the next one shows only where it touches none. Larger
  * symbols always draw, and every drawn symbol keeps its place for the ones after it.
  */
-export const DECLUTTER_UP_TO = .6;
+export const DECLUTTER_UP_TO = .7;
 const CELL = 24;
 
 type Circle = { x: number; y: number; r: number };

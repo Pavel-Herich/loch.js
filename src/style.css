@@ -128,8 +128,8 @@ body:not(.menu-open) #project-title{display:none}
 /* Hollow diamond: black edge outside, orange band, empty middle. */
 .object-marker::before{content:"";box-sizing:border-box;position:absolute;left:-4.5px;top:-4.5px;width:9px;height:9px;background:transparent;border:2px solid #ff9f1a;box-shadow:0 0 0 1.2px #09131c;transform:rotate(45deg) scale(var(--s,1))}
 .object-marker span{position:absolute;left:calc(3px + 7px * var(--s,1));top:-9px;white-space:nowrap;font-size:12px;color:#ffd9a3;text-shadow:0 0 3px #09131c,0 0 3px #09131c}
-#object-dialog,#objects-dialog,#layers-dialog,#search-dialog,#export-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
-#object-dialog::backdrop,#objects-dialog::backdrop,#layers-dialog::backdrop,#search-dialog::backdrop,#export-dialog::backdrop{background:#0009}
+#object-dialog,#objects-dialog,#layers-dialog,#search-dialog,#export-dialog,#tracks-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
+#object-dialog::backdrop,#objects-dialog::backdrop,#layers-dialog::backdrop,#search-dialog::backdrop,#export-dialog::backdrop,#tracks-dialog::backdrop{background:#0009}
 #object-form{display:flex;flex-direction:column}
 .object-head{display:flex;flex-direction:column;gap:6px;padding:16px 16px 12px;border-bottom:1px solid #3c5668}
 .object-head label{font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;color:#b8ccd9}
@@ -150,9 +150,9 @@ body:not(.menu-open) #project-title{display:none}
 .photo-add:focus-within{outline:2px solid #8ed9ff;outline-offset:2px}
 .object-error{margin:0 16px;color:#ffb36b;font-size:.85rem}
 .object-error:empty{display:none}
-#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions,#search-dialog .dialog-actions,#export-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
+#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions,#search-dialog .dialog-actions,#export-dialog,#tracks-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
 button.primary{background:#215a75;border-color:#8ed9ff}
-#objects-dialog h2,#layers-dialog h2,#search-dialog h2,#export-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
+#objects-dialog h2,#layers-dialog h2,#search-dialog h2,#export-dialog,#tracks-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
 .objects-hint{margin:0;padding:0 16px 8px;font-size:.8rem;color:#b8ccd9}
 .objects-list{list-style:none;margin:0;padding:0 16px;max-height:calc(100dvh - 230px);overflow:auto}
 .objects-list li{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid #253b4b}
@@ -263,7 +263,9 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
   #toolbar{margin-top:calc(8px + env(safe-area-inset-top,0px))}
   #top-head{width:auto;height:100%;justify-content:center}
   #top-bar{flex-direction:column;justify-content:flex-start;width:auto;height:auto;max-height:100%;padding:6px 4px;gap:8px}
-  #menu-cell{align-self:center;gap:2px}
+  /* Two columns: Menu, Search / Underlay, Surface / REC, Section, so the bar stays narrow. */
+  #menu-cell{align-self:center;gap:2px;grid-template-columns:auto auto;grid-template-areas:"menu search" "underlay surface" "rec section"}
+  #menu-toggle{grid-area:menu}#search-open{grid-area:search}#underlay-toggle{grid-area:underlay}#surface-toggle{grid-area:surface}#track-toggle{grid-area:rec}#section-toggle{grid-area:section}
   #menu-toggle,#search-open,#track-toggle,#underlay-toggle,#surface-toggle,#section-toggle{padding:3px 5px}
   .orientation-indicator svg{width:30px;height:30px}
   .orientation-indicator{gap:0;font-size:10px}
@@ -330,3 +332,17 @@ body.computer #section-panel{background:#162531}
 .underlay-menu button[aria-checked="true"]{background:#215a75;color:#fff}
 @media(hover:hover){.underlay-menu button:hover{background:#294251}}
 .section-export-menu{top:auto;bottom:calc(100% + 6px);left:auto;right:0}
+.tracks-record{display:flex;align-items:center;gap:10px;padding:4px 16px 8px}
+#tracks-record.recording{background:#7a2020;border-color:#ff5a5a}
+#tracks-status{font-size:.85rem;color:#b8ccd9;font-variant-numeric:tabular-nums}
+.tracks-list{list-style:none;margin:0 16px 8px;padding:0;max-height:calc(100dvh - 300px);overflow:auto;border:1px solid #3c5668;border-radius:8px}
+.tracks-list:empty::after{content:"No tracks yet.";display:block;padding:.7rem;color:#9fb6c6;font-size:.85rem}
+.tracks-list li{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:center;padding:.55rem .7rem;border-bottom:1px solid #253b4b}
+.tracks-list li:last-child{border-bottom:0}
+.tracks-list input[type=checkbox]{width:20px;height:20px;accent-color:var(--track,#ff7a3d)}
+.tracks-list .track-name{justify-self:start;padding:0;border:0;background:transparent;color:#eaf3ff;font:inherit;font-weight:600;text-align:left;cursor:text}
+.tracks-list .track-name-input{width:100%;padding:.3rem;border:1px solid #678599;border-radius:6px;background:#09131c;color:#eaf3ff;font:inherit}
+.tracks-list .track-meta{grid-column:2;font-size:.8rem;color:#9fb6c6;font-variant-numeric:tabular-nums}
+.tracks-list .track-actions{grid-column:2;display:flex;flex-wrap:wrap;gap:6px}
+.tracks-list .track-actions button{padding:.3rem .6rem;font-size:.8rem}
+#tracks-status,.tracks-list .track-meta.recording{color:#ff8a8a}
