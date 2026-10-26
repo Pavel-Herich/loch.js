@@ -74,14 +74,19 @@ export class WallPreparation {
   private upload(object: THREE.Mesh | THREE.Points) {
     const target = this.renderer.getRenderTarget(), { start, count } = object.geometry.drawRange;
     const visible = object.visible, culled = object.frustumCulled;
+    // Only this object is drawn: the surface, centreline and box would otherwise be drawn again
+    // for every uploaded batch. Lights stay, so the wall shaders compiled for them are reused.
+    const others = this.scene.children.filter(child => child.visible && !(child instanceof THREE.Light) && !contains(child, object));
     try {
       // Three.js uploads attributes before drawing. A zero-count draw uploads the
       // real buffers without processing triangles or changing the visible canvas.
       object.geometry.setDrawRange(0, 0); object.frustumCulled = false; object.visible = true;
+      for (const other of others) other.visible = false;
       this.renderer.setRenderTarget(this.uploadTarget);
       this.renderer.render(this.scene, this.camera);
     } finally {
       object.geometry.setDrawRange(start, count); object.visible = visible; object.frustumCulled = culled;
+      for (const other of others) other.visible = true;
       this.renderer.setRenderTarget(target);
     }
   }
@@ -92,4 +97,9 @@ export class WallPreparation {
     if (this.fence) { (this.renderer.getContext() as WebGL2RenderingContext).deleteSync(this.fence); this.fence = undefined; }
     this.uploadTarget.dispose();
   }
+}
+
+function contains(parent: THREE.Object3D, object: THREE.Object3D) {
+  for (let node: THREE.Object3D | null = object; node; node = node.parent) if (node === parent) return true;
+  return false;
 }
