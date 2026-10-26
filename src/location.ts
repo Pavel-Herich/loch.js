@@ -5,6 +5,8 @@ import { seaLevelAltitude } from './geoid';
 export type LocationFix = {
   /** EPSG:5514 / Therion ijtsk, metres. */
   east: number; north: number;
+  /** WGS 84 position of the fix. */
+  latitude: number; longitude: number;
   /** Height used for the marker and where it came from. */
   height: number; heightSource: 'surface' | 'gps' | 'model';
   accuracy: number;
@@ -18,7 +20,7 @@ export type LocationFix = {
 
 export type LocationState =
   | { kind: 'off' }
-  | { kind: 'waiting' }
+  | { kind: 'waiting'; message?: string }
   | { kind: 'fix'; fix: LocationFix }
   | { kind: 'error'; message: string };
 
@@ -95,8 +97,9 @@ export class DeviceLocation {
       this.last = { latitude, longitude, altitude: seaLevelAltitude(position.coords.altitude, latitude, longitude), accuracy };
       this.update();
     }, error => {
-      // A timeout only means no new fix yet; keep watching and keep the last one.
-      if (error.code === 3) { if (!this.last) this.setState({ kind: 'waiting' }); return; }
+      // Only a refused permission ends the watch. A timeout or a lost signal (trees, a cave mouth)
+      // just means no new fix yet: keep watching and keep the last one.
+      if (error.code !== 1) { if (!this.last) this.setState(error.code === 3 ? { kind: 'waiting' } : { kind: 'waiting', message: errorMessage(error) }); return; }
       this.stop();
       this.setState({ kind: 'error', message: errorMessage(error) });
     }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
@@ -128,7 +131,7 @@ export class DeviceLocation {
     const dy = Math.max(model.box.min.y - local.y, 0, local.y - model.box.max.y);
     const [northEast, northNorth] = wgs84ToSJTSK(latitude + .001, longitude, altitude ?? 0);
     const trueNorth = Math.atan2(northEast - east, northNorth - north) * 180 / Math.PI;
-    const fix: LocationFix = { east, north, height, heightSource, accuracy, local, outside: Math.hypot(dx, dy), trueNorth };
+    const fix: LocationFix = { east, north, latitude, longitude, height, heightSource, accuracy, local, outside: Math.hypot(dx, dy), trueNorth };
     this.group.position.copy(local);
     this.disc.scale.setScalar(Math.max(accuracy, .5));
     this.group.visible = true;

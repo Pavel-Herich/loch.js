@@ -32,6 +32,10 @@ import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
+import { formatDistance, navigate } from './navigation';
+import { drawTrack, TrackRecorder, trackGpx, trackTherion } from './track';
+import { forgetLastModel, loadLastModel, saveLastModel } from './model-store';
+import { viewOrientation } from './indicators';
 import { clusterAt, setDrawnClusters } from './clusters';
 import { initializeLayout } from './layout';
 import { degrees, metres, segment, signedMetres, type MeasurePoint, type Segment } from './measure';
@@ -237,10 +241,11 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   if (lines.visible) for (const station of centreline.stationDetails) {
     if (!(station.flags & STATION_ENTRANCE) || temporaryStation(station)) continue;
     const [east, north, z] = station.position;
-    consider(east, north, z, station.comment?.trim() || `${station.name}@${station.survey}`, () => showInfo(station.comment?.trim() || `${station.name}@${station.survey}`, [
+    const name = station.comment?.trim() || `${station.name}@${station.survey}`;
+    consider(east, north, z, name, () => showInfo(name, [
       ['Type', 'Cave entrance'], ['Station', `${station.name}@${station.survey}`], ['Survey', station.fullSurvey],
       ['Altitude', `${z.toFixed(1)} m`], ['x  y', `${Math.round(east)}  ${Math.round(north)}`],
-    ]));
+    ], navigateActions({ name, east, north, z })));
   }
   const georeferenced = looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
   if (georeferenced && document.querySelector<HTMLInputElement>('#objects-visible')!.checked) for (const object of fieldObjects.objects) {
@@ -250,16 +255,18 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
       ['Type', 'Field object'], ['Saved as', object.name],
       ['x  y  z', `${Math.round(position.east)}  ${Math.round(position.north)}  ${position.height === null ? '–' : Math.round(position.height)}`],
       ['Note', object.note], ['Photos', object.photos.length ? String(object.photos.length) : ''],
-    ], [{ label: 'Open', primary: true, run: () => { infoCard.hidden = true; fieldObjects.open(object); } }]));
+    ], [{ label: 'Open', primary: true, run: () => { infoCard.hidden = true; fieldObjects.open(object); } },
+      ...navigateActions({ name: object.title || object.name, east: position.east, north: position.north, z: surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z })]));
   }
   if (georeferenced && layersVisible.checked) for (const layer of pointLayers) {
     browsablePoints(layer).forEach((index, position) => {
       const shp = layer.points[index], terrain = surfaceScene.heightAt(shp.east, shp.north);
-      consider(shp.east, shp.north, shp.z ?? terrain ?? worldOrigin.z, shp.label || `${layer.name} #${position + 1}`, () => showInfo(shp.label || `${layer.name} #${position + 1}`, [
+      const name = shp.label || `${layer.name} #${position + 1}`, z = shp.z ?? terrain ?? worldOrigin.z;
+      consider(shp.east, shp.north, z, name, () => showInfo(name, [
         ['Layer', layer.name], ['x  y', `${Math.round(shp.east)}  ${Math.round(shp.north)}`],
         ['Z (file)', shp.z === null ? '' : `${shp.z.toFixed(2)} m`], ['Terrain height', terrain === undefined ? '' : `${Math.round(terrain)} m`],
         ...Object.entries(shp.attributes ?? {}),
-      ]), false, `shp:${layer.id}:${index}`);
+      ], navigateActions({ name, east: shp.east, north: shp.north, z })), false, `shp:${layer.id}:${index}`);
     });
   }
   return best;
@@ -386,6 +393,72 @@ function updateMeasuredLocation(fix: LocationFix) {
   if (!infoCard.hidden) showMeasure();
   invalidateView();
 }
+// Navigation to an object: distance, height difference and an arrow turned from where the phone points.
+let navTarget: MeasurePoint | undefined;
+const navPanel = document.querySelector<HTMLElement>('#nav-panel')!;
+const navArrow = document.querySelector<SVGElement>('#nav-arrow')!;
+const navText = document.querySelector<HTMLElement>('#nav-text')!;
+function navigateActions(target: MeasurePoint): InfoAction[] {
+  if (!looksLikeSJTSK(worldOrigin.x, worldOrigin.y)) return [];
+  return [{ label: 'Navigate', run: () => {
+    navTarget = target; infoCard.hidden = true; select(target);
+    // Navigation needs the position and, for the arrow, the compass (asked for during this tap on iPhone).
+    if (!deviceLocation.active) toggleLocation(); else deviceHeading.start();
+    invalidateView();
+  } }];
+}
+document.querySelector<HTMLButtonElement>('#nav-stop')!.addEventListener('click', () => { navTarget = undefined; invalidateView(); });
+function updateNavigation() {
+  navPanel.hidden = !navTarget;
+  if (!navTarget) return;
+  const fix = deviceLocation.state.kind === 'fix' ? deviceLocation.state.fix : undefined;
+  const title = document.createElement('strong'); title.textContent = navTarget.name;
+  if (!fix) {
+    navText.replaceChildren(title, deviceLocation.active ? 'Waiting for GPS fix…' : 'Location is off');
+    navArrow.style.opacity = '.3'; return;
+  }
+  const way = navigate(fix, navTarget, deviceHeading.heading);
+  // Without a compass the arrow points the way on the map as it is shown on screen.
+  const angle = way.turn ?? way.gridBearing - viewOrientation(camera).bearing;
+  navArrow.style.transform = `rotate(${angle}deg)`; navArrow.style.opacity = '1';
+  const height = Math.round(way.dz);
+  navText.replaceChildren(title, `${formatDistance(way.horizontal)} · ${height === 0 ? 'same height' : `${height > 0 ? '↑' : '↓'} ${Math.abs(height)} m`} · ${Math.round(way.trueBearing) % 360}°${way.turn === undefined ? ' (no compass: arrow on the map)' : ''}`);
+}
+
+// GPS track: View → Record GPS track; kept in the browser until cleared.
+const track = new TrackRecorder();
+const trackCanvas = document.querySelector<HTMLCanvasElement>('#track-overlay')!;
+const trackRecord = document.querySelector<HTMLInputElement>('#track-record')!;
+trackRecord.checked = false;
+trackRecord.addEventListener('change', () => {
+  track.recording = trackRecord.checked;
+  if (track.recording && !deviceLocation.active) toggleLocation();
+  showLocationState(deviceLocation.state);
+});
+function recordFix(fix: LocationFix) {
+  if (track.add({ time: new Date().toISOString(), latitude: fix.latitude, longitude: fix.longitude, east: fix.east, north: fix.north,
+    height: fix.heightSource === 'model' ? null : Math.round(fix.height * 10) / 10, accuracy: fix.accuracy })) invalidateView();
+}
+function download(name: string, text: string, type: string) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([text], { type })); link.download = name;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+}
+const trackName = () => `track_${new Date().toISOString().slice(2, 19).replace(/[-:]/g, '').replace('T', '_')}`;
+document.querySelector<HTMLButtonElement>('#track-export-gpx')!.addEventListener('click', () => {
+  if (!track.points.length) { announce('No track recorded yet (View → Record GPS track).', true); return; }
+  download(`${trackName()}.gpx`, trackGpx(track.points, trackName()), 'application/gpx+xml');
+});
+document.querySelector<HTMLButtonElement>('#track-export-th')!.addEventListener('click', () => {
+  if (!track.points.length) { announce('No track recorded yet (View → Record GPS track).', true); return; }
+  download(`${trackName()}.th`, trackTherion(track.points, trackName()), 'text/plain');
+});
+document.querySelector<HTMLButtonElement>('#track-clear')!.addEventListener('click', () => { track.clear(); announce('Track cleared.'); invalidateView(); });
+document.querySelector<HTMLButtonElement>('#model-forget')!.addEventListener('click', () => {
+  void forgetLastModel().then(() => announce('The saved model is forgotten; the sample cave opens next time.')).catch(() => undefined);
+});
+
 // Picking an object position: same tap-to-pick as the rotation centre, without moving the view.
 let resolveObjectPick: ((point: THREE.Vector3 | undefined) => void) | undefined;
 const objectPicker = new RotationCentrePicker({
@@ -408,7 +481,7 @@ const locationDot = document.querySelector<HTMLElement>('#location-dot')!;
 const locationInfo = document.querySelector<HTMLElement>('#location-info')!;
 let locationInfoTimer = 0;
 function showLocationState(state: LocationState) {
-  if (state.kind === 'fix') updateMeasuredLocation(state.fix);
+  if (state.kind === 'fix') { updateMeasuredLocation(state.fix); recordFix(state.fix); }
   const active = state.kind === 'waiting' || state.kind === 'fix';
   locateButton.setAttribute('aria-pressed', String(active));
   locateButton.title = active ? 'Stop showing my location' : 'Show my location (GPS)';
@@ -416,7 +489,7 @@ function showLocationState(state: LocationState) {
   clearTimeout(locationInfoTimer);
   locationInfo.classList.toggle('error', state.kind === 'error');
   if (state.kind === 'off') locationInfo.hidden = true;
-  else if (state.kind === 'waiting') { locationInfo.textContent = 'Waiting for GPS fix…'; locationInfo.hidden = false; }
+  else if (state.kind === 'waiting') { locationInfo.textContent = state.message ?? 'Waiting for GPS fix…'; locationInfo.hidden = false; }
   else if (state.kind === 'error') {
     locationInfo.textContent = state.message; locationInfo.hidden = false;
     locationInfoTimer = window.setTimeout(() => { locationInfo.hidden = true; }, 8000);
@@ -427,6 +500,7 @@ function showLocationState(state: LocationState) {
     const accuracy = document.createElement('strong'); accuracy.textContent = text.accuracy;
     first.append(accuracy, ` · ${text.height}`);
     const second = document.createElement('div'); second.textContent = text.outside || text.coordinates;
+    if (track.recording) second.textContent += ` · REC ${track.points.length} pts, ${formatDistance(track.length)}`;
     locationInfo.append(first, second); locationInfo.hidden = false;
   }
   invalidateView();
@@ -713,7 +787,10 @@ chooser.addEventListener('change', () => { openFiles(Array.from(chooser.files ??
 function openFiles(files: File[]) {
   if (files.some(file => file.name.toLowerCase().endsWith('.shp'))) { void importLayer(files); return; }
   const model = files.find(file => modelFileFormat(file.name));
-  if (model) void loadFile(model);
+  if (!model) return;
+  void loadFile(model);
+  // Reopened on the next start, also without a signal.
+  void saveLastModel(model).catch(() => { /* No room or no storage: the sample opens next time. */ });
 }
 const layerStore = new LayerStore();
 const layerCanvas = document.querySelector<HTMLCanvasElement>('#layer-points')!;
@@ -857,6 +934,9 @@ function frame(time = performance.now()) {
     indicators.update();
     updateLocationDot();
     updateSelectionRing();
+    updateNavigation();
+    trackCanvas.hidden = !hasModel || !track.points.length || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
+    if (!trackCanvas.hidden) drawTrack(trackCanvas, track.points, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north));
     fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);
     updateLayers();
     measureCanvas.hidden = !measuring || (!measured.length && !surfaceLink);
@@ -927,4 +1007,5 @@ async function loadSample() {
   }
   catch (e) { if (loadId === 0) reportLoadError(e, { phase, source }); }
 }
-void loadSample();
+// The last opened model, if one is kept on the device; otherwise the sample cave.
+void loadLastModel().then(file => { if (file && loadId === 0) void loadFile(file); else void loadSample(); }).catch(() => void loadSample());

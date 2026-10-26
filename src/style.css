@@ -299,3 +299,13 @@ body.computer #top-bar{width:auto;justify-content:flex-start;gap:14px;padding:6p
 body.computer #info-card,body.computer #info-card header,body.computer #info-card .info-actions{background:#162531}
 .object-cluster{position:absolute;left:-11px;top:-11px;width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:#162531e6;border:2px solid #ff9f1a;box-shadow:0 0 0 1.2px #09131c;color:#fff;font:bold 11px system-ui,sans-serif;will-change:transform}
 .object-cluster.wide{left:-14px;top:-14px;width:28px;height:28px;font-size:10px}
+#track-overlay{position:absolute;inset:0;pointer-events:none}
+/* Navigation to an object: arrow (turn from where the phone points), distance, height, bearing. */
+#nav-panel{display:flex;align-items:center;gap:10px;max-width:100%;padding:6px 8px 6px 10px;border:1px solid #8ed9ff;border-radius:10px;background:#15263499;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);pointer-events:auto;font-variant-numeric:tabular-nums}
+#nav-panel[hidden]{display:none}
+#nav-arrow{flex:none;width:40px;height:40px;transition:transform .2s}
+#nav-arrow path{fill:#8ed9ff;stroke:#09131c;stroke-width:1.2;stroke-linejoin:round}
+#nav-text{min-width:0;font-size:.85rem;line-height:1.35;text-shadow:0 0 3px #09131c}
+#nav-text strong{display:block;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#nav-stop{flex:none;width:32px;height:32px;padding:0;font-size:1.1rem}
+body.computer #nav-panel{background:#162531}
