@@ -15,12 +15,12 @@ import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators, metresPerPixel } from './indicators';
-import { FULL_SIZE_METRES_PER_PIXEL, setSymbolView } from './station-labels';
+import { FULL_SIZE_METRES_PER_PIXEL, setSymbolFilter, setSymbolView } from './station-labels';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
 import { WalkerControls } from './walker';
-import { ViewLocks } from './view-locks';
+import { orbitTo, ViewLocks } from './view-locks';
 import { FieldObjects } from './objects-ui';
 import { ObjectStore } from './objects';
 import { looksLikeSJTSK } from './geo';
@@ -32,6 +32,7 @@ import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
+import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { formatDistance, navigate } from './navigation';
 import { drawTrack, TrackRecorder, trackGpx, trackTherion } from './track';
 import { forgetLastModel, loadLastModel, saveLastModel } from './model-store';
@@ -212,6 +213,7 @@ document.querySelector<HTMLButtonElement>('#info-close')!.addEventListener('clic
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
   infoCard.hidden = true; select(null);
+  if (sectionPicks) { sectionPicks = undefined; pivotHint.hidden = true; }
   if (measuring) setMeasuring(false);
 });
 const SYMBOL_HIT_PIXELS = 16;
@@ -277,6 +279,7 @@ canvas.addEventListener('click', event => {
   // A drag that rotated or panned is not a click.
   if (!clickStart || Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) > 6) return;
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
+  if (sectionPicks) { addSectionPick(event.clientX, event.clientY); return; }
   if (measuring) { queueMeasurePoint(event.clientX, event.clientY); return; }
   // A count bubble zooms in, where its objects separate again.
   const rect = canvas.getBoundingClientRect(), bubble = clusterAt(event.clientX - rect.left, event.clientY - rect.top);
@@ -457,6 +460,58 @@ document.querySelector<HTMLButtonElement>('#track-export-th')!.addEventListener(
 document.querySelector<HTMLButtonElement>('#track-clear')!.addEventListener('click', () => { track.clear(); announce('Track cleared.'); invalidateView(); });
 document.querySelector<HTMLButtonElement>('#model-forget')!.addEventListener('click', () => {
   void forgetLastModel().then(() => announce('The saved model is forgotten; the sample cave opens next time.')).catch(() => undefined);
+});
+
+// Vertical section: tap two points; only a slab around the vertical plane through them stays,
+// seen straight across, so passages show as a profile along the line.
+const sectionPanel = document.querySelector<HTMLElement>('#section-panel')!;
+const sectionText = document.querySelector<HTMLElement>('#section-text')!;
+const sectionWidth = document.querySelector<HTMLInputElement>('#section-width')!;
+const sectionWidthValue = document.querySelector<HTMLOutputElement>('#section-width-value')!;
+let section: Section | undefined, sectionFlipped = false;
+let sectionPicks: THREE.Vector3[] | undefined;
+const SECTION_HINT = 'Tap two points on the model for the section line · Esc cancels';
+function startSectionPick() {
+  if (measuring) setMeasuring(false);
+  sectionPicks = []; pivotHint.textContent = SECTION_HINT; pivotHint.hidden = false; infoCard.hidden = true;
+}
+function addSectionPick(clientX: number, clientY: number) {
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  const point = pickModelPoint(camera, [walls, surfaceGroup, lines], ndc, rect.height, controls.target);
+  if (!point || !sectionPicks) { pivotHint.textContent = 'Nothing there. Tap a wall, the surface or a centreline shot · Esc cancels'; return; }
+  sectionPicks.push(point);
+  pivotMarker.style.left = `${clientX - rect.left}px`; pivotMarker.style.top = `${clientY - rect.top}px`;
+  pivotMarker.hidden = true; void pivotMarker.offsetWidth; pivotMarker.hidden = false;
+  if (sectionPicks.length < 2) { pivotHint.textContent = 'Now tap the second point · Esc cancels'; return; }
+  const [a, b] = sectionPicks; sectionPicks = undefined; pivotHint.hidden = true;
+  setTimeout(() => { pivotMarker.style.left = ''; pivotMarker.style.top = ''; }, 1500);
+  const made = makeSection(a, b, SECTION_WIDTHS[Number(sectionWidth.value)]);
+  if (!made) { announce('The two points are too close together for a section.', true); return; }
+  sectionFlipped = false; applySection(made, true);
+}
+function applySection(next: Section | undefined, turnView = false) {
+  section = next;
+  renderer.clippingPlanes = next ? next.planes : [];
+  sectionPanel.hidden = !next;
+  if (next) {
+    // Symbols, labels and objects outside the slab are hidden too (file coordinates).
+    setSymbolFilter((east, north) => inSection(next, { x: east - worldOrigin.x, y: north - worldOrigin.y }));
+    sectionWidthValue.value = `${next.width} m`;
+    sectionText.textContent = `Section ${Math.round(next.length)} m long, bearing ${Math.round(next.lineBearing)}°${sectionFlipped ? ' (seen from the other side)' : ''}`;
+    if (turnView) {
+      orbitTo(camera, controls, (next.bearing + (sectionFlipped ? 180 : 0)) % 360, 0);
+      animateRotationCentre(camera, controls, next.a.clone().add(next.b).multiplyScalar(.5));
+    }
+  } else setSymbolFilter(undefined);
+  invalidateView();
+}
+document.querySelector<HTMLButtonElement>('#section-menu')!.addEventListener('click', startSectionPick);
+document.querySelector<HTMLButtonElement>('#section-end')!.addEventListener('click', () => applySection(undefined));
+document.querySelector<HTMLButtonElement>('#section-flip')!.addEventListener('click', () => { if (section) { sectionFlipped = !sectionFlipped; applySection(section, true); } });
+sectionWidth.addEventListener('input', () => {
+  sectionWidthValue.value = `${SECTION_WIDTHS[Number(sectionWidth.value)]} m`;
+  if (section) applySection(withWidth(section, SECTION_WIDTHS[Number(sectionWidth.value)]));
 });
 
 // Picking an object position: same tap-to-pick as the rotation centre, without moving the view.
@@ -672,6 +727,8 @@ function draw(model: Model, label: string) {
 }
 async function loadFile(file: File) {
   const id = ++loadId;
+  // A section belongs to the model it was drawn on.
+  applySection(undefined);
   collapseAfterRender = false;
   menus.expand();
   largeWorker?.terminate(); largeWorker = undefined;

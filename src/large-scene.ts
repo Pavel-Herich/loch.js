@@ -17,6 +17,8 @@ export function largeWallMesh(batch: GeometryBatch, material: THREE.Material) {
 function previewPointMaterial(model: LargeModel) {
   const material = new THREE.ShaderMaterial({
     lights: true,
+    // Vertical sections clip the preview points too.
+    clipping: true,
     uniforms: THREE.UniformsUtils.merge([THREE.ShaderLib.points.uniforms, THREE.UniformsLib.lights, { cullBackFaces: { value: false } }]),
     vertexShader: THREE.ShaderLib.points.vertexShader
       .replace('#include <common>', '#include <common>\n#include <lights_pars_begin>\nvarying vec3 pointLighting;\nvarying float pointFacing;')

@@ -1,6 +1,6 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { guessCoordinates, layerPoints, nameField, parseDbf, parseShp, type CoordinateGuess, type LayerPoint } from './shapefile';
-import { LabelOccupancy, symbolSizeAt } from './station-labels';
+import { LabelOccupancy, symbolShown, symbolSizeAt } from './station-labels';
 import { clusterPoints, drawCluster, mergeClusters, setDrawnClusters, summarise, type Cluster } from './clusters';
 
 export type PointLayer = { id: string; name: string; color: string; source: string; points: LayerPoint[] };
@@ -88,6 +88,7 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     // Project the layer's points first, so crowded ones can be drawn as one count bubble.
     const items: { point: LayerPoint; x: number; y: number; w: number; z: number }[] = [];
     for (const point of layer.points) {
+      if (!symbolShown(point.east, point.north)) continue;
       // The file's own height when it has one; otherwise pinned to the model's terrain (or the model centre).
       const z = point.z ?? heightAt(point.east, point.north) ?? origin.z;
       const x = point.east - origin.x, y = point.north - origin.y, h = z - origin.z;

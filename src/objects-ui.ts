@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { errorMessage } from './location';
-import { symbolSizeAt } from './station-labels';
+import { symbolShown, symbolSizeAt } from './station-labels';
 import { clusterPoints, mergeClusters, setDrawnClusters, summarise } from './clusters';
 import { seaLevelAltitude } from './geoid';
 import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
@@ -357,7 +357,7 @@ export class FieldObjects {
     for (const element of Array.from(this.markers.children) as HTMLElement[]) {
       const object = this.objects.find(item => item.id === element.dataset.id);
       const position = object?.position;
-      if (!position) { element.hidden = true; continue; }
+      if (!position || !symbolShown(position.east, position.north)) { element.hidden = true; continue; }
       const z = this.options.heightAt(position.east, position.north) ?? position.height ?? origin.z;
       point.set(position.east - origin.x, position.north - origin.y, z - origin.z);
       // Same distance scaling as entrance symbols.

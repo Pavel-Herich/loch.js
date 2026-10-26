@@ -38,6 +38,10 @@ let view = { fit: 0, metresPerPixel: 1, perDepth: undefined as number | undefine
 export function setSymbolView(fitMetresPerPixel: number, metresPerPixel: number, perDepth?: number) {
   view = { fit: fitMetresPerPixel, metresPerPixel, perDepth };
 }
+let symbolFilter: ((east: number, north: number) => boolean) | undefined;
+/** Hide symbols outside a vertical section (file coordinates); undefined shows all. */
+export function setSymbolFilter(filter: ((east: number, north: number) => boolean) | undefined) { symbolFilter = filter; }
+export function symbolShown(east: number, north: number) { return !symbolFilter || symbolFilter(east, north); }
 /** Size for a symbol at this depth in front of the camera, 25–100 %. */
 export function symbolSizeAt(depth: number) {
   const metresPerPixel = view.perDepth !== undefined && depth > 0 ? depth * view.perDepth : view.metresPerPixel;
@@ -129,6 +133,7 @@ export class StationLabels {
     const m = this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
     let screenX = 0, screenY = 0, screenDepth = 1;
     const project = (station: Station) => {
+      if (symbolFilter && !symbolFilter(station.position[0], station.position[1])) return false;
       const x = station.position[0] - origin.x, y = station.position[1] - origin.y, z = station.position[2] - origin.z;
       const w = m[3] * x + m[7] * y + m[11] * z + m[15];
       if (w <= 0) return false;
