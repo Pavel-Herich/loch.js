@@ -1081,11 +1081,15 @@ function updateLargeStatus() {
   const { name, model } = largeModel;
   setStatusText(status, `${name} · ${model.scraps} scraps · ${model.triangles.toLocaleString()} triangles · ${detail.value === 'full' ? 'full detail' : viewRefined ? 'automatic detail · stationary view complete' : 'automatic detail (moving preview)'}`);
 }
+/** A model opened from a file, copied to the device once it has loaded. */
+let pendingModelSave: { file: File; id: number } | undefined;
 function finishFileLoading() {
   if (!collapseAfterRender || loadingError || largeWorker || surfaceScene.loading || (preparationPending && walls.visible)) return;
   collapseAfterRender = false;
   setStatusProgress(status);
   menus.collapse();
+  const save = pendingModelSave; pendingModelSave = undefined;
+  if (save && save.id === loadId) setTimeout(() => void saveLastModel(save.file).catch(() => { /* No room or no storage: the sample opens next time. */ }), 1000);
 }
 detail.addEventListener('change', () => { loadingError = false; invalidateView(); });
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
@@ -1101,8 +1105,9 @@ function openFiles(files: File[]) {
   const model = files.find(file => modelFileFormat(file.name));
   if (!model) return;
   void loadFile(model);
-  // Reopened on the next start, also without a signal.
-  void saveLastModel(model).catch(() => { /* No room or no storage: the sample opens next time. */ });
+  // Reopened on the next start, also without a signal. Copied to the device only once the
+  // model has finished loading, so the copy does not compete with reading the file.
+  pendingModelSave = { file: model, id: loadId };
 }
 const layerStore = new LayerStore();
 const layerCanvas = document.querySelector<HTMLCanvasElement>('#layer-points')!;
