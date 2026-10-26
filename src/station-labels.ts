@@ -37,6 +37,10 @@ let view = { fit: 0, metresPerPixel: 1, perDepth: undefined as number | undefine
 export function setSymbolView(fitMetresPerPixel: number, metresPerPixel: number, perDepth?: number) {
   view = { fit: fitMetresPerPixel, metresPerPixel, perDepth };
 }
+let alphaAt: (east: number, north: number, z: number) => number = () => 1;
+/** Set once per frame: how visible a symbol at this file position is (1, or dimmed/hidden behind the terrain). */
+export function setSymbolOcclusion(fn: (east: number, north: number, z: number) => number) { alphaAt = fn; }
+export function symbolAlphaAt(east: number, north: number, z: number) { return alphaAt(east, north, z); }
 /** Size for a symbol at this depth in front of the camera, 25–100 %. */
 export function symbolSizeAt(depth: number) {
   const metresPerPixel = view.perDepth !== undefined && depth > 0 ? depth * view.perDepth : view.metresPerPixel;
@@ -142,8 +146,13 @@ export class StationLabels {
       const mark = (station: Station) => {
         const symbol = marker(station);
         if (!symbol || !visible(station) || !project(station)) return;
+        // Behind the terrain a symbol is dimmed like the walls there, or hidden by an opaque surface.
+        const alpha = alphaAt(station.position[0], station.position[1], station.position[2]);
+        if (alpha <= 0) return;
         const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
+        context.globalAlpha = alpha;
         drawStationMarker(context, symbol, screenX, screenY, size);
+        context.globalAlpha = 1;
         const radius = 10 * markerScale(symbol) * size;
         const x = Math.max(0, screenX - radius), y = Math.max(0, screenY - radius);
         this.occupancy.reserve(x, y, Math.min(width, screenX + radius) - x, Math.min(height, screenY + radius) - y);
@@ -156,6 +165,8 @@ export class StationLabels {
     const draw = (station: Station) => {
       const labelMode = modeFor(station);
       if (labelMode === 'none' || !visible(station) || !project(station)) return;
+      const alpha = alphaAt(station.position[0], station.position[1], station.position[2]);
+      if (alpha <= 0) return;
       const symbol = marker?.(station);
       const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
       const left = screenX + (symbol ? 10 * markerScale(symbol) * size + 4 : 3), top = screenY - HEIGHT / 2;
@@ -181,7 +192,9 @@ export class StationLabels {
       this.occupancy.reserve(left, top, labelWidth, HEIGHT);
       context.fillStyle = '#ffffff';
       const textX = left + (symbol ? 0 : 2);
+      context.globalAlpha = alpha;
       context.strokeText(text, textX, top + HEIGHT / 2); context.fillText(text, textX, top + HEIGHT / 2);
+      context.globalAlpha = 1;
     };
     for (const station of this.commented) draw(station);
     // Ordinary stations have no comment text, so a fixed comments mode can skip them.

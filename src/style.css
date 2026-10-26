@@ -285,3 +285,5 @@ body.computer #top-head .scale-indicator{position:fixed;top:auto;bottom:calc(14p
 body.computer #bottom-stack,body.computer #toast,body.computer #info-card{bottom:calc(40px + env(safe-area-inset-bottom,0px))}
 body.computer #pivot-hint{bottom:calc(94px + env(safe-area-inset-bottom,0px))}
 body.computer .menu-items{z-index:5}
+/* Computer: the menu bar framed like the icons in the column under it. */
+body.computer #menu-panel{border:1px solid #678599;border-radius:8px;background:#162531e6;box-shadow:none}

@@ -15,7 +15,7 @@ import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators, metresPerPixel } from './indicators';
-import { FULL_SIZE_METRES_PER_PIXEL, setSymbolView } from './station-labels';
+import { FULL_SIZE_METRES_PER_PIXEL, setSymbolOcclusion, setSymbolView, symbolAlphaAt } from './station-labels';
 import { displayProjectTitle } from './lox-title';
 import { initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
@@ -220,6 +220,8 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   const consider = (east: number, north: number, z: number, name: string, open: () => void, gps = false, key?: string) => {
     point.set(east - worldOrigin.x, north - worldOrigin.y, z - worldOrigin.z).project(camera);
     if (point.z < -1 || point.z > 1) return;
+    // A symbol hidden behind an opaque surface cannot be tapped.
+    if (!gps && symbolAlphaAt(east, north, z) <= 0) return;
     const distance = Math.hypot(rect.left + (point.x + 1) / 2 * rect.width - clientX, rect.top + (1 - point.y) / 2 * rect.height - clientY);
     if (distance <= SYMBOL_HIT_PIXELS && (!best || distance < best.distance)) best = { distance, open, name, position: { name, east, north, z }, gps, key };
   };
@@ -833,6 +835,11 @@ function frame(time = performance.now()) {
       setSymbolView(activeBox.getSize(new THREE.Vector3()).length() / height, metresPerPixel(camera, controls.target, height), perDepth);
     }
     surfaceScene.updateCamera(camera.position);
+    {
+      // Symbols behind the terrain show through it as much as the surface lets the walls show.
+      const eye = camera.position.clone().add(worldOrigin), through = surfaceScene.seeThrough;
+      setSymbolOcclusion((east, north, z) => through >= 1 || !surfaceScene.hides(eye.x, eye.y, eye.z, east, north, z) ? 1 : through);
+    }
     indicators.update();
     updateLocationDot();
     updateSelectionRing();
