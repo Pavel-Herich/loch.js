@@ -297,3 +297,5 @@ body.computer #top-bar{width:auto;justify-content:flex-start;gap:14px;padding:6p
 #info-card{-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
 #info-card .object-table th,#info-card .object-table td{text-shadow:0 0 3px #09131c}
 body.computer #info-card,body.computer #info-card header,body.computer #info-card .info-actions{background:#162531}
+.object-cluster{position:absolute;left:-11px;top:-11px;width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:#162531e6;border:2px solid #ff9f1a;box-shadow:0 0 0 1.2px #09131c;color:#fff;font:bold 11px system-ui,sans-serif;will-change:transform}
+.object-cluster.wide{left:-14px;top:-14px;width:28px;height:28px;font-size:10px}

@@ -32,6 +32,7 @@ import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
+import { clusterAt, setDrawnClusters } from './clusters';
 import { initializeLayout } from './layout';
 import { degrees, metres, segment, signedMetres, type MeasurePoint, type Segment } from './measure';
 import { drawMeasure } from './measure-draw';
@@ -270,6 +271,9 @@ canvas.addEventListener('click', event => {
   if (!clickStart || Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) > 6) return;
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
   if (measuring) { queueMeasurePoint(event.clientX, event.clientY); return; }
+  // A count bubble zooms in, where its objects separate again.
+  const rect = canvas.getBoundingClientRect(), bubble = clusterAt(event.clientX - rect.left, event.clientY - rect.top);
+  if (bubble) { infoCard.hidden = true; zoomInto(new THREE.Vector3(bubble.east - worldOrigin.x, bubble.north - worldOrigin.y, bubble.z - worldOrigin.z)); return; }
   const hit = symbolAt(event.clientX, event.clientY);
   // The tapped point is ringed; the ring moves with the next tapped point and goes with a tap beside them.
   if (hit) { select(hit.position); hit.open(); } else { infoCard.hidden = true; select(null); }
@@ -748,6 +752,13 @@ function updateSelectionRing() {
   if (screen?.onScreen) selectionRing.style.transform = `translate(${screen.x}px, ${screen.y}px)`;
 }
 /** Centre a scene point and zoom in to full-size symbols if the view is farther out. */
+/** Bring a point to the centre three times closer (count bubbles). */
+function zoomInto(local: THREE.Vector3, factor = 3) {
+  if (camera instanceof THREE.PerspectiveCamera) camera.position.sub(controls.target).divideScalar(factor).add(controls.target);
+  else { camera.zoom *= factor; camera.updateProjectionMatrix(); }
+  controls.update();
+  animateRotationCentre(camera, controls, local);
+}
 function focusOn(local: THREE.Vector3) {
   const height = canvas.clientHeight || 1, wanted = FULL_SIZE_METRES_PER_PIXEL * .7;
   const current = metresPerPixel(camera, controls.target, height);
@@ -821,6 +832,7 @@ function updateLayers() {
   const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
   const symbols = symbolOptions();
   layerCanvas.hidden = !georeferenced || !layersVisible.checked || !symbols.visible || !pointLayers.length;
+  if (layerCanvas.hidden) setDrawnClusters('shp', []);
   if (!layerCanvas.hidden) drawLayers(layerCanvas, pointLayers, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north), symbols.label);
 }
 document.querySelector<HTMLInputElement>('#walls')!.addEventListener('change', e => { walls.visible = (e.target as HTMLInputElement).checked; invalidateView(); });

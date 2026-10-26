@@ -1,6 +1,7 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { guessCoordinates, layerPoints, nameField, parseDbf, parseShp, type CoordinateGuess, type LayerPoint } from './shapefile';
 import { LabelOccupancy, symbolSizeAt } from './station-labels';
+import { clusterPoints, drawCluster, mergeClusters, setDrawnClusters, summarise, type Cluster } from './clusters';
 
 export type PointLayer = { id: string; name: string; color: string; source: string; points: LayerPoint[] };
 
@@ -82,31 +83,44 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
   const m = new Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
   context.font = '11px system-ui, sans-serif'; context.textBaseline = 'middle'; context.lineJoin = 'round';
   occupancy.reset(width, height);
-  for (const layer of layers) for (let index = 0; index < layer.points.length; index++) {
-    const point = layer.points[index];
-    // The file's own height when it has one; otherwise pinned to the model's terrain (or the model centre).
-    const z = point.z ?? heightAt(point.east, point.north) ?? origin.z;
-    const x = point.east - origin.x, y = point.north - origin.y, h = z - origin.z;
-    const w = m[3] * x + m[7] * y + m[11] * h + m[15];
-    if (w <= 0) continue;
-    const cx = (m[0] * x + m[4] * y + m[8] * h + m[12]) / w, cy = (m[1] * x + m[5] * y + m[9] * h + m[13]) / w;
-    const cz = (m[2] * x + m[6] * y + m[10] * h + m[14]) / w;
-    if (Math.abs(cx) > 1.02 || Math.abs(cy) > 1.02 || Math.abs(cz) > 1) continue;
-    const sx = (cx + 1) / 2 * width, sy = (1 - cy) / 2 * height;
-    const size = symbolSizeAt(w), radius = Math.max(RADIUS * size, 1.5);
-    // Hollow ring: black edge outside, the layer colour, and the terrain showing through the middle.
-    const ring = Math.max(RADIUS * size, 1.6);
-    context.beginPath(); context.arc(sx, sy, ring + 1.9, 0, Math.PI * 2);
-    context.lineWidth = 1.4; context.strokeStyle = '#09131c'; context.stroke();
-    context.beginPath(); context.arc(sx, sy, ring, 0, Math.PI * 2);
-    context.lineWidth = 2.6; context.strokeStyle = layer.color; context.stroke();
-    const text = label === 'name' ? point.label : label === 'altitude' ? `${Math.round(z)} m` : '';
-    if (!text) continue;
-    // Skip labels that would overlap ones already drawn, as for station labels.
-    const left = sx + radius + 3, top = sy - 8, textWidth = context.measureText(text).width + 4;
-    if (left < 0 || top < 0 || left + textWidth > width || top + 16 > height || occupancy.overlaps(left, top, textWidth, 16)) continue;
-    occupancy.reserve(left, top, textWidth, 16);
-    context.lineWidth = 3; context.strokeStyle = '#09131c'; context.fillStyle = layer.color;
-    context.strokeText(text, left, sy); context.fillText(text, left, sy);
+  const bubbles: Cluster[] = [];
+  for (const layer of layers) {
+    // Project the layer's points first, so crowded ones can be drawn as one count bubble.
+    const items: { point: LayerPoint; x: number; y: number; w: number; z: number }[] = [];
+    for (const point of layer.points) {
+      // The file's own height when it has one; otherwise pinned to the model's terrain (or the model centre).
+      const z = point.z ?? heightAt(point.east, point.north) ?? origin.z;
+      const x = point.east - origin.x, y = point.north - origin.y, h = z - origin.z;
+      const w = m[3] * x + m[7] * y + m[11] * h + m[15];
+      if (w <= 0) continue;
+      const cx = (m[0] * x + m[4] * y + m[8] * h + m[12]) / w, cy = (m[1] * x + m[5] * y + m[9] * h + m[13]) / w;
+      const cz = (m[2] * x + m[6] * y + m[10] * h + m[14]) / w;
+      if (Math.abs(cx) > 1.02 || Math.abs(cy) > 1.02 || Math.abs(cz) > 1) continue;
+      items.push({ point, x: (cx + 1) / 2 * width, y: (1 - cy) / 2 * height, w, z });
+    }
+    const { groups, clustered } = clusterPoints(items);
+    const layerBubbles = mergeClusters(groups.map(group => summarise(group, items, index => [items[index].point.east, items[index].point.north, items[index].z])));
+    items.forEach((item, index) => {
+      if (clustered[index]) return;
+      const { point, x: sx, y: sy, w, z } = item;
+      const size = symbolSizeAt(w), radius = Math.max(RADIUS * size, 1.5);
+      // Hollow ring: black edge outside, the layer colour, and the terrain showing through the middle.
+      const ring = Math.max(RADIUS * size, 1.6);
+      context.beginPath(); context.arc(sx, sy, ring + 1.9, 0, Math.PI * 2);
+      context.lineWidth = 1.4; context.strokeStyle = '#09131c'; context.stroke();
+      context.beginPath(); context.arc(sx, sy, ring, 0, Math.PI * 2);
+      context.lineWidth = 2.6; context.strokeStyle = layer.color; context.stroke();
+      const text = label === 'name' ? point.label : label === 'altitude' ? `${Math.round(z)} m` : '';
+      if (!text) return;
+      // Skip labels that would overlap ones already drawn, as for station labels.
+      const left = sx + radius + 3, top = sy - 8, textWidth = context.measureText(text).width + 4;
+      if (left < 0 || top < 0 || left + textWidth > width || top + 16 > height || occupancy.overlaps(left, top, textWidth, 16)) return;
+      occupancy.reserve(left, top, textWidth, 16);
+      context.lineWidth = 3; context.strokeStyle = '#09131c'; context.fillStyle = layer.color;
+      context.strokeText(text, left, sy); context.fillText(text, left, sy);
+    });
+    for (const bubble of layerBubbles) drawCluster(context, bubble, layer.color);
+    bubbles.push(...layerBubbles);
   }
+  setDrawnClusters('shp', bubbles);
 }
