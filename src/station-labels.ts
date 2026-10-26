@@ -1,5 +1,5 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
-import { STATION_ENTRANCE, stationLabel, type Station, type StationLabel } from './lox-stations';
+import { stationLabel, type Station, type StationLabel } from './lox-stations';
 
 const CELL = 4;
 const HEIGHT = 20;
@@ -36,24 +36,6 @@ let view = { fit: 0, metresPerPixel: 1, perDepth: undefined as number | undefine
  */
 export function setSymbolView(fitMetresPerPixel: number, metresPerPixel: number, perDepth?: number) {
   view = { fit: fitMetresPerPixel, metresPerPixel, perDepth };
-}
-/**
- * Visibility of symbols behind the terrain (1 full, less dimmed, 0 hidden). The sight-line
- * test runs only once the view has settled; while the view moves each symbol keeps its
- * last result, so turning and zooming cost nothing extra.
- */
-type OcclusionTest = (east: number, north: number, z: number) => number;
-let occlusion: { test: OcclusionTest; generation: number; settled: boolean } = { test: () => 1, generation: 0, settled: true };
-const occlusionCache = new WeakMap<object, { generation: number; alpha: number }>();
-export function setSymbolOcclusion(test: OcclusionTest, generation: number, settled: boolean) { occlusion = { test, generation, settled }; }
-/** `key` is the symbol's own object (station, layer point, field object), which keeps its cached result. */
-export function symbolAlphaAt(key: object, east: number, north: number, z: number) {
-  const cached = occlusionCache.get(key);
-  if (cached && (cached.generation === occlusion.generation || !occlusion.settled)) return cached.alpha;
-  if (!occlusion.settled) return 1;
-  const alpha = occlusion.test(east, north, z);
-  occlusionCache.set(key, { generation: occlusion.generation, alpha });
-  return alpha;
 }
 /** Size for a symbol at this depth in front of the camera, 25–100 %. */
 export function symbolSizeAt(depth: number) {
@@ -160,14 +142,8 @@ export class StationLabels {
       const mark = (station: Station) => {
         const symbol = marker(station);
         if (!symbol || !visible(station) || !project(station)) return;
-        // Behind the terrain a symbol is dimmed like the walls there, or hidden by an opaque surface.
-        // Entrances always stay full: they belong to the surface, however far it is.
-        const alpha = symbol === 'entrance' ? 1 : symbolAlphaAt(station, station.position[0], station.position[1], station.position[2]);
-        if (alpha <= 0) return;
         const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
-        context.globalAlpha = alpha;
         drawStationMarker(context, symbol, screenX, screenY, size);
-        context.globalAlpha = 1;
         const radius = 10 * markerScale(symbol) * size;
         const x = Math.max(0, screenX - radius), y = Math.max(0, screenY - radius);
         this.occupancy.reserve(x, y, Math.min(width, screenX + radius) - x, Math.min(height, screenY + radius) - y);
@@ -180,8 +156,6 @@ export class StationLabels {
     const draw = (station: Station) => {
       const labelMode = modeFor(station);
       if (labelMode === 'none' || !visible(station) || !project(station)) return;
-      const alpha = station.flags & STATION_ENTRANCE ? 1 : symbolAlphaAt(station, station.position[0], station.position[1], station.position[2]);
-      if (alpha <= 0) return;
       const symbol = marker?.(station);
       const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
       const left = screenX + (symbol ? 10 * markerScale(symbol) * size + 4 : 3), top = screenY - HEIGHT / 2;
@@ -207,9 +181,7 @@ export class StationLabels {
       this.occupancy.reserve(left, top, labelWidth, HEIGHT);
       context.fillStyle = '#ffffff';
       const textX = left + (symbol ? 0 : 2);
-      context.globalAlpha = alpha;
       context.strokeText(text, textX, top + HEIGHT / 2); context.fillText(text, textX, top + HEIGHT / 2);
-      context.globalAlpha = 1;
     };
     for (const station of this.commented) draw(station);
     // Ordinary stations have no comment text, so a fixed comments mode can skip them.

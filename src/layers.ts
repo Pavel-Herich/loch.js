@@ -1,6 +1,6 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { guessCoordinates, layerPoints, nameField, parseDbf, parseShp, type CoordinateGuess, type LayerPoint } from './shapefile';
-import { LabelOccupancy, symbolAlphaAt, symbolSizeAt } from './station-labels';
+import { LabelOccupancy, symbolSizeAt } from './station-labels';
 
 export type PointLayer = { id: string; name: string; color: string; source: string; points: LayerPoint[] };
 
@@ -93,13 +93,13 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     const cz = (m[2] * x + m[6] * y + m[10] * h + m[14]) / w;
     if (Math.abs(cx) > 1.02 || Math.abs(cy) > 1.02 || Math.abs(cz) > 1) continue;
     const sx = (cx + 1) / 2 * width, sy = (1 - cy) / 2 * height;
-    const alpha = symbolAlphaAt(point, point.east, point.north, z);
-    if (alpha <= 0) continue;
-    context.globalAlpha = alpha;
     const size = symbolSizeAt(w), radius = Math.max(RADIUS * size, 1.5);
-    context.beginPath(); context.arc(sx, sy, radius, 0, Math.PI * 2);
-    context.fillStyle = layer.color; context.fill();
-    context.lineWidth = 1; context.strokeStyle = '#09131c'; context.stroke();
+    // Hollow ring: black edge outside, the layer colour, and the terrain showing through the middle.
+    const ring = Math.max(radius, 3);
+    context.beginPath(); context.arc(sx, sy, ring + 1.9, 0, Math.PI * 2);
+    context.lineWidth = 1.4; context.strokeStyle = '#09131c'; context.stroke();
+    context.beginPath(); context.arc(sx, sy, ring, 0, Math.PI * 2);
+    context.lineWidth = 2.6; context.strokeStyle = layer.color; context.stroke();
     const text = label === 'name' ? point.label : label === 'altitude' ? `${Math.round(z)} m` : '';
     if (!text) continue;
     // Skip labels that would overlap ones already drawn, as for station labels.
@@ -109,5 +109,4 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     context.lineWidth = 3; context.strokeStyle = '#09131c'; context.fillStyle = layer.color;
     context.strokeText(text, left, sy); context.fillText(text, left, sy);
   }
-  context.globalAlpha = 1;
 }

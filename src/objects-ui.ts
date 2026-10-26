@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { errorMessage } from './location';
-import { symbolAlphaAt, symbolSizeAt } from './station-labels';
+import { symbolSizeAt } from './station-labels';
 import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
 
 type Options = {
@@ -347,11 +347,8 @@ export class FieldObjects {
       const depth = -point.clone().applyMatrix4(camera.matrixWorldInverse).z;
       element.style.setProperty('--s', symbolSizeAt(depth).toFixed(3));
       point.project(camera);
-      // Dimmed or hidden behind the terrain, like the other symbols.
-      const alpha = symbolAlphaAt(object!, position.east, position.north, z);
-      const visible = alpha > 0 && point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
+      const visible = point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
       element.hidden = !visible;
-      element.style.opacity = alpha < 1 ? alpha.toFixed(2) : '';
       const label = element.firstElementChild as HTMLElement;
       label.textContent = symbols.label === 'name' ? object!.title : symbols.label === 'altitude' ? `${Math.round(z)} m` : '';
       if (visible) element.style.transform = `translate(${(point.x + 1) / 2 * width}px, ${(1 - point.y) / 2 * height}px)`;

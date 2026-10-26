@@ -79,8 +79,6 @@ export class SurfaceScene {
   private cameraBelow = { value: 0 };
   private origin = new THREE.Vector3();
   private lowest = Infinity;
-  /** Smallest grid step, for sampling sight lines. */
-  private cell = Infinity;
   private entries: SurfaceEntry[] = [];
   private revision = 0;
   private pending = new Map<string, THREE.Texture>();
@@ -102,40 +100,6 @@ export class SurfaceScene {
       if (found && (!best || found.distance < best.distance)) best = found;
     }
     return best;
-  }
-
-  /**
-   * Does the terrain hide `to` from `from` (both in file coordinates)? The last few
-   * metres before `to` do not count, so symbols on or just under the ground stay clear.
-   */
-  hides(fromX: number, fromY: number, fromZ: number, toX: number, toY: number, toZ: number) {
-    if (!this.grids.length || !this.group.visible) return false;
-    const dx = toX - fromX, dy = toY - fromY, dz = toZ - fromZ;
-    const length = Math.hypot(dx, dy, dz);
-    if (length < 8) return false;
-    const end = 1 - 4 / length, samples = Math.max(4, Math.min(32, Math.ceil(Math.hypot(dx, dy) / (2 * this.cell))));
-    // Hidden only where the sight line passes through the terrain (changes sides),
-    // not where both ends are under it, as when looking along a cave.
-    let side = 0;
-    for (let i = 0; i <= samples; i++) {
-      const t = end * i / samples, z = fromZ + dz * t;
-      const ground = this.heightAt(fromX + dx * t, fromY + dy * t);
-      if (ground === undefined) continue;
-      const here = z > ground + 1 ? 1 : z < ground - 1 ? -1 : 0;
-      if (!here) continue;
-      if (side && here !== side) return true;
-      side = here;
-    }
-    // From above (or below) the edge of the surface towards a point under (or over) it.
-    if (side) { const ground = this.heightAt(toX, toY); if (ground !== undefined && (toZ - ground) * side < -4) return true; }
-    return false;
-  }
-
-  /** How much of a symbol hidden by the terrain still shows through it: 0 hidden, up to 1. */
-  get seeThrough() {
-    if (!this.group.visible) return 1;
-    if (this.cameraBelow.value && this.undersideOpaque.value) return 0;
-    return this.transparency && this.opacity < 1 ? 1 - this.opacity : 0;
   }
 
   /** Nearest point where the terrain passes this height, measured horizontally. */
@@ -194,8 +158,6 @@ export class SurfaceScene {
     this.grids.push({ width: surface.width, height: surface.height, calibration: surface.calibration, heights: surface.heights });
     this.origin.copy(origin);
     for (const h of surface.heights) if (h < this.lowest) this.lowest = h;
-    const [, , cx, cy, rx, ry] = surface.calibration;
-    this.cell = Math.min(this.cell, Math.hypot(cx, rx), Math.hypot(cy, ry));
     // Cells wind a → b → d; whether that faces up depends on the grid's handedness.
     const [, , xx, xy, yx, yy] = surface.calibration;
     const frontUp = { value: xx * yy - xy * yx > 0 ? 1 : 0 };
@@ -235,7 +197,7 @@ export class SurfaceScene {
 
   clear() {
     this.revision++;
-    this.grids = []; this.lowest = Infinity; this.cell = Infinity; this.cameraBelow.value = 0;
+    this.grids = []; this.lowest = Infinity; this.cameraBelow.value = 0;
     for (const [url, texture] of this.pending) { URL.revokeObjectURL(url); texture.dispose(); }
     this.pending.clear();
     for (const child of [...this.group.children]) {
