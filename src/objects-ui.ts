@@ -348,7 +348,7 @@ export class FieldObjects {
       element.style.setProperty('--s', symbolSizeAt(depth).toFixed(3));
       point.project(camera);
       // Dimmed or hidden behind the terrain, like the other symbols.
-      const alpha = symbolAlphaAt(position.east, position.north, z);
+      const alpha = symbolAlphaAt(object!, position.east, position.north, z);
       const visible = alpha > 0 && point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1;
       element.hidden = !visible;
       element.style.opacity = alpha < 1 ? alpha.toFixed(2) : '';

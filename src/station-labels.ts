@@ -1,5 +1,5 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
-import { stationLabel, type Station, type StationLabel } from './lox-stations';
+import { STATION_ENTRANCE, stationLabel, type Station, type StationLabel } from './lox-stations';
 
 const CELL = 4;
 const HEIGHT = 20;
@@ -37,10 +37,24 @@ let view = { fit: 0, metresPerPixel: 1, perDepth: undefined as number | undefine
 export function setSymbolView(fitMetresPerPixel: number, metresPerPixel: number, perDepth?: number) {
   view = { fit: fitMetresPerPixel, metresPerPixel, perDepth };
 }
-let alphaAt: (east: number, north: number, z: number) => number = () => 1;
-/** Set once per frame: how visible a symbol at this file position is (1, or dimmed/hidden behind the terrain). */
-export function setSymbolOcclusion(fn: (east: number, north: number, z: number) => number) { alphaAt = fn; }
-export function symbolAlphaAt(east: number, north: number, z: number) { return alphaAt(east, north, z); }
+/**
+ * Visibility of symbols behind the terrain (1 full, less dimmed, 0 hidden). The sight-line
+ * test runs only once the view has settled; while the view moves each symbol keeps its
+ * last result, so turning and zooming cost nothing extra.
+ */
+type OcclusionTest = (east: number, north: number, z: number) => number;
+let occlusion: { test: OcclusionTest; generation: number; settled: boolean } = { test: () => 1, generation: 0, settled: true };
+const occlusionCache = new WeakMap<object, { generation: number; alpha: number }>();
+export function setSymbolOcclusion(test: OcclusionTest, generation: number, settled: boolean) { occlusion = { test, generation, settled }; }
+/** `key` is the symbol's own object (station, layer point, field object), which keeps its cached result. */
+export function symbolAlphaAt(key: object, east: number, north: number, z: number) {
+  const cached = occlusionCache.get(key);
+  if (cached && (cached.generation === occlusion.generation || !occlusion.settled)) return cached.alpha;
+  if (!occlusion.settled) return 1;
+  const alpha = occlusion.test(east, north, z);
+  occlusionCache.set(key, { generation: occlusion.generation, alpha });
+  return alpha;
+}
 /** Size for a symbol at this depth in front of the camera, 25–100 %. */
 export function symbolSizeAt(depth: number) {
   const metresPerPixel = view.perDepth !== undefined && depth > 0 ? depth * view.perDepth : view.metresPerPixel;
@@ -147,7 +161,8 @@ export class StationLabels {
         const symbol = marker(station);
         if (!symbol || !visible(station) || !project(station)) return;
         // Behind the terrain a symbol is dimmed like the walls there, or hidden by an opaque surface.
-        const alpha = alphaAt(station.position[0], station.position[1], station.position[2]);
+        // Entrances always stay full: they belong to the surface, however far it is.
+        const alpha = symbol === 'entrance' ? 1 : symbolAlphaAt(station, station.position[0], station.position[1], station.position[2]);
         if (alpha <= 0) return;
         const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
         context.globalAlpha = alpha;
@@ -165,7 +180,7 @@ export class StationLabels {
     const draw = (station: Station) => {
       const labelMode = modeFor(station);
       if (labelMode === 'none' || !visible(station) || !project(station)) return;
-      const alpha = alphaAt(station.position[0], station.position[1], station.position[2]);
+      const alpha = station.flags & STATION_ENTRANCE ? 1 : symbolAlphaAt(station, station.position[0], station.position[1], station.position[2]);
       if (alpha <= 0) return;
       const symbol = marker?.(station);
       const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;

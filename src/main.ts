@@ -217,11 +217,11 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   if (!hasModel || (!symbols.visible && !measuring)) return undefined;
   const rect = canvas.getBoundingClientRect(), point = new THREE.Vector3();
   let best: SymbolHit | undefined;
-  const consider = (east: number, north: number, z: number, name: string, open: () => void, gps = false, key?: string) => {
+  const consider = (east: number, north: number, z: number, name: string, open: () => void, gps = false, key?: string, ref?: object) => {
     point.set(east - worldOrigin.x, north - worldOrigin.y, z - worldOrigin.z).project(camera);
     if (point.z < -1 || point.z > 1) return;
     // A symbol hidden behind an opaque surface cannot be tapped.
-    if (!gps && symbolAlphaAt(east, north, z) <= 0) return;
+    if (ref && symbolAlphaAt(ref, east, north, z) <= 0) return;
     const distance = Math.hypot(rect.left + (point.x + 1) / 2 * rect.width - clientX, rect.top + (1 - point.y) / 2 * rect.height - clientY);
     if (distance <= SYMBOL_HIT_PIXELS && (!best || distance < best.distance)) best = { distance, open, name, position: { name, east, north, z }, gps, key };
   };
@@ -232,7 +232,7 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   if (measuring && lines.visible && document.querySelector<HTMLInputElement>('#station-all')!.checked) for (const station of centreline.stationDetails) {
     if (temporaryStation(station)) continue;
     const [east, north, z] = station.position;
-    consider(east, north, z, `${station.name}@${station.survey}`, () => undefined);
+    consider(east, north, z, `${station.name}@${station.survey}`, () => undefined, false, undefined, station);
   }
   if (!symbols.visible) return best;
   if (lines.visible) for (const station of centreline.stationDetails) {
@@ -247,7 +247,7 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   if (georeferenced && document.querySelector<HTMLInputElement>('#objects-visible')!.checked) for (const object of fieldObjects.objects) {
     const position = object.position;
     if (!position) continue;
-    consider(position.east, position.north, surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z, object.title || object.name, () => fieldObjects.open(object));
+    consider(position.east, position.north, surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z, object.title || object.name, () => fieldObjects.open(object), false, undefined, object);
   }
   if (georeferenced && layersVisible.checked) for (const layer of pointLayers) {
     browsablePoints(layer).forEach((index, position) => {
@@ -256,7 +256,7 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
         ['Layer', layer.name], ['x  y', `${Math.round(shp.east)}  ${Math.round(shp.north)}`],
         ['Z (file)', shp.z === null ? '' : `${shp.z.toFixed(2)} m`], ['Terrain height', terrain === undefined ? '' : `${Math.round(terrain)} m`],
         ...Object.entries(shp.attributes ?? {}),
-      ]), false, `shp:${layer.id}:${index}`);
+      ]), false, `shp:${layer.id}:${index}`, shp);
     });
   }
   return best;
@@ -823,6 +823,8 @@ window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); openFiles(Array.from(e.dataTransfer?.files ?? [])); });
 const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); resizeCamera(camera, w / h); invalidateView(); };
 new ResizeObserver(resize).observe(canvas); resize();
+const OCCLUSION_REST_MS = 180;
+let occlusionPose = '', occlusionSettled = true, occlusionGeneration = 0, occlusionTimer = 0;
 function frame(time = performance.now()) {
   requestAnimationFrame(frame);
   autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
@@ -837,8 +839,15 @@ function frame(time = performance.now()) {
     surfaceScene.updateCamera(camera.position);
     {
       // Symbols behind the terrain show through it as much as the surface lets the walls show.
+      // Tested only once the view has rested a moment; moving views reuse the last results.
       const eye = camera.position.clone().add(worldOrigin), through = surfaceScene.seeThrough;
-      setSymbolOcclusion((east, north, z) => through >= 1 || !surfaceScene.hides(eye.x, eye.y, eye.z, east, north, z) ? 1 : through);
+      const pose = `${camera.position.toArray().map(v => v.toFixed(2))}|${camera.quaternion.toArray().map(v => v.toFixed(4))}|${(camera as THREE.OrthographicCamera).zoom ?? 1}|${through}|${surfaceScene.group.visible}`;
+      if (pose !== occlusionPose) {
+        occlusionPose = pose; occlusionSettled = false; clearTimeout(occlusionTimer);
+        occlusionTimer = window.setTimeout(() => { occlusionSettled = true; occlusionGeneration++; invalidateView(); }, OCCLUSION_REST_MS);
+      }
+      setSymbolOcclusion((east, north, z) => through >= 1 || !surfaceScene.hides(eye.x, eye.y, eye.z, east, north, z) ? 1 : through,
+        occlusionGeneration, occlusionSettled);
     }
     indicators.update();
     updateLocationDot();

@@ -93,7 +93,7 @@ export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], came
     const cz = (m[2] * x + m[6] * y + m[10] * h + m[14]) / w;
     if (Math.abs(cx) > 1.02 || Math.abs(cy) > 1.02 || Math.abs(cz) > 1) continue;
     const sx = (cx + 1) / 2 * width, sy = (1 - cy) / 2 * height;
-    const alpha = symbolAlphaAt(point.east, point.north, z);
+    const alpha = symbolAlphaAt(point, point.east, point.north, z);
     if (alpha <= 0) continue;
     context.globalAlpha = alpha;
     const size = symbolSizeAt(w), radius = Math.max(RADIUS * size, 1.5);
