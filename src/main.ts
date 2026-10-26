@@ -32,6 +32,7 @@ import { STATION_ENTRANCE, temporaryStation } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
+import { initializeLayout } from './layout';
 import { degrees, metres, segment, signedMetres, type MeasurePoint, type Segment } from './measure';
 import { drawMeasure } from './measure-draw';
 import { modelFileFormat, parseModelFile } from './model-file';
@@ -525,6 +526,8 @@ const menus = initializeMenus(view => {
   loadingError = true; setStatusProgress(status);
   setStatusText(status, `Cannot change full screen: ${exceptionMessage(error)}`);
 });
+// On a computer the menu stays open and the dock's icons stack under it on the left.
+initializeLayout(computer => { menus.pin(computer); invalidateView(); });
 const c = new THREE.Color();
 function altitudeColor(z: number, model: Pick<Model, 'minZ' | 'maxZ'>): THREE.Color {
   const t = model.maxZ === model.minZ ? .5 : (z - model.minZ) / (model.maxZ - model.minZ);

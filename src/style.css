@@ -277,3 +277,11 @@ html,body{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adju
   #info-card{max-height:calc(100dvh - 60px)}
   #pivot-hint{bottom:calc(8px + env(safe-area-inset-bottom,0px));max-width:calc(100% - 240px)}
 }
+/* Computer: menu always open, dock icons in a column on the left under the menu, scale centred at the bottom. */
+body.computer #dock{position:static;transform:none;flex-direction:column;align-items:center;max-width:none;padding:0;gap:4px;pointer-events:auto;margin-left:4px}
+body.computer #dock button{width:40px;height:38px}
+body.computer .dock-separator{width:24px;height:6px;margin:0}
+body.computer #top-head .scale-indicator{position:fixed;top:auto;bottom:calc(14px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%)}
+body.computer #bottom-stack,body.computer #toast,body.computer #info-card{bottom:calc(40px + env(safe-area-inset-bottom,0px))}
+body.computer #pivot-hint{bottom:calc(94px + env(safe-area-inset-bottom,0px))}
+body.computer .menu-items{z-index:5}

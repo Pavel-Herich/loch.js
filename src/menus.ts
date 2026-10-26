@@ -31,12 +31,15 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
     toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
   }
 
+  // On a computer the menu stays open; only its dropdowns close.
+  let pinned = false;
   function close() {
     closeDropdowns();
-    setOpen(false);
+    if (!pinned) setOpen(false);
   }
 
   toggle.addEventListener('click', () => {
+    if (pinned) { closeDropdowns(); return; }
     if (!panel.hidden) { close(); return; }
     setOpen(true);
   });
@@ -94,6 +97,10 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
     /** Show the status line (progress or errors) without opening the menu. */
     expand() {
       statusPinned = true; setOpen(!panel.hidden);
+    },
+    /** Keep the menu open (computer layout) or let it close again. */
+    pin(value: boolean) {
+      pinned = value; setOpen(value);
     },
     /** Hide the status line again unless the menu is open. */
     collapse() {
