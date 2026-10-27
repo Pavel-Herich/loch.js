@@ -767,6 +767,22 @@ function confirmDownload(title: string, bytes: number) {
 }
 
 const isCoarse = () => matchMedia('(pointer: coarse)').matches;
+// Mapy.com tiles need the user's own (free) API key; it stays in this browser.
+const MAPY_KEY = 'loch.js-mapy-key';
+const mapyKey = () => { try { return localStorage.getItem(MAPY_KEY) ?? ''; } catch { return ''; } };
+const keyDialog = document.querySelector<HTMLDialogElement>('#mapy-key-dialog')!;
+const keyInput = document.querySelector<HTMLInputElement>('#mapy-key')!;
+function askMapyKey() {
+  keyInput.value = mapyKey(); keyDialog.returnValue = '';
+  keyDialog.showModal(); keyInput.focus();
+  return new Promise<string>(resolve => keyDialog.addEventListener('close', () => {
+    const key = keyInput.value.trim();
+    if (keyDialog.returnValue !== 'save') { resolve(''); return; }
+    try { if (key) localStorage.setItem(MAPY_KEY, key); else localStorage.removeItem(MAPY_KEY); } catch { /* Kept for this session only. */ }
+    resolve(key);
+  }, { once: true }));
+}
+document.querySelector<HTMLButtonElement>('#underlay-mapy-key')!.addEventListener('click', () => { closeUnderlayMenu(); void askMapyKey(); });
 function mapTexture(image: ImageBitmap | HTMLCanvasElement) {
   const texture = image instanceof HTMLCanvasElement ? new THREE.CanvasTexture(image) : new THREE.Texture(image);
   texture.flipY = false; texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4; texture.needsUpdate = true;
@@ -797,9 +813,11 @@ underlaySelect.addEventListener('change', () => {
   const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
   if (!overlay.checked) { overlay.checked = true; overlay.dispatchEvent(new Event('change')); }
   const request = baseRequest = new AbortController();
+  let apiKey = '';
   const plan = planPieces(surfaceScene.pieces(), caveExtent(), service.levels!, isCoarse() ? 20e6 : 64e6,
     Math.min(renderer.capabilities.maxTextureSize, isCoarse() ? 2048 : 4096));
-  const keys = plan.map(piece => underlayKey(service.id, piece.extent, piece.width));
+  const store = service.storeAs ?? service.id;
+  const keys = plan.map(piece => underlayKey(store, piece.extent, piece.width));
   const back = (message: string) => {
     if (request !== baseRequest) return;
     announce(message, true); baseRequest = undefined;
@@ -809,6 +827,11 @@ underlaySelect.addEventListener('change', () => {
     // Copies kept on the device first (they work offline), then the service for the rest.
     const stored = await Promise.all(keys.map(key => loadStoredUnderlay(key).catch(() => undefined)));
     if (request !== baseRequest) return;
+    if (service.kind === 'xyz' && service.apiKey && stored.some(copy => !copy)) {
+      apiKey = mapyKey() || await askMapyKey();
+      if (request !== baseRequest) return;
+      if (!apiKey) { back(`${service.title} needs an API key.`); return; }
+    }
     // The cave's surroundings first: they are the sharpest and the most looked at.
     const cave = caveExtent();
     const missing = plan.filter((_, i) => !stored[i]).sort((x, y) => cave ? extentGap(x.extent, cave) - extentGap(y.extent, cave) : 0);
@@ -818,25 +841,29 @@ underlaySelect.addEventListener('change', () => {
       const copy = stored[i];
       if (copy) surfaceScene.setPiece(plan[i].key, mapTexture(await createImageBitmap(copy.blob, { imageOrientation: 'none' })), plan[i].extent);
     }
-    let done = 0, failed = 0;
+    let done = 0, failed = 0, succeeded = 0, lastError: unknown;
     const report = () => { if (request === baseRequest) announce(`Loading ${service.title}… ${done}/${missing.length}`); };
     if (missing.length) report();
     await Promise.all(missing.map(async piece => {
       try {
-        const canvas = await fetchMap(service, piece.extent, piece.width, piece.height, request.signal);
+        const canvas = await fetchMap(service, piece.extent, piece.width, piece.height, request.signal, apiKey);
         if (request !== baseRequest) return;
         const blob = await toBlob(canvas, 'image/jpeg');
-        if (blob) void storeUnderlay(underlayKey(service.id, piece.extent, piece.width), { blob, width: piece.width, height: piece.height, saved: new Date().toISOString() }).catch(() => undefined);
+        if (blob) void storeUnderlay(underlayKey(store, piece.extent, piece.width), { blob, width: piece.width, height: piece.height, saved: new Date().toISOString() }).catch(() => undefined);
         if (request !== baseRequest) return;
-        surfaceScene.setPiece(piece.key, mapTexture(canvas), piece.extent);
+        surfaceScene.setPiece(piece.key, mapTexture(canvas), piece.extent); succeeded++;
       } catch (error) {
         if ((error as Error).name === 'AbortError') throw error;
-        failed++;
-        if (failed === 1 && done === 0) console.warn(error);
+        failed++; lastError = error;
+        if (failed === 1) console.warn(error);
+        // A service that refuses everything (no CORS, wrong key) is not asked for every piece.
+        if (!succeeded && failed >= 2 && request === baseRequest) {
+          back(`${service.title}: ${exceptionMessage(error)}`); request.abort();
+        }
       } finally { done++; report(); }
     }));
     if (request !== baseRequest) return;
-    if (failed === plan.length) { back(`${service.title}: the map service did not answer, or does not allow its maps in other apps (CORS).`); return; }
+    if (failed === plan.length) { back(`${service.title}: ${lastError ? exceptionMessage(lastError) : 'the map service did not answer.'}`); return; }
     surfaceScene.releaseLoxImages();
     const saved = plan.length - missing.length;
     announce(`${service.title} ${service.attribution}${failed ? ` · ${failed} pieces missing (no answer)` : ''}${saved ? ` · ${saved === plan.length ? 'saved copy' : `${saved} pieces from the saved copy`}` : ' · saved for offline use'}`);

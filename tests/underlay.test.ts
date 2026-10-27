@@ -3,8 +3,12 @@ import { downloadEstimate, extentGap, getMapUrl, mercatorPixel, planPieces, UNDE
 import { tileCells } from '../src/surface';
 
 describe('map underlays', () => {
-  it('offers the orthophoto and Freemap as bases and the geological map as an overlay', () => {
-    expect(UNDERLAY_SERVICES.filter(s => s.role === 'base').map(s => s.id)).toEqual(['ortho', 'freemap']);
+  it('offers the orthophoto, Freemap and Mapy.com as bases and the geological map as an overlay', () => {
+    expect(UNDERLAY_SERVICES.filter(s => s.role === 'base').map(s => s.id)).toEqual(['ortho', 'freemap', 'mapy-outdoor', 'mapy-aerial']);
+    // The orthophoto asks for the mosaic layer only (the service's other layers would cover it).
+    const ortho = UNDERLAY_SERVICES.find(s => s.id === 'ortho') as WmsService;
+    expect(ortho.discover).toBeFalsy();
+    expect(getMapUrl(ortho, ortho.layers, [0, 0, 10, 10], 10, 10)).toContain('LAYERS=OI.OrthoimageCoverage&');
     expect(UNDERLAY_SERVICES.filter(s => s.role === 'overlay').map(s => s.id)).toEqual(['geology']);
     const geology = UNDERLAY_SERVICES.find(s => s.id === 'geology') as WmsService;
     expect(getMapUrl(geology, '0', [0, 0, 10, 10], 10, 10)).toContain('TRANSPARENT=TRUE');
