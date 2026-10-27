@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { downloadEstimate, extentGap, getMapUrl, mercatorPixel, planPieces, UNDERLAY_SERVICES, zoomFor, type Extent, type WmsService } from '../src/underlay';
+import { downloadEstimate, extentGap, nearestPointGap, getMapUrl, imageComplete, mercatorPixel, planPieces, split, UNDERLAY_SERVICES, zoomFor, type Extent, type WmsService } from '../src/underlay';
 import { tileCells } from '../src/surface';
 
 describe('map underlays', () => {
-  it('offers the orthophoto, Freemap and Mapy.com as bases and the geological map as an overlay', () => {
-    expect(UNDERLAY_SERVICES.filter(s => s.role === 'base').map(s => s.id)).toEqual(['ortho', 'freemap', 'mapy-outdoor', 'mapy-aerial']);
+  it('stacks imagery, outdoor maps and the geological map over the LOX image', () => {
+    expect(UNDERLAY_SERVICES.map(s => s.id)).toEqual(['ortho', 'mapy-aerial', 'freemap', 'mapy-outdoor', 'geology']);
+    // Imagery and maps are draped in pieces; the geological map is one image at half opacity.
+    expect(UNDERLAY_SERVICES.filter(s => s.levels).map(s => s.id)).toEqual(['ortho', 'mapy-aerial', 'freemap', 'mapy-outdoor']);
+    expect(UNDERLAY_SERVICES.find(s => s.id === 'geology')!.opacity).toBe(.5);
     // The orthophoto asks for the mosaic layer only (the service's other layers would cover it).
     const ortho = UNDERLAY_SERVICES.find(s => s.id === 'ortho') as WmsService;
     expect(ortho.discover).toBeFalsy();
     expect(getMapUrl(ortho, ortho.layers, [0, 0, 10, 10], 10, 10)).toContain('LAYERS=OI.OrthoimageCoverage&');
-    expect(UNDERLAY_SERVICES.filter(s => s.role === 'overlay').map(s => s.id)).toEqual(['geology']);
     const geology = UNDERLAY_SERVICES.find(s => s.id === 'geology') as WmsService;
     expect(getMapUrl(geology, '0', [0, 0, 10, 10], 10, 10)).toContain('TRANSPARENT=TRUE');
   });
@@ -47,6 +49,25 @@ describe('map underlays', () => {
     expect(tight[0].width).toBeGreaterThan(tight[2].width);
     expect(planPieces(pieces, cave, [.1, 2, 6], Infinity, 2048)[0].width).toBe(2048);
     expect(downloadEstimate(UNDERLAY_SERVICES[0], [{ width: 1000, height: 1000 }])).toBe(300_000);
+  });
+
+  it('measures pieces against the survey stations', () => {
+    const gap = nearestPointGap(new Float64Array([500, 500, 5000, 300]));
+    expect(gap([0, 0, 1000, 1000])).toBe(0);
+    expect(gap([1000, 0, 2000, 1000])).toBe(500);
+    expect(planPieces([{ key: 'a', extent: [1000, 0, 2000, 1000] }, { key: 'b', extent: [2000, 0, 3000, 1000] }], gap, [.5, 2, 6], Infinity, 4096).map(p => p.width)).toEqual([500, 500]);
+  });
+
+  it('splits requests evenly and tells cut-off images', () => {
+    expect(split(1286, 1024)).toEqual([643, 643]);
+    expect(split(2049, 1024)).toEqual([683, 683, 683]);
+    expect(split(500, 1024)).toEqual([500]);
+    const jpeg = new Uint8Array([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]);
+    expect(imageComplete(jpeg, 'image/jpeg')).toBe(true);
+    expect(imageComplete(jpeg.subarray(0, 5), 'image/jpeg')).toBe(false);
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82]);
+    expect(imageComplete(png, 'image/png')).toBe(true);
+    expect(imageComplete(png.subarray(0, 10), 'image/png')).toBe(false);
   });
 
   it('cuts surfaces into pieces of about a kilometre', () => {

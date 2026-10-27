@@ -33,7 +33,7 @@ import { STATION_ENTRANCE, temporaryStation, type Station } from './lox-stations
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
-import { downloadEstimate, extentGap, fetchMap, planPieces, UNDERLAY_SERVICES } from './underlay';
+import { downloadEstimate, fetchMap, nearestPointGap, planPieces, UNDERLAY_SERVICES } from './underlay';
 import { forgetStoredUnderlays, loadStoredUnderlay, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
@@ -705,51 +705,53 @@ document.querySelector<HTMLButtonElement>('#export-go')!.addEventListener('click
   announce(`${points.length} points exported.`);
 });
 
-// Map underlays: a base map instead of the LOX image (ZBGIS orthophoto or Freemap, in pieces
-// sharper near the cave) and the geological map over it with adjustable opacity. Downloaded
-// maps are kept on the device; on mobile data the app asks first, with the expected size.
-const underlaySelect = document.querySelector<HTMLSelectElement>('#surface-underlay')!;
-const geologyToggle = document.querySelector<HTMLInputElement>('#surface-geology')!;
-const geologyOpacity = document.querySelector<HTMLInputElement>('#surface-geology-opacity')!;
-const geologyOpacityValue = document.querySelector<HTMLOutputElement>('#surface-geology-opacity-value')!;
-underlaySelect.value = 'lox'; geologyToggle.checked = false;
+// Map layers over the LOX image: orthophotos, outdoor maps and the geological map, each
+// switched on and given an opacity on its own; imagery and maps are draped in pieces sharper
+// near the cave. Downloaded maps are kept on the device; on mobile data the app asks first,
+// with the expected size.
 const underlayToggle = document.querySelector<HTMLButtonElement>('#underlay-toggle')!;
 const underlayMenu = document.querySelector<HTMLElement>('#underlay-menu')!;
-const menuGeology = underlayMenu.querySelector<HTMLButtonElement>('[data-overlay="geology"]')!;
-const menuGeologyOpacity = document.querySelector<HTMLInputElement>('#underlay-geology-opacity')!;
-const menuGeologyOpacityValue = document.querySelector<HTMLOutputElement>('#underlay-geology-opacity-value')!;
+const layerList = document.querySelector<HTMLElement>('#map-layers')!;
+type MapLayerState = { on: boolean; opacity: number; request?: AbortController };
+const mapLayers = new Map<string, MapLayerState>(UNDERLAY_SERVICES.map(service => [service.id, { on: false, opacity: service.opacity }]));
+// One row per layer: a switch and, while it is on, its opacity.
+for (const service of UNDERLAY_SERVICES) {
+  const row = document.createElement('div'); row.className = 'map-layer'; row.dataset.layer = service.id;
+  const toggle = document.createElement('button'); toggle.type = 'button'; toggle.setAttribute('role', 'menuitemcheckbox'); toggle.textContent = service.title;
+  const range = document.createElement('label'); range.className = 'menu-range';
+  const input = document.createElement('input'); input.type = 'range'; input.min = '5'; input.max = '100'; input.step = '5'; input.setAttribute('aria-label', `${service.title} opacity`);
+  const output = document.createElement('output');
+  range.append('Opacity', input, output); row.append(toggle, range); layerList.append(row);
+  toggle.addEventListener('click', () => setMapLayer(service.id, !mapLayers.get(service.id)!.on));
+  input.addEventListener('input', () => {
+    mapLayers.get(service.id)!.opacity = Number(input.value) / 100;
+    output.value = `${input.value}%`;
+    surfaceScene.setLayerOpacity(service.id, Number(input.value) / 100);
+  });
+}
 function syncUnderlayMenu() {
-  for (const item of Array.from(underlayMenu.querySelectorAll<HTMLButtonElement>('[data-underlay]'))) item.setAttribute('aria-checked', String(item.dataset.underlay === underlaySelect.value));
-  menuGeology.setAttribute('aria-checked', String(geologyToggle.checked));
-  menuGeologyOpacity.value = geologyOpacity.value;
-  geologyOpacityValue.value = menuGeologyOpacityValue.value = `${geologyOpacity.value}%`;
-  underlayToggle.classList.toggle('on', underlaySelect.value !== 'lox' || geologyToggle.checked);
+  for (const row of Array.from(layerList.querySelectorAll<HTMLElement>('.map-layer'))) {
+    const state = mapLayers.get(row.dataset.layer!)!;
+    row.querySelector('button')!.setAttribute('aria-checked', String(state.on));
+    const range = row.querySelector<HTMLElement>('.menu-range')!; range.hidden = !state.on;
+    const percent = String(Math.round(state.opacity * 100));
+    row.querySelector('input')!.value = percent; row.querySelector('output')!.value = `${percent}%`;
+  }
+  underlayToggle.classList.toggle('on', [...mapLayers.values()].some(state => state.on));
 }
 underlayToggle.addEventListener('click', () => {
   syncUnderlayMenu(); underlayMenu.hidden = !underlayMenu.hidden;
   underlayToggle.setAttribute('aria-expanded', String(!underlayMenu.hidden));
 });
 const closeUnderlayMenu = () => { underlayMenu.hidden = true; underlayToggle.setAttribute('aria-expanded', 'false'); };
-underlayMenu.addEventListener('click', event => {
-  const target = event.target as HTMLElement;
-  const item = target.closest<HTMLButtonElement>('[data-underlay]');
-  if (item) {
-    closeUnderlayMenu();
-    if (underlaySelect.value !== item.dataset.underlay) { underlaySelect.value = item.dataset.underlay!; underlaySelect.dispatchEvent(new Event('change')); }
-  } else if (target.closest('[data-overlay]')) {
-    geologyToggle.checked = !geologyToggle.checked; geologyToggle.dispatchEvent(new Event('change'));
-  }
-});
 document.addEventListener('pointerdown', event => {
-  if (!underlayMenu.hidden && !underlayMenu.contains(event.target as Node) && !underlayToggle.contains(event.target as Node)) closeUnderlayMenu();
+  if (!underlayMenu.hidden && !underlayMenu.contains(event.target as Node) && !underlayToggle.contains(event.target as Node)
+    && !(event.target as Element).closest?.('dialog')) closeUnderlayMenu();
 });
-const setGeologyOpacity = (value: string) => {
-  geologyOpacity.value = value; syncUnderlayMenu();
-  surfaceScene.setOverlayOpacity(Number(value) / 100);
-};
-geologyOpacity.addEventListener('input', () => setGeologyOpacity(geologyOpacity.value));
-menuGeologyOpacity.addEventListener('input', () => setGeologyOpacity(menuGeologyOpacity.value));
-setGeologyOpacity(geologyOpacity.value);
+document.querySelector<HTMLButtonElement>('#surface-maps')!.addEventListener('click', () => {
+  document.querySelectorAll<HTMLDetailsElement>('#menus details').forEach(group => { group.open = false; });
+  syncUnderlayMenu(); underlayMenu.hidden = false; underlayToggle.setAttribute('aria-expanded', 'true');
+});
 
 const downloadDialog = document.querySelector<HTMLDialogElement>('#download-dialog')!;
 /** On mobile data (or when the phone does not tell), ask before a download; true goes ahead. */
@@ -783,128 +785,101 @@ function askMapyKey() {
   }, { once: true }));
 }
 document.querySelector<HTMLButtonElement>('#underlay-mapy-key')!.addEventListener('click', () => { closeUnderlayMenu(); void askMapyKey(); });
+
 function mapTexture(image: ImageBitmap | HTMLCanvasElement) {
   const texture = image instanceof HTMLCanvasElement ? new THREE.CanvasTexture(image) : new THREE.Texture(image);
   texture.flipY = false; texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4; texture.needsUpdate = true;
-  // Pixels leave the page once they are on the graphics card (phones have little memory).
-  texture.onUpdate = () => { if (image instanceof HTMLCanvasElement) image.width = image.height = 0; else image.close(); };
   return texture;
 }
 const toBlob = (canvas: HTMLCanvasElement, type: string) => new Promise<Blob | null>(resolve => canvas.toBlob(resolve, type, .88));
 const mapsUsable = () => {
   if (surfaceScene.extent() && looksLikeSJTSK(worldOrigin.x, worldOrigin.y)) return true;
-  announce('Map underlays need a model with a surface in S-JTSK.', true);
+  announce('Map layers need a model with a surface in S-JTSK.', true);
   return false;
 };
-/** The cave's horizontal extent in file coordinates, where base maps are sharpest. */
-function caveExtent(): [number, number, number, number] | undefined {
-  if (activeBox.isEmpty()) return undefined;
-  return [activeBox.min.x + worldOrigin.x, activeBox.min.y + worldOrigin.y, activeBox.max.x + worldOrigin.x, activeBox.max.y + worldOrigin.y];
+/** Distance from a piece to the nearest survey station (file coordinates): maps are sharpest over the caves. */
+function caveGap() {
+  const stations = centreline.stationDetails.filter(station => !temporaryStation(station));
+  if (!stations.length) return undefined;
+  const points = new Float64Array(stations.length * 2);
+  stations.forEach((station, i) => { points[i * 2] = station.position[0]; points[i * 2 + 1] = station.position[1]; });
+  return nearestPointGap(points);
 }
 
-let baseRequest: AbortController | undefined;
-underlaySelect.addEventListener('change', () => {
+/** Switch a map layer on (loading it: saved copies first, then the service) or off. */
+function setMapLayer(id: string, on: boolean) {
+  const state = mapLayers.get(id)!, service = UNDERLAY_SERVICES.find(item => item.id === id)!;
+  state.request?.abort(); state.request = undefined;
+  surfaceScene.removeLayer(id);
+  state.on = on && mapsUsable();
   syncUnderlayMenu();
-  baseRequest?.abort(); baseRequest = undefined;
-  surfaceScene.clearPieces();
-  const service = UNDERLAY_SERVICES.find(item => item.id === underlaySelect.value && item.role === 'base');
-  if (!service) return;
-  if (!mapsUsable()) { underlaySelect.value = 'lox'; syncUnderlayMenu(); return; }
-  const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
-  if (!overlay.checked) { overlay.checked = true; overlay.dispatchEvent(new Event('change')); }
-  const request = baseRequest = new AbortController();
-  let apiKey = '';
-  const plan = planPieces(surfaceScene.pieces(), caveExtent(), service.levels!, isCoarse() ? 20e6 : 64e6,
-    Math.min(renderer.capabilities.maxTextureSize, isCoarse() ? 2048 : 4096));
+  if (!state.on) return;
+  surfaceScene.setLayer(id, UNDERLAY_SERVICES.indexOf(service), state.opacity);
+  const request = state.request = new AbortController();
+  const current = () => state.request === request;
+  const back = (message: string) => {
+    if (!current()) return;
+    announce(message, true); state.request = undefined; state.on = false;
+    surfaceScene.removeLayer(id); syncUnderlayMenu();
+  };
+  const extent = surfaceScene.extent()!, cave = caveGap();
+  const maxSide = Math.min(renderer.capabilities.maxTextureSize, isCoarse() ? 2048 : 4096);
+  // Each layer within 40 megapixels on a computer and 12 on a phone (graphics memory).
+  const plan = service.levels
+    ? planPieces(surfaceScene.pieces(), cave, service.levels, isCoarse() ? 12e6 : 40e6, maxSide)
+    : planPieces([{ key: 'all', extent }], undefined, [1, 1, 1], Infinity, maxSide);
   const store = service.storeAs ?? service.id;
   const keys = plan.map(piece => underlayKey(store, piece.extent, piece.width));
-  const back = (message: string) => {
-    if (request !== baseRequest) return;
-    announce(message, true); baseRequest = undefined;
-    underlaySelect.value = 'lox'; syncUnderlayMenu(); surfaceScene.clearPieces();
+  const show = (piece: (typeof plan)[number], texture: THREE.Texture) => {
+    if (service.levels) surfaceScene.setLayerPiece(id, piece.key, texture, piece.extent);
+    else surfaceScene.setLayerImage(id, texture, piece.extent);
   };
   void (async () => {
     // Copies kept on the device first (they work offline), then the service for the rest.
     const stored = await Promise.all(keys.map(key => loadStoredUnderlay(key).catch(() => undefined)));
-    if (request !== baseRequest) return;
+    if (!current()) return;
+    let apiKey = '';
     if (service.kind === 'xyz' && service.apiKey && stored.some(copy => !copy)) {
       apiKey = mapyKey() || await askMapyKey();
-      if (request !== baseRequest) return;
+      if (!current()) return;
       if (!apiKey) { back(`${service.title} needs an API key.`); return; }
     }
-    // The cave's surroundings first: they are the sharpest and the most looked at.
-    const cave = caveExtent();
-    const missing = plan.filter((_, i) => !stored[i]).sort((x, y) => cave ? extentGap(x.extent, cave) - extentGap(y.extent, cave) : 0);
+    // The caves' surroundings first: they are the sharpest and the most looked at.
+    const gaps = new Map(plan.map(piece => [piece.key, cave ? cave(piece.extent) : 0]));
+    const missing = plan.filter((_, i) => !stored[i]).sort((x, y) => gaps.get(x.key)! - gaps.get(y.key)!);
     if (missing.length && !await confirmDownload(service.title, downloadEstimate(service, missing))) { back(`${service.title}: download cancelled.`); return; }
-    if (request !== baseRequest) return;
+    if (!current()) return;
     for (let i = 0; i < plan.length; i++) {
       const copy = stored[i];
-      if (copy) surfaceScene.setPiece(plan[i].key, mapTexture(await createImageBitmap(copy.blob, { imageOrientation: 'none' })), plan[i].extent);
+      if (copy) show(plan[i], mapTexture(await createImageBitmap(copy.blob, { imageOrientation: 'none', premultiplyAlpha: 'none' })));
+      if (!current()) return;
     }
     let done = 0, failed = 0, succeeded = 0, lastError: unknown;
-    const report = () => { if (request === baseRequest) announce(`Loading ${service.title}… ${done}/${missing.length}`); };
+    const report = () => { if (current()) announce(`Loading ${service.title}… ${done}/${missing.length}`); };
     if (missing.length) report();
     await Promise.all(missing.map(async piece => {
       try {
         const canvas = await fetchMap(service, piece.extent, piece.width, piece.height, request.signal, apiKey);
-        if (request !== baseRequest) return;
-        const blob = await toBlob(canvas, 'image/jpeg');
+        if (!current()) return;
+        const blob = await toBlob(canvas, service.kind === 'wms' && service.format === 'image/png' ? 'image/png' : 'image/jpeg');
         if (blob) void storeUnderlay(underlayKey(store, piece.extent, piece.width), { blob, width: piece.width, height: piece.height, saved: new Date().toISOString() }).catch(() => undefined);
-        if (request !== baseRequest) return;
-        surfaceScene.setPiece(piece.key, mapTexture(canvas), piece.extent); succeeded++;
+        if (!current()) return;
+        show(piece, mapTexture(canvas)); succeeded++;
       } catch (error) {
         if ((error as Error).name === 'AbortError') throw error;
         failed++; lastError = error;
         if (failed === 1) console.warn(error);
         // A service that refuses everything (no CORS, wrong key) is not asked for every piece.
-        if (!succeeded && failed >= 2 && request === baseRequest) {
-          back(`${service.title}: ${exceptionMessage(error)}`); request.abort();
-        }
+        if (!succeeded && failed >= 2 && current()) { back(`${service.title}: ${exceptionMessage(error)}`); request.abort(); }
       } finally { done++; report(); }
     }));
-    if (request !== baseRequest) return;
+    if (!current()) return;
     if (failed === plan.length) { back(`${service.title}: ${lastError ? exceptionMessage(lastError) : 'the map service did not answer.'}`); return; }
-    surfaceScene.releaseLoxImages();
     const saved = plan.length - missing.length;
     announce(`${service.title} ${service.attribution}${failed ? ` · ${failed} pieces missing (no answer)` : ''}${saved ? ` · ${saved === plan.length ? 'saved copy' : `${saved} pieces from the saved copy`}` : ' · saved for offline use'}`);
   })().catch(error => { if ((error as Error).name !== 'AbortError') back(`${service.title}: ${exceptionMessage(error)}`); });
-});
-
-let overlayRequest: AbortController | undefined;
-geologyToggle.addEventListener('change', () => {
-  syncUnderlayMenu();
-  overlayRequest?.abort(); overlayRequest = undefined;
-  const service = UNDERLAY_SERVICES.find(item => item.id === 'geology')!;
-  if (!geologyToggle.checked) { surfaceScene.setOverlay(null); return; }
-  const extent = surfaceScene.extent();
-  if (!extent || !mapsUsable()) { geologyToggle.checked = false; syncUnderlayMenu(); return; }
-  const request = overlayRequest = new AbortController();
-  // One image over the whole surface: 4096 px on a computer, 2048 on a phone.
-  const [piece] = planPieces([{ key: 'all', extent }], undefined, [1, 1, 1], Infinity, Math.min(renderer.capabilities.maxTextureSize, isCoarse() ? 2048 : 4096));
-  const key = underlayKey(`${service.id}-overlay`, extent, piece.width);
-  const back = (message: string) => {
-    if (request !== overlayRequest) return;
-    announce(message, true); overlayRequest = undefined;
-    geologyToggle.checked = false; syncUnderlayMenu(); surfaceScene.setOverlay(null);
-  };
-  void (async () => {
-    const stored = await loadStoredUnderlay(key).catch(() => undefined);
-    if (request !== overlayRequest) return;
-    if (stored) {
-      surfaceScene.setOverlay(mapTexture(await createImageBitmap(stored.blob, { imageOrientation: 'none', premultiplyAlpha: 'none' })), extent);
-      announce(`${service.title} ${service.attribution} · saved copy from ${stored.saved.slice(0, 10)}`); return;
-    }
-    if (!await confirmDownload(service.title, downloadEstimate(service, [piece]))) { back(`${service.title}: download cancelled.`); return; }
-    if (request !== overlayRequest) return;
-    announce(`Loading ${service.title}…`);
-    const canvas = await fetchMap(service, extent, piece.width, piece.height, request.signal);
-    if (request !== overlayRequest) return;
-    surfaceScene.setOverlay(mapTexture(canvas), extent);
-    announce(`${service.title} ${service.attribution} · saved for offline use`);
-    const blob = await toBlob(canvas, 'image/png');
-    if (blob) void storeUnderlay(key, { blob, width: piece.width, height: piece.height, saved: new Date().toISOString() }).catch(() => undefined);
-  })().catch(error => { if ((error as Error).name !== 'AbortError') back(`${service.title}: ${exceptionMessage(error)}`); });
-});
+}
+syncUnderlayMenu();
 
 // Picking an object position: same tap-to-pick as the rotation centre, without moving the view.
 let resolveObjectPick: ((point: THREE.Vector3 | undefined) => void) | undefined;
@@ -1122,8 +1097,8 @@ async function loadFile(file: File) {
   const id = ++loadId;
   // A section and a map underlay belong to the model they were made for.
   applySection(undefined);
-  baseRequest?.abort(); baseRequest = undefined; overlayRequest?.abort(); overlayRequest = undefined;
-  underlaySelect.value = 'lox'; geologyToggle.checked = false; syncUnderlayMenu();
+  for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
+  syncUnderlayMenu();
   collapseAfterRender = false;
   menus.expand();
   largeWorker?.terminate(); largeWorker = undefined;

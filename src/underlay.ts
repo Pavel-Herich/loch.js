@@ -26,23 +26,28 @@ export type XyzService = ServiceBase & {
   apiKey?: 'mapy';
 };
 export type UnderlayService = (WmsService | XyzService) & {
-  role: 'base' | 'overlay';
-  /** Ground resolution (m/px) near the cave, around it, and far away (base maps). */
+  /**
+   * Ground resolution (m/px) near the cave, around it, and far away: the map is draped in
+   * pieces of the surface. Without levels it is one image over the whole surface.
+   */
   levels?: [number, number, number];
+  /** Opacity over the LOX image when first shown (0–1). */
+  opacity: number;
 };
 
+/** All map layers lie over the LOX image, in this order (later ones on top). */
 export const UNDERLAY_SERVICES: UnderlayService[] = [
   // Only the orthophoto mosaic itself: the service's other layers (sheet outlines) would cover it.
-  { id: 'ortho', role: 'base', kind: 'wms', title: 'ZBGIS orthophoto', url: 'https://inspirews.skgeodesy.sk/geoserver/oi/ows', layers: 'OI.OrthoimageCoverage',
-    format: 'image/jpeg', attribution: '© ÚGKK SR', bytesPerPixel: .3, levels: [.5, 2, 6], storeAs: 'ortho-mosaic' },
-  { id: 'freemap', role: 'base', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}@2x', tileSize: 512, maxZoom: 19,
-    attribution: '© Freemap Slovakia, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6] },
-  { id: 'mapy-outdoor', role: 'base', kind: 'xyz', title: 'Mapy.com outdoor map', url: 'https://api.mapy.com/v1/maptiles/outdoor/256@2x/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 512, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6] },
-  { id: 'mapy-aerial', role: 'base', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 256, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6] },
-  { id: 'geology', role: 'overlay', kind: 'wms', title: 'Geological map 1:50 000', url: 'https://ags.geology.sk/arcgis/services/WebServices/GM50/MapServer/WMSServer',
-    layers: '0,1,2', discover: true, format: 'image/png', transparent: true, attribution: '© ŠGÚDŠ', bytesPerPixel: .25 },
+  { id: 'ortho', kind: 'wms', title: 'ZBGIS orthophoto', url: 'https://inspirews.skgeodesy.sk/geoserver/oi/ows', layers: 'OI.OrthoimageCoverage',
+    format: 'image/jpeg', attribution: '© ÚGKK SR', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1, storeAs: 'ortho-mosaic' },
+  { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
+    tileSize: 256, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1 },
+  { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}@2x', tileSize: 512, maxZoom: 19,
+    attribution: '© Freemap Slovakia, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1 },
+  { id: 'mapy-outdoor', kind: 'xyz', title: 'Mapy.com outdoor map', url: 'https://api.mapy.com/v1/maptiles/outdoor/256@2x/{z}/{x}/{y}?apikey={apikey}',
+    tileSize: 512, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1 },
+  { id: 'geology', kind: 'wms', title: 'Geological map 1:50 000', url: 'https://ags.geology.sk/arcgis/services/WebServices/GM50/MapServer/WMSServer',
+    layers: '0,1,2', discover: true, format: 'image/png', transparent: true, attribution: '© ŠGÚDŠ', bytesPerPixel: .25, opacity: .5 },
 ];
 
 /** WMS 1.1.1 GetMap (x,y axis order for SRS, whatever the CRS definition says). */
@@ -98,16 +103,58 @@ async function slot<T>(run: () => Promise<T>) {
   try { return await run(); } finally { running--; waiting.shift()?.(); }
 }
 
+const pause = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const timer = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Cancelled', 'AbortError')); });
+});
+/** Did the whole image arrive? A JPEG ends with its EOI marker, a PNG with its IEND chunk. */
+export function imageComplete(bytes: Uint8Array, type: string) {
+  const n = bytes.length;
+  if (type.includes('jpeg') || (bytes[0] === 0xff && bytes[1] === 0xd8)) {
+    // Some encoders pad after the end marker; look at the last few bytes.
+    for (let i = n - 2; i >= Math.max(0, n - 16); i--) if (bytes[i] === 0xff && bytes[i + 1] === 0xd9) return true;
+    return false;
+  }
+  if (type.includes('png') || bytes[1] === 0x50) return n >= 12 && String.fromCharCode(...bytes.subarray(n - 8, n - 4)) === 'IEND';
+  return n > 0;
+}
+/**
+ * One map image, checked to have arrived whole (a cut-off JPEG would otherwise show its
+ * missing lower part as an empty band); asked again up to three times.
+ */
 function loadImage(url: string, signal?: AbortSignal) {
-  return slot(() => new Promise<HTMLImageElement>((resolve, reject) => {
-    if (signal?.aborted) { reject(new DOMException('Cancelled', 'AbortError')); return; }
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    image.onload = () => resolve(image);
-    image.onerror = () => reject(new Error('The map service did not answer, or does not allow its maps in other apps (CORS).'));
-    signal?.addEventListener('abort', () => { image.src = ''; reject(new DOMException('Cancelled', 'AbortError')); });
-    image.src = url;
-  }));
+  return slot(async () => {
+    let problem = 'The map service did not answer.';
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt) await pause(500 * attempt, signal);
+      let response: Response;
+      try { response = await fetch(url, { signal, mode: 'cors' }); }
+      catch (error) {
+        if ((error as Error).name === 'AbortError') throw error;
+        problem = 'The map service did not answer, or does not allow its maps in other apps (CORS).'; continue;
+      }
+      const type = response.headers.get('content-type') ?? '';
+      if (!response.ok || !type.startsWith('image/')) {
+        // WMS errors come back as XML with the reason.
+        const text = await response.text().catch(() => '');
+        const reason = /<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/.exec(text)?.[1]?.trim();
+        console.warn('Map image refused:', url, response.status, reason ?? text.slice(0, 200));
+        problem = reason ? `The map service says: ${reason.slice(0, 160)}` : `The map service answered ${response.status}.`;
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) break;
+        continue;
+      }
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      if (!imageComplete(bytes, type)) { console.warn('Map image cut off, asking again:', url); problem = 'The map service sent incomplete images.'; continue; }
+      return await createImageBitmap(new Blob([bytes], { type }));
+    }
+    throw new Error(problem);
+  });
+}
+
+/** Sizes of `count` equal parts of `total` pixels (the first ones a pixel larger when it does not divide). */
+export function split(total: number, most: number) {
+  const count = Math.ceil(total / most), base = Math.floor(total / count), extra = total - base * count;
+  return Array.from({ length: count }, (_, i) => base + (i < extra ? 1 : 0));
 }
 
 /** WMS requests of at most 1024 px, so services with small size limits still answer. */
@@ -121,11 +168,18 @@ export async function fetchWms(service: WmsService, extent: Extent, width: numbe
   if (!service.transparent) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, width, height); }
   const layers = await discoverLayers(service, signal);
   const jobs: Promise<void>[] = [];
-  for (let y0 = 0; y0 < height; y0 += WMS_TILE) for (let x0 = 0; x0 < width; x0 += WMS_TILE) {
-    const w = Math.min(WMS_TILE, width - x0), h = Math.min(WMS_TILE, height - y0);
-    // Canvas rows run from the north edge down.
-    const bbox: Extent = [minX + x0 / scaleX, maxY - (y0 + h) / scaleY, minX + (x0 + w) / scaleX, maxY - y0 / scaleY];
-    jobs.push(loadImage(getMapUrl(service, layers, bbox, w, h), signal).then(image => context.drawImage(image, x0, y0, w, h)));
+  // Equal, nearly square requests (no thin leftover strips).
+  let y0 = 0;
+  for (const h of split(height, WMS_TILE)) {
+    let x0 = 0;
+    for (const w of split(width, WMS_TILE)) {
+      // Canvas rows run from the north edge down.
+      const bbox: Extent = [minX + x0 / scaleX, maxY - (y0 + h) / scaleY, minX + (x0 + w) / scaleX, maxY - y0 / scaleY];
+      const x = x0, y = y0;
+      jobs.push(loadImage(getMapUrl(service, layers, bbox, w, h), signal).then(image => { context.drawImage(image, x, y, w, h); image.close(); }));
+      x0 += w;
+    }
+    y0 += h;
   }
   await Promise.all(jobs);
   return canvas;
@@ -144,7 +198,7 @@ export function zoomFor(metresPerPixel: number, latitude: number, tile: number, 
 }
 
 /** Tiles fetched in this session, shared by neighbouring pieces. */
-const tileCache = new Map<string, Promise<HTMLImageElement | undefined>>();
+const tileCache = new Map<string, Promise<ImageBitmap | undefined>>();
 
 /**
  * An XYZ (Web Mercator) map for an S-JTSK extent: the tiles covering it are fetched and
@@ -174,12 +228,13 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
     const url = service.url.replace('{z}', String(zoom)).replace('{x}', String(tx)).replace('{y}', String(ty)).replace('{apikey}', encodeURIComponent(apiKey));
     let tile = tileCache.get(url);
-    if (!tile) {
-      tile = loadImage(url, signal).catch(error => { if ((error as Error).name === 'AbortError') { tileCache.delete(url); throw error; } return undefined; });
-      tileCache.set(url, tile);
-    }
+    if (tile) tileCache.delete(url); // Most recently used last.
+    else tile = loadImage(url, signal).catch(error => { if ((error as Error).name === 'AbortError') { tileCache.delete(url); throw error; } return undefined; });
+    tileCache.set(url, tile);
+    // Only recent tiles stay (dropped ones are freed by the browser once drawn).
+    while (tileCache.size > 96) tileCache.delete(tileCache.keys().next().value!);
     total++;
-    jobs.push(tile.then(image => { if (image) context.drawImage(image, (tx - tx0) * t, (ty - ty0) * t); else failed++; }));
+    jobs.push(tile.then(image => { if (image) context.drawImage(image, (tx - tx0) * t, (ty - ty0) * t, t, t); else failed++; }));
   }
   await Promise.all(jobs);
   if (failed === total) throw new Error(await whyTileFailed(service.url.replace('{z}', String(zoom)).replace('{x}', String(tx0)).replace('{y}', String(ty0)).replace('{apikey}', encodeURIComponent(apiKey))));
@@ -237,11 +292,11 @@ export const NEAR = 250, AROUND = 1500;
  * extent), a middle one around it and a coarse one far away, all made coarser together
  * when the total would exceed the pixel budget; no side longer than `maxSide`.
  */
-export function planPieces(pieces: { key: string; extent: Extent }[], focus: Extent | undefined, levels: [number, number, number],
-  budget: number, maxSide: number): PieceRequest[] {
+export function planPieces(pieces: { key: string; extent: Extent }[], focus: Extent | ((extent: Extent) => number) | undefined,
+  levels: [number, number, number], budget: number, maxSide: number): PieceRequest[] {
   const level = (extent: Extent) => {
     if (!focus) return levels[1];
-    const gap = extentGap(extent, focus);
+    const gap = typeof focus === 'function' ? focus(extent) : extentGap(extent, focus);
     return gap <= NEAR ? levels[0] : gap <= AROUND ? levels[1] : levels[2];
   };
   const size = (extent: Extent, metres: number) => {
@@ -257,6 +312,19 @@ export function planPieces(pieces: { key: string; extent: Extent }[], focus: Ext
     factor *= Math.sqrt(total / budget) * 1.01;
   }
   return pieces.map((piece, j) => ({ key: piece.key, extent: piece.extent, ...size(piece.extent, base[j] * factor) }));
+}
+
+/** Distance from an extent to the nearest of some points (x, y pairs), for planning by the survey stations. */
+export function nearestPointGap(points: Float64Array) {
+  return (extent: Extent) => {
+    let best = Infinity;
+    for (let i = 0; i < points.length; i += 2) {
+      const dx = Math.max(0, extent[0] - points[i], points[i] - extent[2]), dy = Math.max(0, extent[1] - points[i + 1], points[i + 1] - extent[3]);
+      const d = dx * dx + dy * dy;
+      if (d < best) { best = d; if (!d) break; }
+    }
+    return Math.sqrt(best);
+  };
 }
 
 /** Expected download for pieces of a service, in bytes. */

@@ -357,3 +357,6 @@ body.computer #section-panel{background:#162531}
 .key-field{display:grid;gap:4px;margin:0 16px 12px;font-size:.85rem;color:#b8ccd9}
 .key-field input{padding:.45rem;border:1px solid #678599;border-radius:6px;background:#09131c;color:#eaf3ff;font:inherit;font-size:16px}
 .underlay-menu .menu-small{margin-top:4px;border-top:1px solid #3c5668;border-radius:0;font-size:.8rem;color:#b8ccd9}
+.map-layer .menu-range{padding-top:0}
+.map-layer .menu-range[hidden]{display:none}
+#underlay-menu{max-height:calc(100dvh - 120px);overflow:auto}
