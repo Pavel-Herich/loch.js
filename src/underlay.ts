@@ -39,7 +39,7 @@ export type UnderlayService = (WmsService | XyzService) & {
 export const UNDERLAY_SERVICES: UnderlayService[] = [
   // Only the orthophoto mosaic itself: the service's other layers (sheet outlines) would cover it.
   { id: 'ortho', kind: 'wms', title: 'ZBGIS orthophoto', url: 'https://inspirews.skgeodesy.sk/geoserver/oi/ows', layers: 'OI.OrthoimageCoverage',
-    format: 'image/jpeg', attribution: '© ÚGKK SR', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1, storeAs: 'ortho-mosaic' },
+    format: 'image/jpeg', attribution: '© ÚGKK SR', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1, storeAs: 'ortho-checked' },
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
     tileSize: 256, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1 },
   { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}@2x', tileSize: 512, maxZoom: 19,
