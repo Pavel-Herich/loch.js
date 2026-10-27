@@ -4,7 +4,13 @@ import { surfaceHeightAt, surfacePoint, type Calibration, type Surface, type Sur
 
 // Loch lxSetup defaults: m_srf_transparency = true, m_srf_opacity = 0.5.
 export const DEFAULT_SURFACE_OPACITY = 0.5;
-const TILE_CELLS = 255;
+/** Surface meshes are about this many metres across, so map pieces can differ in sharpness. */
+const PIECE_METRES = 1000;
+const MAX_TILE_CELLS = 255, MIN_TILE_CELLS = 16;
+export function tileCells(calibration: Calibration) {
+  const cell = Math.max(Math.hypot(calibration[2], calibration[4]), Math.hypot(calibration[3], calibration[5]));
+  return Math.max(MIN_TILE_CELLS, Math.min(MAX_TILE_CELLS, Math.round(PIECE_METRES / cell)));
+}
 
 export function surfaceGeometry(surface: Surface, origin: THREE.Vector3, firstColumn = 0, firstRow = 0,
   columns = surface.width - 1, rows = surface.height - 1) {
@@ -46,15 +52,22 @@ export function surfaceUV(surface: Surface, bitmap: SurfaceBitmap, width: number
 }
 
 type SurfaceMaterial = THREE.MeshBasicMaterial | THREE.MeshStandardMaterial;
-type SurfaceTile = { geometry: THREE.BufferGeometry; column: number; row: number; columns: number; rows: number };
+type Extent = [number, number, number, number];
+type SurfaceTile = {
+  geometry: THREE.BufferGeometry; mesh: THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>;
+  column: number; row: number; columns: number; rows: number;
+  /** [minEast, minNorth, maxEast, maxNorth] in file coordinates. */
+  extent: Extent;
+  /** Texture coordinates of the LOX image, and the map piece draped instead of it. */
+  loxUV?: THREE.BufferAttribute;
+  piece?: { material: THREE.MeshBasicMaterial; texture: THREE.Texture; uv: THREE.BufferAttribute };
+};
 type SurfaceEntry = {
   image: THREE.MeshBasicMaterial; lit: THREE.MeshStandardMaterial; meshes: THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>[];
-  surface: Surface; tiles: SurfaceTile[];
+  surface: Surface; tiles: SurfaceTile[]; frontUp: { value: number };
   /** The LOX file's own image, kept to come back to from a map-service underlay. */
   lox?: { texture: THREE.Texture; bitmap: SurfaceBitmap };
 };
-/** A map image covering [minEast, minNorth, maxEast, maxNorth] in file coordinates. */
-export type Underlay = { texture: THREE.Texture; extent: [number, number, number, number]; width: number; height: number };
 
 /** Earth brown for the terrain seen from below, mixed into its own colour so the relief still reads. */
 const UNDERSIDE = 'vec3(.56, .36, .22)';
@@ -63,9 +76,22 @@ const UNDERSIDE = 'vec3(.56, .36, .22)';
  * Seen from below, the surface turns brown and (by default) opaque, so a view up from
  * the cave is told apart from a view down onto the terrain.
  */
-function shadeUnderside(material: THREE.Material, frontUp: { value: number }, opaque: { value: number }, below: { value: number }) {
+type OverlayUniforms = { map: { value: THREE.Texture | null }; opacity: { value: number }; transform: { value: THREE.Vector4 } };
+function shadeUnderside(material: THREE.Material, frontUp: { value: number }, opaque: { value: number }, below: { value: number }, overlay: OverlayUniforms) {
   material.onBeforeCompile = shader => {
     shader.uniforms.surfaceFrontUp = frontUp; shader.uniforms.surfaceUndersideOpaque = opaque; shader.uniforms.surfaceCameraBelow = below;
+    shader.uniforms.overlayMap = overlay.map; shader.uniforms.overlayOpacity = overlay.opacity; shader.uniforms.overlayTransform = overlay.transform;
+    // An overlay map (geology) over the base colour, placed by the vertex position (scene x/y).
+    shader.vertexShader = shader.vertexShader
+      .replace('void main() {', 'uniform vec4 overlayTransform;\nvarying vec2 vOverlayUv;\nvoid main() {')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\n  vOverlayUv = (position.xy - overlayTransform.xy) * overlayTransform.zw;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform sampler2D overlayMap;\nuniform float overlayOpacity;\nvarying vec2 vOverlayUv;\nvoid main() {')
+      .replace('#include <map_fragment>', `#include <map_fragment>
+  if (overlayOpacity > 0. && all(greaterThanEqual(vOverlayUv, vec2(0.))) && all(lessThanEqual(vOverlayUv, vec2(1.)))) {
+    vec4 overlayColor = texture2D(overlayMap, vOverlayUv);
+    diffuseColor.rgb = mix(diffuseColor.rgb, overlayColor.rgb, overlayOpacity * overlayColor.a);
+  }`);
     // Only while the camera is under the terrain: from above, the backs of far slopes
     // (higher than the camera, seen through the transparent surface) keep their normal look.
     shader.fragmentShader = shader.fragmentShader
@@ -91,6 +117,8 @@ export class SurfaceScene {
   private revision = 0;
   private pending = new Map<string, THREE.Texture>();
   private grids: Pick<Surface, 'width' | 'height' | 'calibration' | 'heights'>[] = [];
+  private overlay: OverlayUniforms = { map: { value: null }, opacity: { value: 0 }, transform: { value: new THREE.Vector4(0, 0, 1, 1) } };
+  private overlayShown = 0;
 
   constructor(readonly group: THREE.Group, private onChange: () => void, private onError: (error: unknown) => void) {}
 
@@ -128,7 +156,10 @@ export class SurfaceScene {
 
   setAppearance(transparency: boolean, opacity: number) {
     this.transparency = transparency; this.opacity = Math.max(0, Math.min(1, opacity));
-    for (const entry of this.entries) { this.applyAppearance(entry.image); this.applyAppearance(entry.lit); }
+    for (const entry of this.entries) {
+      this.applyAppearance(entry.image); this.applyAppearance(entry.lit);
+      for (const tile of entry.tiles) if (tile.piece) this.applyAppearance(tile.piece.material);
+    }
     this.onChange();
   }
   /**
@@ -148,7 +179,7 @@ export class SurfaceScene {
   }
   setImageOverlay(enabled: boolean) {
     this.imageOverlay = enabled;
-    for (const entry of this.entries) for (const mesh of entry.meshes) mesh.material = enabled ? entry.image : entry.lit;
+    for (const entry of this.entries) for (const tile of entry.tiles) this.assign(entry, tile);
     this.onChange();
   }
   private applyAppearance(material: SurfaceMaterial) {
@@ -162,25 +193,23 @@ export class SurfaceScene {
   add(surface: Surface, origin: THREE.Vector3) {
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
     const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
-    const entry: SurfaceEntry = { image: material, lit, meshes: [], surface, tiles: [] };
-    this.grids.push({ width: surface.width, height: surface.height, calibration: surface.calibration, heights: surface.heights });
-    this.origin.copy(origin);
-    for (const h of surface.heights) if (h < this.lowest) this.lowest = h;
     // Cells wind a → b → d; whether that faces up depends on the grid's handedness.
     const [, , xx, xy, yx, yy] = surface.calibration;
     const frontUp = { value: xx * yy - xy * yx > 0 ? 1 : 0 };
-    for (const surfaceMaterial of [material, lit]) {
-      surfaceMaterial.forceSinglePass = true; this.applyAppearance(surfaceMaterial);
-      shadeUnderside(surfaceMaterial, frontUp, this.undersideOpaque, this.cameraBelow);
-    }
+    const entry: SurfaceEntry = { image: material, lit, meshes: [], surface, tiles: [], frontUp };
+    this.grids.push({ width: surface.width, height: surface.height, calibration: surface.calibration, heights: surface.heights });
+    this.origin.copy(origin);
+    for (const h of surface.heights) if (h < this.lowest) this.lowest = h;
+    for (const surfaceMaterial of [material, lit]) this.prepare(surfaceMaterial, frontUp);
     this.entries.push(entry);
-    const tiles = entry.tiles;
-    for (let row = 0; row < surface.height - 1; row += TILE_CELLS) {
-      for (let column = 0; column < surface.width - 1; column += TILE_CELLS) {
-        const columns = Math.min(TILE_CELLS, surface.width - column - 1), rows = Math.min(TILE_CELLS, surface.height - row - 1);
+    const tiles = entry.tiles, cells = tileCells(surface.calibration);
+    for (let row = 0; row < surface.height - 1; row += cells) {
+      for (let column = 0; column < surface.width - 1; column += cells) {
+        const columns = Math.min(cells, surface.width - column - 1), rows = Math.min(cells, surface.height - row - 1);
         const geometry = surfaceGeometry(surface, origin, column, row, columns, rows);
         const mesh = new THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>(geometry, this.imageOverlay ? material : lit); mesh.name = `Surface ${surface.id}`;
-        this.group.add(mesh); entry.meshes.push(mesh); tiles.push({ geometry, column, row, columns, rows });
+        this.group.add(mesh); entry.meshes.push(mesh);
+        tiles.push({ geometry, mesh, column, row, columns, rows, extent: tileExtent(surface, column, row, columns, rows) });
       }
     }
     if (!surface.bitmap || !tiles.length) return;
@@ -194,8 +223,11 @@ export class SurfaceScene {
       texture.flipY = false;
       texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4;
       entry.lox = { texture, bitmap };
-      // A map-service underlay chosen meanwhile stays on top.
-      if (!this.underlay) this.drape(entry, texture, bitmap.calibration, texture.image.width, texture.image.height);
+      for (const tile of entry.tiles) {
+        tile.loxUV = surfaceUV(entry.surface, bitmap, texture.image.width, texture.image.height, tile.column, tile.row, tile.columns, tile.rows);
+        this.assign(entry, tile);
+      }
+      entry.image.map = texture; entry.image.needsUpdate = true;
       this.onChange();
     }, undefined, () => {
       release(); texture.dispose();
@@ -204,15 +236,20 @@ export class SurfaceScene {
     this.pending.set(url, texture);
   }
 
-  private underlay: Underlay | undefined;
-  /** Put an image on a surface's tiles: `calibration` maps image pixels (row 0 at the bottom) to file coordinates. */
-  private drape(entry: SurfaceEntry, texture: THREE.Texture | null, calibration: Calibration, width: number, height: number) {
-    if (texture) for (const tile of entry.tiles) tile.geometry.setAttribute('uv', surfaceUV(entry.surface, { calibration } as SurfaceBitmap, width, height,
-      tile.column, tile.row, tile.columns, tile.rows));
-    entry.image.map = texture; entry.image.needsUpdate = true;
+  private prepare(material: SurfaceMaterial, frontUp: { value: number }) {
+    material.forceSinglePass = true; this.applyAppearance(material);
+    shadeUnderside(material, frontUp, this.undersideOpaque, this.cameraBelow, this.overlay);
   }
+  /** Material and texture coordinates for a tile: its map piece, the LOX image, or plain shading. */
+  private assign(entry: SurfaceEntry, tile: SurfaceTile) {
+    if (!this.imageOverlay) { tile.mesh.material = entry.lit; return; }
+    if (tile.piece) { tile.geometry.setAttribute('uv', tile.piece.uv); tile.mesh.material = tile.piece.material; return; }
+    if (tile.loxUV) tile.geometry.setAttribute('uv', tile.loxUV);
+    tile.mesh.material = entry.image;
+  }
+
   /** Extent of all surfaces in file coordinates: [minEast, minNorth, maxEast, maxNorth]. */
-  extent(): [number, number, number, number] | undefined {
+  extent(): Extent | undefined {
     if (!this.grids.length) return undefined;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const grid of this.grids) for (const [c, r] of [[0, 0], [grid.width - 1, 0], [0, grid.height - 1], [grid.width - 1, grid.height - 1]]) {
@@ -221,22 +258,64 @@ export class SurfaceScene {
     }
     return [minX, minY, maxX, maxY];
   }
-  /** Drape a map-service image over the surface instead of the LOX image; undefined goes back to it. */
-  setUnderlay(underlay: Underlay | undefined) {
-    if (this.underlay && this.underlay !== underlay) this.underlay.texture.dispose();
-    this.underlay = underlay;
-    for (const entry of this.entries) {
-      if (underlay) {
-        const [minX, minY, maxX, maxY] = underlay.extent;
-        this.drape(entry, underlay.texture, [minX, minY, (maxX - minX) / underlay.width, 0, 0, (maxY - minY) / underlay.height], underlay.width, underlay.height);
-      } else if (entry.lox) this.drape(entry, entry.lox.texture, entry.lox.bitmap.calibration, entry.lox.texture.image.width, entry.lox.texture.image.height);
-      else this.drape(entry, null, [0, 0, 1, 0, 0, 1], 1, 1);
+
+  /** The surface pieces a base map is draped on, one per mesh, keyed by surface and position. */
+  pieces() {
+    return this.entries.flatMap((entry, e) => entry.tiles.map(tile => ({ key: `${e}:${tile.column}:${tile.row}`, extent: tile.extent })));
+  }
+  /** Drape a map image (north up, covering `extent` in file coordinates) on one piece instead of the LOX image. */
+  setPiece(key: string, texture: THREE.Texture, extent: Extent) {
+    const [e, column, row] = key.split(':').map(Number), entry = this.entries[e];
+    const tile = entry?.tiles.find(item => item.column === column && item.row === row);
+    if (!entry || !tile) { texture.dispose(); return; }
+    this.dropPiece(tile);
+    const [minX, minY, maxX, maxY] = extent, image = texture.image as { width: number; height: number };
+    const uv = surfaceUV(entry.surface, { calibration: [minX, minY, (maxX - minX) / image.width, 0, 0, (maxY - minY) / image.height] } as SurfaceBitmap,
+      image.width, image.height, tile.column, tile.row, tile.columns, tile.rows);
+    const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, map: texture });
+    this.prepare(material, entry.frontUp);
+    tile.piece = { material, texture, uv };
+    this.assign(entry, tile);
+    this.onChange();
+  }
+  /** Back to the LOX image everywhere. */
+  clearPieces() {
+    for (const entry of this.entries) for (const tile of entry.tiles) { this.dropPiece(tile); this.assign(entry, tile); }
+    this.onChange();
+  }
+  /**
+   * Once every piece has its map, the LOX image leaves the graphics memory (phones have little);
+   * it is uploaded again when the LOX image comes back.
+   */
+  releaseLoxImages() {
+    for (const entry of this.entries) if (entry.lox && entry.tiles.every(tile => tile.piece)) entry.lox.texture.dispose();
+  }
+  private dropPiece(tile: SurfaceTile) {
+    if (!tile.piece) return;
+    tile.piece.material.dispose(); tile.piece.texture.dispose(); tile.piece = undefined;
+  }
+
+  /** A map over the base (north up, covering `extent` in file coordinates); null removes it. */
+  setOverlay(texture: THREE.Texture | null, extent?: Extent) {
+    if (this.overlay.map.value && this.overlay.map.value !== texture) this.overlay.map.value.dispose();
+    this.overlay.map.value = texture;
+    if (texture && extent) {
+      const [minX, minY, maxX, maxY] = extent;
+      // Canvas rows run from the north edge; texture v grows with them (no flip on upload).
+      this.overlay.transform.value.set(minX - this.origin.x, maxY - this.origin.y, 1 / (maxX - minX), -1 / (maxY - minY));
     }
+    this.overlay.opacity.value = texture ? this.overlayShown : 0;
+    this.onChange();
+  }
+  setOverlayOpacity(opacity: number) {
+    this.overlayShown = Math.max(0, Math.min(1, opacity));
+    this.overlay.opacity.value = this.overlay.map.value ? this.overlayShown : 0;
     this.onChange();
   }
 
   clear() {
-    this.underlay?.texture.dispose(); this.underlay = undefined;
+    this.overlay.map.value?.dispose(); this.overlay.map.value = null; this.overlay.opacity.value = 0;
+    for (const entry of this.entries) for (const tile of entry.tiles) this.dropPiece(tile);
     this.revision++;
     this.grids = []; this.lowest = Infinity; this.cameraBelow.value = 0;
     for (const [url, texture] of this.pending) { URL.revokeObjectURL(url); texture.dispose(); }
@@ -247,6 +326,15 @@ export class SurfaceScene {
     for (const entry of this.entries) { entry.image.map?.dispose(); entry.lox?.texture.dispose(); entry.image.dispose(); entry.lit.dispose(); }
     this.entries = [];
   }
+}
+
+function tileExtent(surface: Surface, column: number, row: number, columns: number, rows: number): Extent {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const [c, r] of [[column, row], [column + columns, row], [column, row + rows], [column + columns, row + rows]]) {
+    const [x, y] = surfacePoint(surface, r * surface.width + c, 0);
+    minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+  }
+  return [minX, minY, maxX, maxY];
 }
 
 export function initializeSurfaceControls(surface: SurfaceScene) {
