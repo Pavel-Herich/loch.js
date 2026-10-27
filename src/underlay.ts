@@ -1,10 +1,10 @@
 import { sjtskToWgs84 } from './geo';
 
 /**
- * Map underlays for the surface. Base maps (orthophoto, Freemap) replace the LOX image in
- * pieces of about a kilometre, sharper near the cave; overlays (the geological map) lie
- * over whatever base is shown, with adjustable opacity. WMS services are asked in S-JTSK
- * (EPSG:5514); Freemap's Web Mercator tiles are reprojected to S-JTSK on a canvas.
+ * Map layers over the LOX image. Imagery and outdoor maps are draped in pieces of about a
+ * kilometre, sharper near the caves; the geological map is one image over the surface.
+ * WMS services are asked in S-JTSK (EPSG:5514); Web Mercator tiles (Freemap, Mapy.com)
+ * are reprojected to S-JTSK on a canvas.
  * Services must allow use from other sites (CORS) for their images to become textures.
  */
 export type Extent = [number, number, number, number];
@@ -37,9 +37,6 @@ export type UnderlayService = (WmsService | XyzService) & {
 
 /** All map layers lie over the LOX image, in this order (later ones on top). */
 export const UNDERLAY_SERVICES: UnderlayService[] = [
-  // Only the orthophoto mosaic itself: the service's other layers (sheet outlines) would cover it.
-  { id: 'ortho', kind: 'wms', title: 'ZBGIS orthophoto', url: 'https://inspirews.skgeodesy.sk/geoserver/oi/ows', layers: 'OI.OrthoimageCoverage',
-    format: 'image/jpeg', attribution: '© ÚGKK SR', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1, storeAs: 'ortho-checked' },
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
     tileSize: 256, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1 },
   { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}@2x', tileSize: 512, maxZoom: 19,

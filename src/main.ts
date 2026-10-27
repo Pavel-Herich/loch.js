@@ -56,6 +56,8 @@ const status = document.querySelector<HTMLElement>('#status')!;
 const legend = document.querySelector<HTMLElement>('#legend')!;
 const projectTitle = document.querySelector<HTMLElement>('#project-title')!;
 const detail = document.querySelector<HTMLSelectElement>('#detail')!;
+// Full detail at every start (browsers may restore a choice from an earlier visit).
+detail.value = 'full';
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x09131c);
 let camera: ViewCamera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -771,6 +773,7 @@ function confirmDownload(title: string, bytes: number) {
 const isCoarse = () => matchMedia('(pointer: coarse)').matches;
 // Mapy.com tiles need the user's own (free) API key; it stays in this browser.
 const MAPY_KEY = 'loch.js-mapy-key';
+let keyAskedAgain = false;
 const mapyKey = () => { try { return localStorage.getItem(MAPY_KEY) ?? ''; } catch { return ''; } };
 const keyDialog = document.querySelector<HTMLDialogElement>('#mapy-key-dialog')!;
 const keyInput = document.querySelector<HTMLInputElement>('#mapy-key')!;
@@ -784,7 +787,10 @@ function askMapyKey() {
     resolve(key);
   }, { once: true }));
 }
-document.querySelector<HTMLButtonElement>('#underlay-mapy-key')!.addEventListener('click', () => { closeUnderlayMenu(); void askMapyKey(); });
+document.querySelector<HTMLButtonElement>('#underlay-mapy-key')!.addEventListener('click', () => {
+  document.querySelectorAll<HTMLDetailsElement>('#menus details').forEach(group => { group.open = false; });
+  void askMapyKey();
+});
 
 function mapTexture(image: ImageBitmap | HTMLCanvasElement) {
   const texture = image instanceof HTMLCanvasElement ? new THREE.CanvasTexture(image) : new THREE.Texture(image);
@@ -812,6 +818,8 @@ function setMapLayer(id: string, on: boolean) {
   state.request?.abort(); state.request = undefined;
   surfaceScene.removeLayer(id);
   state.on = on && mapsUsable();
+  // One imagery or outdoor map at a time (the geological map can lie over it).
+  if (state.on && service.levels) for (const other of UNDERLAY_SERVICES) if (other.id !== id && other.levels && mapLayers.get(other.id)!.on) setMapLayer(other.id, false);
   syncUnderlayMenu();
   if (!state.on) return;
   surfaceScene.setLayer(id, UNDERLAY_SERVICES.indexOf(service), state.opacity);
@@ -870,7 +878,15 @@ function setMapLayer(id: string, on: boolean) {
         failed++; lastError = error;
         if (failed === 1) console.warn(error);
         // A service that refuses everything (no CORS, wrong key) is not asked for every piece.
-        if (!succeeded && failed >= 2 && current()) { back(`${service.title}: ${exceptionMessage(error)}`); request.abort(); }
+        if (!succeeded && failed >= 2 && current()) {
+          // A refused Mapy.com key: ask for it once more and start again.
+          if (service.kind === 'xyz' && service.apiKey && /API key/.test(exceptionMessage(error)) && !keyAskedAgain) {
+            keyAskedAgain = true; request.abort(); state.request = undefined;
+            void askMapyKey().then(key => { if (key) setMapLayer(id, true); else { state.on = false; surfaceScene.removeLayer(id); syncUnderlayMenu(); } });
+            return;
+          }
+          back(`${service.title}: ${exceptionMessage(error)}`); request.abort();
+        }
       } finally { done++; report(); }
     }));
     if (!current()) return;

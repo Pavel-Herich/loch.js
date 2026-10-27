@@ -150,9 +150,9 @@ body:not(.menu-open) #project-title{display:none}
 .photo-add:focus-within{outline:2px solid #8ed9ff;outline-offset:2px}
 .object-error{margin:0 16px;color:#ffb36b;font-size:.85rem}
 .object-error:empty{display:none}
-#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions,#search-dialog .dialog-actions,#export-dialog .dialog-actions,#tracks-dialog .dialog-actions,#download-dialog,#mapy-key-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
+#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions,#search-dialog .dialog-actions,#export-dialog .dialog-actions,#tracks-dialog .dialog-actions,#download-dialog .dialog-actions,#mapy-key-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
 button.primary{background:#215a75;border-color:#8ed9ff}
-#objects-dialog h2,#layers-dialog h2,#search-dialog h2,#export-dialog h2,#tracks-dialog h2,#download-dialog,#mapy-key-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
+#objects-dialog h2,#layers-dialog h2,#search-dialog h2,#export-dialog h2,#tracks-dialog h2,#download-dialog h2,#mapy-key-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
 .objects-hint{margin:0;padding:0 16px 8px;font-size:.8rem;color:#b8ccd9}
 .objects-list{list-style:none;margin:0;padding:0 16px;max-height:calc(100dvh - 230px);overflow:auto}
 .objects-list li{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid #253b4b}

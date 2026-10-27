@@ -66,7 +66,7 @@ type SurfaceTile = {
   own?: { material: SurfaceMaterial; signature: string };
 };
 /** A map image and where it lies: scene x/y → texture u/v as (xy − offset) × scale. */
-type LayerImage = { texture: THREE.Texture; transform: THREE.Vector4 };
+type LayerImage = { texture: THREE.Texture; transform: THREE.Vector4; piece?: boolean };
 type Layer = { order: number; opacity: { value: number }; whole?: LayerImage };
 type SurfaceEntry = {
   image: THREE.MeshBasicMaterial; lit: THREE.MeshStandardMaterial; meshes: THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>[];
@@ -82,7 +82,8 @@ const UNDERSIDE = 'vec3(.56, .36, .22)';
  * Seen from below, the surface turns brown and (by default) opaque, so a view up from
  * the cave is told apart from a view down onto the terrain.
  */
-type LayerUniforms = { map: THREE.Texture; transform: THREE.Vector4; opacity: { value: number } };
+/** `piece`: the image covers exactly this mesh, so it is clamped at its edges (no seams between pieces). */
+type LayerUniforms = { map: THREE.Texture; transform: THREE.Vector4; opacity: { value: number }; piece: boolean };
 /**
  * Seen from below, the surface turns brown and (by default) opaque, so a view up from
  * the cave is told apart from a view down onto the terrain. Map layers are laid over the
@@ -97,9 +98,10 @@ function shadeSurface(material: THREE.Material, frontUp: { value: number }, opaq
       shader.uniforms[`layerOpacity${i}`] = layer.opacity;
     });
     const declarations = layers.map((_, i) => `uniform sampler2D layerMap${i};\nuniform vec4 layerTransform${i};\nuniform float layerOpacity${i};`).join('\n');
-    const blend = layers.map((_, i) => `  {
+    const blend = layers.map((layer, i) => `  {
     vec2 layerUv = (vSurfaceXY - layerTransform${i}.xy) * layerTransform${i}.zw;
-    if (layerOpacity${i} > 0. && all(greaterThanEqual(layerUv, vec2(0.))) && all(lessThanEqual(layerUv, vec2(1.)))) {
+    ${layer.piece ? `layerUv = clamp(layerUv, 0., 1.);
+    if (layerOpacity${i} > 0.) {` : `if (layerOpacity${i} > 0. && all(greaterThanEqual(layerUv, vec2(-.0005))) && all(lessThanEqual(layerUv, vec2(1.0005)))) {`}
       vec4 layerColor = texture2D(layerMap${i}, layerUv);
       diffuseColor.rgb = mix(diffuseColor.rgb, layerColor.rgb, layerOpacity${i} * layerColor.a);
     }
@@ -122,7 +124,7 @@ function shadeSurface(material: THREE.Material, frontUp: { value: number }, opaq
     gl_FragColor.a = mix(gl_FragColor.a, 1.0, surfaceUndersideOpaque);
   }`);
   };
-  material.customProgramCacheKey = () => `surface-layers-${layers.length}`;
+  material.customProgramCacheKey = () => `surface-layers-${layers.map(layer => layer.piece ? 'p' : 'w').join('')}`;
 }
 
 export class SurfaceScene {
@@ -274,7 +276,7 @@ export class SurfaceScene {
     this.dropOwn(tile);
     const material = base.clone() as SurfaceMaterial;
     material.map = base.map;
-    this.prepare(material, entry.frontUp, layers.map(item => ({ map: item.image.texture, transform: item.image.transform, opacity: item.layer.opacity })));
+    this.prepare(material, entry.frontUp, layers.map(item => ({ map: item.image.texture, transform: item.image.transform, opacity: item.layer.opacity, piece: Boolean(item.image.piece) })));
     tile.own = { material, signature };
     tile.mesh.material = material;
   }
@@ -317,7 +319,7 @@ export class SurfaceScene {
     const tile = entry?.tiles.find(item => item.column === column && item.row === row);
     if (!entry || !tile || !this.layers.has(id)) { texture.dispose(); return; }
     tile.pieces.get(id)?.texture.dispose();
-    tile.pieces.set(id, this.image(texture, extent));
+    tile.pieces.set(id, { ...this.image(texture, extent), piece: true });
     this.assign(entry, tile);
     this.onChange();
   }

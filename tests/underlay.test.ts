@@ -4,14 +4,10 @@ import { tileCells } from '../src/surface';
 
 describe('map underlays', () => {
   it('stacks imagery, outdoor maps and the geological map over the LOX image', () => {
-    expect(UNDERLAY_SERVICES.map(s => s.id)).toEqual(['ortho', 'mapy-aerial', 'freemap', 'mapy-outdoor', 'geology']);
+    expect(UNDERLAY_SERVICES.map(s => s.id)).toEqual(['mapy-aerial', 'freemap', 'mapy-outdoor', 'geology']);
     // Imagery and maps are draped in pieces; the geological map is one image at half opacity.
-    expect(UNDERLAY_SERVICES.filter(s => s.levels).map(s => s.id)).toEqual(['ortho', 'mapy-aerial', 'freemap', 'mapy-outdoor']);
+    expect(UNDERLAY_SERVICES.filter(s => s.levels).map(s => s.id)).toEqual(['mapy-aerial', 'freemap', 'mapy-outdoor']);
     expect(UNDERLAY_SERVICES.find(s => s.id === 'geology')!.opacity).toBe(.5);
-    // The orthophoto asks for the mosaic layer only (the service's other layers would cover it).
-    const ortho = UNDERLAY_SERVICES.find(s => s.id === 'ortho') as WmsService;
-    expect(ortho.discover).toBeFalsy();
-    expect(getMapUrl(ortho, ortho.layers, [0, 0, 10, 10], 10, 10)).toContain('LAYERS=OI.OrthoimageCoverage&');
     const geology = UNDERLAY_SERVICES.find(s => s.id === 'geology') as WmsService;
     expect(getMapUrl(geology, '0', [0, 0, 10, 10], 10, 10)).toContain('TRANSPARENT=TRUE');
   });
@@ -48,7 +44,7 @@ describe('map underlays', () => {
     expect(tight.reduce((sum, p) => sum + p.width * p.height, 0)).toBeLessThanOrEqual(2e6);
     expect(tight[0].width).toBeGreaterThan(tight[2].width);
     expect(planPieces(pieces, cave, [.1, 2, 6], Infinity, 2048)[0].width).toBe(2048);
-    expect(downloadEstimate(UNDERLAY_SERVICES[0], [{ width: 1000, height: 1000 }])).toBe(300_000);
+    expect(downloadEstimate(UNDERLAY_SERVICES[0], [{ width: 1000, height: 1000 }])).toBe(300_000); // Mapy.com aerial
   });
 
   it('measures pieces against the survey stations', () => {
