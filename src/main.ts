@@ -39,8 +39,7 @@ import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
 import { formatDistance, navigate } from './navigation';
-import { AnimationWakeLock } from './screen-wake-lock';
-import { drawTracks, TrackStore, trackGpx, trackLength, trackTherion, type Track } from './track';
+import { drawTracks, parseGpxTracks, TrackStore, trackGpx, trackLength, trackTherion, type Track } from './track';
 import { forgetLastModel, loadLastModel, saveLastModel } from './model-store';
 import { viewOrientation } from './indicators';
 import { resetSymbolSpace, symbolHidden } from './declutter';
@@ -454,8 +453,7 @@ function updateNavigation() {
 // Recording: GPS tracks kept on the device; started and stopped in the Recording window
 // (REC in the top bar, or View → Recording…), each shown, renamed, exported or deleted there.
 const tracks = new TrackStore();
-// While recording, the screen stays on: a phone stops the page's GPS when the screen goes off.
-const recordingWakeLock = new AnimationWakeLock();
+// A phone stops the page's GPS when the screen goes off: the track goes on as a new segment.
 document.addEventListener('visibilitychange', () => { if (document.hidden) tracks.interrupt(); });
 const trackCanvas = document.querySelector<HTMLCanvasElement>('#track-overlay')!;
 const trackToggle = document.querySelector<HTMLButtonElement>('#track-toggle')!;
@@ -470,7 +468,6 @@ function trackSummary(track: Track) {
 }
 function syncRecording() {
   const recording = tracks.recording;
-  recordingWakeLock.enabled = Boolean(recording);
   trackToggle.setAttribute('aria-pressed', String(Boolean(recording)));
   trackToggle.title = recording ? `Recording: ${trackSummary(recording)}` : 'Recording: GPS tracks';
   tracksRecord.textContent = recording ? 'Stop recording' : 'Start recording';
@@ -521,6 +518,24 @@ function openTracks() {
 trackToggle.addEventListener('click', openTracks);
 document.querySelector<HTMLButtonElement>('#tracks-open')!.addEventListener('click', openTracks);
 document.querySelector<HTMLButtonElement>('#tracks-close')!.addEventListener('click', () => tracksDialog.close());
+// GPX tracks recorded by another app (which can record with the screen off) join the list.
+const tracksFile = document.querySelector<HTMLInputElement>('#tracks-file')!;
+// iOS greys out .gpx files for an accept list it cannot map; any file is offered there.
+if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) tracksFile.removeAttribute('accept');
+document.querySelector<HTMLButtonElement>('#tracks-import')!.addEventListener('click', () => tracksFile.click());
+tracksFile.addEventListener('change', async () => {
+  const files = Array.from(tracksFile.files ?? []); tracksFile.value = '';
+  let count = 0, points = 0;
+  for (const file of files) {
+    try {
+      for (const imported of parseGpxTracks(await file.text(), file.name.replace(/\.[^.]*$/, ''))) {
+        tracks.importTrack(imported.name, imported.points); count++; points += imported.points.length;
+      }
+    } catch (error) { announce(`${file.name}: ${exceptionMessage(error)}`, true); }
+  }
+  renderTracks(); invalidateView();
+  if (files.length) announce(count ? `Imported ${count} ${count === 1 ? 'track' : 'tracks'} (${points} points).` : 'No track or route points in the file.', !count);
+});
 tracksRecord.addEventListener('click', () => {
   if (tracks.recording) tracks.stop();
   else { tracks.start(); if (!deviceLocation.active) toggleLocation(); }

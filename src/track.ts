@@ -1,5 +1,6 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { removeDiacritics } from './objects';
+import { wgs84ToSJTSK } from './geo';
 
 /**
  * One recorded GPS fix: WGS 84 position, S-JTSK (cs ijtsk) position and sea-level height.
@@ -57,9 +58,21 @@ export class TrackStore {
   }
   /** Start a new track; it records every precise fix that moved. */
   start() { this.recording = this.create(); this.interrupted = false; this.save(this.recording, true); return this.recording; }
+  /** A track from another app (GPX); its segments stay apart. */
+  importTrack(name: string, points: TrackPoint[]) {
+    const track = this.create(points[0]?.time);
+    if (name.trim()) track.name = removeDiacritics(name.trim());
+    track.points = points; this.save(track, true);
+    return track;
+  }
   /** Recording paused (the page was hidden): the next fix starts a new segment. */
   interrupt() { if (this.recording) { this.interrupted = true; this.save(this.recording, true); } }
-  stop() { if (this.recording) this.save(this.recording, true); this.recording = undefined; }
+  /** Stops recording; a track that got no fix is not kept. */
+  stop() {
+    const track = this.recording; this.recording = undefined;
+    if (!track) return;
+    if (track.points.length) this.save(track, true); else this.remove(track.id);
+  }
   /** Adds the fix to the track being recorded when it is precise enough and has moved. */
   add(point: TrackPoint) {
     const track = this.recording;
@@ -106,6 +119,58 @@ function indexedDbTracks(): TrackPersistence | undefined {
     put: track => run('readwrite', store => store.put(track)),
     delete: id => run('readwrite', store => store.delete(id)),
   };
+}
+
+const gpxTag = (body: string, name: string) => {
+  const match = new RegExp(`<(?:\\w+:)?${name}\\b[^>]*>([\\s\\S]*?)</(?:\\w+:)?${name}>`).exec(body);
+  return match ? match[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&').trim() : '';
+};
+const gpxAttribute = (head: string, name: string) => new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`).exec(head)?.[1];
+
+/**
+ * Tracks of a GPX file (another app's recording): each <trk> a track, each <trkseg> a
+ * segment of it; a file with routes only gives one track per <rte>. Positions are taken to
+ * S-JTSK (cs ijtsk); heights are kept as written (sea level).
+ */
+export function parseGpxTracks(text: string, fallbackName: string) {
+  const result: { name: string; points: TrackPoint[] }[] = [];
+  const now = new Date().toISOString();
+  const read = (body: string, kind: string, gap: boolean, points: TrackPoint[]) => {
+    let first = true;
+    for (const match of body.matchAll(new RegExp(`<(?:\\w+:)?${kind}\\b([^>]*?)(?:/>|>([\\s\\S]*?)</(?:\\w+:)?${kind}>)`, 'g'))) {
+      const [, head, inner = ''] = match;
+      const latitude = Number(gpxAttribute(head, 'lat')), longitude = Number(gpxAttribute(head, 'lon'));
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+      const ele = gpxTag(inner, 'ele'), height = ele !== '' && Number.isFinite(Number(ele)) ? Math.round(Number(ele) * 10) / 10 : null;
+      const [east, north] = wgs84ToSJTSK(latitude, longitude, height ?? 0);
+      const time = gpxTag(inner, 'time');
+      const point: TrackPoint = { time: time && !Number.isNaN(Date.parse(time)) ? new Date(time).toISOString() : now, latitude, longitude, east, north, height, accuracy: 0 };
+      if (gap && first && points.length) point.gap = true;
+      first = false;
+      points.push(point);
+    }
+  };
+  const named = (body: string, index: number, total: number) => {
+    // The track's own name, not a point's: look before its first segment or point.
+    const head = body.split(/<(?:\w+:)?(?:trkseg|trkpt|rtept)\b/)[0];
+    return gpxTag(head, 'name') || (total > 1 ? `${fallbackName} ${index + 1}` : fallbackName);
+  };
+  const trks = [...text.matchAll(/<(?:\w+:)?trk\b[^>]*>([\s\S]*?)<\/(?:\w+:)?trk>/g)].map(match => match[1]);
+  trks.forEach((body, index) => {
+    const points: TrackPoint[] = [];
+    const segments = [...body.matchAll(/<(?:\w+:)?trkseg\b[^>]*>([\s\S]*?)<\/(?:\w+:)?trkseg>/g)].map(match => match[1]);
+    for (const segment of segments.length ? segments : [body]) read(segment, 'trkpt', true, points);
+    if (points.length) result.push({ name: named(body, index, trks.length), points });
+  });
+  if (!result.length) {
+    const routes = [...text.matchAll(/<(?:\w+:)?rte\b[^>]*>([\s\S]*?)<\/(?:\w+:)?rte>/g)].map(match => match[1]);
+    routes.forEach((body, index) => {
+      const points: TrackPoint[] = [];
+      read(body, 'rtept', false, points);
+      if (points.length) result.push({ name: named(body, index, routes.length), points });
+    });
+  }
+  return result;
 }
 
 /** GPX 1.1 track, one segment per uninterrupted stretch; elevations are the sea-level heights. */

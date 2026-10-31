@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatDistance, navigate } from '../src/navigation';
-import { TrackStore, trackGpx, trackLength, trackTherion, type Track, type TrackPoint } from '../src/track';
+import { parseGpxTracks, TrackStore, trackGpx, trackLength, trackTherion, type Track, type TrackPoint } from '../src/track';
 
 describe('navigate', () => {
   const here = { east: 0, north: 0, height: 1000, trueNorth: 4 };
@@ -56,9 +56,31 @@ describe('TrackStore', () => {
     const th = trackTherion(track.points, 'walk');
     expect(th).toContain('    1 2'); expect(th).not.toContain('    2 3'); expect(th).toContain('    3 4'); expect(th).not.toContain('    4 5');
   });
+  it('imports GPX tracks with their segments, or routes', () => {
+    const gpx = `<?xml version="1.0"?><gpx version="1.1" creator="OsmAnd" xmlns="http://www.topografix.com/GPX/1/1">
+      <metadata><name>file name</name></metadata>
+      <trk><name>Jaskyňa pod Ohniskom</name>
+        <trkseg><trkpt lat="49.0" lon="19.6"><ele>1210.43</ele><time>2026-10-31T09:00:00Z</time><name>p1</name></trkpt>
+          <trkpt lat="49.0001" lon="19.6"><ele>1211</ele><time>2026-10-31T09:00:10Z</time></trkpt></trkseg>
+        <trkseg><trkpt lat="49.001" lon="19.601"/></trkseg>
+      </trk></gpx>`;
+    const [track] = parseGpxTracks(gpx, 'walk');
+    expect(track.name).toBe('Jaskyňa pod Ohniskom');
+    expect(track.points.map(p => Boolean(p.gap))).toEqual([false, false, true]);
+    expect(track.points[0]).toMatchObject({ height: 1210.4, time: '2026-10-31T09:00:00.000Z' });
+    expect(track.points[0].east).toBeLessThan(-300000); expect(track.points[2].height).toBeNull();
+    const store = new TrackStore(memory()), imported = store.importTrack(track.name, track.points);
+    expect(imported.name).toBe('Jaskyna pod Ohniskom');
+    expect(imported.created).toBe('2026-10-31T09:00:00.000Z');
+    const route = parseGpxTracks('<gpx><rte><rtept lat="49" lon="19.6"/><rtept lat="49.01" lon="19.6"/></rte></gpx>', 'plan');
+    expect(route).toHaveLength(1); expect(route[0].name).toBe('plan'); expect(route[0].points).toHaveLength(2);
+    expect(parseGpxTracks('<gpx><wpt lat="49" lon="19.6"/></gpx>', 'x')).toEqual([]);
+  });
   it('hides, renames and deletes tracks', async () => {
     const saved = memory(), store = new TrackStore(saved);
-    const track = store.start(); store.stop();
+    const empty = store.start(); store.stop();
+    expect(store.find(empty.id)).toBeUndefined(); // no fix: not kept
+    const track = store.start(); store.add(point(0)); store.stop();
     store.setVisible(track.id, false); store.rename(track.id, 'Ponor walk');
     expect(saved.data.get(track.id)).toMatchObject({ visible: false, name: 'Ponor walk' });
     store.remove(track.id);

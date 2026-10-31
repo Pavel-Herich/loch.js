@@ -360,3 +360,4 @@ body.computer #section-panel{background:#162531}
 .map-layer .menu-range{padding-top:0}
 .map-layer .menu-range[hidden]{display:none}
 #underlay-menu{max-height:calc(100dvh - 120px);overflow:auto}
+#tracks-import{margin-left:auto}

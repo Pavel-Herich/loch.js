@@ -174,8 +174,8 @@
   </div>
   <div class="dialog-actions"><button type="button" id="export-go" class="primary">Export</button><button type="button" id="export-close">Close</button></div>
 </dialog><dialog id="tracks-dialog" aria-labelledby="tracks-heading"><h2 id="tracks-heading">Recording</h2>
-  <div class="tracks-record"><button type="button" id="tracks-record" class="primary">Start recording</button><span id="tracks-status"></span></div>
-  <p class="objects-hint">GPS tracks kept on this device. Tap a name to rename it; the box shows or hides the track on the model. While recording, the screen stays on: with the screen off or in another app the phone stops the GPS for this page, and the track goes on as a new segment, not joined by a straight line.</p>
+  <div class="tracks-record"><button type="button" id="tracks-record" class="primary">Start recording</button><span id="tracks-status"></span><button type="button" id="tracks-import">Import GPX…</button><input id="tracks-file" type="file" accept=".gpx,application/gpx+xml" multiple hidden/></div>
+  <p class="objects-hint">GPS tracks kept on this device. Tap a name to rename it; the box shows or hides the track on the model. With the screen off or in another app the phone stops the GPS for this page; the track then goes on as a new segment, not joined by a straight line. For recording with the screen off, use a GPS app and import its GPX here.</p>
   <ul id="tracks-list" class="tracks-list"></ul>
   <div class="dialog-actions"><button type="button" id="tracks-close">Close</button></div>
 </dialog><dialog id="download-dialog" aria-labelledby="download-heading"><form method="dialog"><h2 id="download-heading">Download maps?</h2><p id="download-text"></p>
