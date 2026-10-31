@@ -39,6 +39,7 @@ import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
 import { formatDistance, navigate } from './navigation';
+import { AnimationWakeLock } from './screen-wake-lock';
 import { drawTracks, TrackStore, trackGpx, trackLength, trackTherion, type Track } from './track';
 import { forgetLastModel, loadLastModel, saveLastModel } from './model-store';
 import { viewOrientation } from './indicators';
@@ -453,6 +454,9 @@ function updateNavigation() {
 // Recording: GPS tracks kept on the device; started and stopped in the Recording window
 // (REC in the top bar, or View → Recording…), each shown, renamed, exported or deleted there.
 const tracks = new TrackStore();
+// While recording, the screen stays on: a phone stops the page's GPS when the screen goes off.
+const recordingWakeLock = new AnimationWakeLock();
+document.addEventListener('visibilitychange', () => { if (document.hidden) tracks.interrupt(); });
 const trackCanvas = document.querySelector<HTMLCanvasElement>('#track-overlay')!;
 const trackToggle = document.querySelector<HTMLButtonElement>('#track-toggle')!;
 const tracksDialog = document.querySelector<HTMLDialogElement>('#tracks-dialog')!;
@@ -466,6 +470,7 @@ function trackSummary(track: Track) {
 }
 function syncRecording() {
   const recording = tracks.recording;
+  recordingWakeLock.enabled = Boolean(recording);
   trackToggle.setAttribute('aria-pressed', String(Boolean(recording)));
   trackToggle.title = recording ? `Recording: ${trackSummary(recording)}` : 'Recording: GPS tracks';
   tracksRecord.textContent = recording ? 'Stop recording' : 'Start recording';

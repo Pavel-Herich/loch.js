@@ -1,20 +1,26 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { removeDiacritics } from './objects';
 
-/** One recorded GPS fix: WGS 84 position, S-JTSK (cs ijtsk) position and sea-level height. */
-export type TrackPoint = { time: string; latitude: number; longitude: number; east: number; north: number; height: number | null; accuracy: number };
+/**
+ * One recorded GPS fix: WGS 84 position, S-JTSK (cs ijtsk) position and sea-level height.
+ * `gap`: recording was interrupted before this fix (screen off, app in the background,
+ * signal lost), so it starts a new segment and is not joined to the fix before it.
+ */
+export type TrackPoint = { time: string; latitude: number; longitude: number; east: number; north: number; height: number | null; accuracy: number; gap?: true };
 
 /** A recorded track: its points, a name, and whether it is drawn on the model. */
 export type Track = { id: string; name: string; created: string; color: string; visible: boolean; points: TrackPoint[] };
 
 /** Fixes closer than this to the last kept one are skipped, and so are vague ones. */
 const MIN_STEP = 3, MAX_ACCURACY = 50;
+/** Fixes further apart in time than this are not joined (the phone was not recording in between). */
+export const GAP_SECONDS = 60;
 const COLORS = ['#ff7a3d', '#ffd84d', '#ff5ad1', '#5ae0ff', '#9cff5a', '#c49bff'];
 
 /** Horizontal length of a track in metres. */
 export function trackLength(track: Pick<Track, 'points'>) {
   let total = 0;
-  for (let i = 1; i < track.points.length; i++) total += Math.hypot(track.points[i].east - track.points[i - 1].east, track.points[i].north - track.points[i - 1].north);
+  for (let i = 1; i < track.points.length; i++) if (!track.points[i].gap) total += Math.hypot(track.points[i].east - track.points[i - 1].east, track.points[i].north - track.points[i - 1].north);
   return total;
 }
 
@@ -25,6 +31,7 @@ export type TrackPersistence = { list(): Promise<Track[]>; put(track: Track): Pr
 export class TrackStore {
   tracks: Track[] = [];
   recording: Track | undefined;
+  private interrupted = false;
   private saveTimer: ReturnType<typeof setTimeout> | undefined;
   constructor(private persistence: TrackPersistence | undefined = indexedDbTracks()) {}
 
@@ -49,15 +56,19 @@ export class TrackStore {
     return track;
   }
   /** Start a new track; it records every precise fix that moved. */
-  start() { this.recording = this.create(); this.save(this.recording, true); return this.recording; }
+  start() { this.recording = this.create(); this.interrupted = false; this.save(this.recording, true); return this.recording; }
+  /** Recording paused (the page was hidden): the next fix starts a new segment. */
+  interrupt() { if (this.recording) { this.interrupted = true; this.save(this.recording, true); } }
   stop() { if (this.recording) this.save(this.recording, true); this.recording = undefined; }
   /** Adds the fix to the track being recorded when it is precise enough and has moved. */
   add(point: TrackPoint) {
     const track = this.recording;
     if (!track || !(point.accuracy <= MAX_ACCURACY)) return false;
     const last = track.points.at(-1);
-    if (last && Math.hypot(point.east - last.east, point.north - last.north) < MIN_STEP) return false;
-    track.points.push(point); this.save(track);
+    const gap = Boolean(last) && (this.interrupted || Date.parse(point.time) - Date.parse(last!.time) > GAP_SECONDS * 1000);
+    if (last && !gap && Math.hypot(point.east - last.east, point.north - last.north) < MIN_STEP) return false;
+    const { gap: _, ...fix } = point;
+    track.points.push(gap ? { ...fix, gap: true } : fix); this.interrupted = false; this.save(track);
     return true;
   }
   setVisible(id: string, visible: boolean) { const track = this.find(id); if (track) { track.visible = visible; this.save(track, true); } }
@@ -97,10 +108,10 @@ function indexedDbTracks(): TrackPersistence | undefined {
   };
 }
 
-/** GPX 1.1 track; elevations are the sea-level heights. */
+/** GPX 1.1 track, one segment per uninterrupted stretch; elevations are the sea-level heights. */
 export function trackGpx(points: TrackPoint[], name = 'loch.js track') {
   const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
-  const rows = points.map(point => `      <trkpt lat="${point.latitude.toFixed(7)}" lon="${point.longitude.toFixed(7)}">${point.height === null ? '' : `<ele>${point.height.toFixed(1)}</ele>`}<time>${point.time}</time></trkpt>`);
+  const rows = points.map((point, i) => `${point.gap && i ? '  </trkseg><trkseg>\n' : ''}      <trkpt lat="${point.latitude.toFixed(7)}" lon="${point.longitude.toFixed(7)}">${point.height === null ? '' : `<ele>${point.height.toFixed(1)}</ele>`}<time>${point.time}</time></trkpt>`);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="loch.js" xmlns="http://www.topografix.com/GPX/1/1">
   <trk><name>${escape(name)}</name><trkseg>
@@ -119,7 +130,8 @@ export function trackTherion(points: TrackPoint[], survey: string) {
   const lines = [`survey ${id} -title "${id}"`, '  centreline', '    cs ijtsk', '    flags surface'];
   points.forEach((point, index) => lines.push(`    fix ${index + 1} ${Math.round(point.east)} ${Math.round(point.north)} ${point.height === null ? 0 : Math.round(point.height)}`));
   lines.push('    data nosurvey from to');
-  for (let i = 1; i < points.length; i++) lines.push(`    ${i} ${i + 1}`);
+  // No leg across an interruption.
+  for (let i = 1; i < points.length; i++) if (!points[i].gap) lines.push(`    ${i} ${i + 1}`);
   lines.push('  endcentreline', 'endsurvey', '');
   return lines.join('\r\n');
 }
@@ -145,7 +157,8 @@ export function drawTracks(canvas: HTMLCanvasElement, tracks: Track[], camera: C
       const z = heightAt(point.east, point.north) ?? point.height ?? origin.z;
       const x = point.east - origin.x, y = point.north - origin.y, h = z - origin.z;
       const w = m[3] * x + m[7] * y + m[11] * h + m[15];
-      if (w <= 0) { open = false; continue; }
+      if (w <= 0 || point.gap) open = false;
+      if (w <= 0) continue;
       const sx = ((m[0] * x + m[4] * y + m[8] * h + m[12]) / w + 1) / 2 * width, sy = (1 - (m[1] * x + m[5] * y + m[9] * h + m[13]) / w) / 2 * height;
       if (open) context.lineTo(sx, sy); else { context.moveTo(sx, sy); open = true; }
     }

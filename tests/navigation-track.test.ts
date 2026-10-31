@@ -40,6 +40,22 @@ describe('TrackStore', () => {
     expect(reloaded.tracks.map(t => t.points.length)).toEqual([2, 1]);
     expect(reloaded.tracks[0].color).not.toBe(reloaded.tracks[1].color);
   });
+  it('starts a new segment after the page was hidden or a long pause, never joining across it', () => {
+    const store = new TrackStore(memory());
+    const at = (east: number, time: string): TrackPoint => ({ ...point(east), time });
+    const track = store.start();
+    store.add(at(0, '2026-10-31T10:00:00Z')); store.add(at(10, '2026-10-31T10:00:20Z'));
+    store.interrupt();                                      // screen off
+    store.add(at(400, '2026-10-31T10:00:30Z'));             // back: a new segment
+    store.add(at(410, '2026-10-31T10:00:40Z'));
+    store.add(at(900, '2026-10-31T10:05:00Z'));             // 4 minutes without a fix
+    expect(track.points.map(p => Boolean(p.gap))).toEqual([false, false, true, false, true]);
+    expect(trackLength(track)).toBe(20);
+    const gpx = trackGpx(track.points);
+    expect(gpx.match(/<trkseg>/g)).toHaveLength(3);
+    const th = trackTherion(track.points, 'walk');
+    expect(th).toContain('    1 2'); expect(th).not.toContain('    2 3'); expect(th).toContain('    3 4'); expect(th).not.toContain('    4 5');
+  });
   it('hides, renames and deletes tracks', async () => {
     const saved = memory(), store = new TrackStore(saved);
     const track = store.start(); store.stop();
