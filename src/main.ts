@@ -34,7 +34,7 @@ import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './p
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
 import { downloadEstimate, fetchMap, nearestPointGap, planPieces, tileGround, tileTemplate, UNDERLAY_SERVICES } from './underlay';
-import { forgetStoredUnderlays, loadStoredUnderlay, storeUnderlay, underlayKey } from './underlay-cache';
+import { forgetStoredUnderlays, forgetStoredUnderlaysOf, loadStoredUnderlay, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
@@ -736,6 +736,8 @@ const underlayMenu = document.querySelector<HTMLElement>('#underlay-menu')!;
 const layerList = document.querySelector<HTMLElement>('#map-layers')!;
 type MapLayerState = {
   on: boolean; opacity: number; request?: AbortController;
+  /** On-demand layers: API key, failures in a row, and whether the attribution was announced. */
+  apiKey?: string; failures?: number; announced?: boolean;
   /** On-demand layers: the zoom each piece shows or is loading, and its request. */
   shown?: Map<string, { zoom: number; pixels: number; loading?: AbortController }>;
 };
@@ -753,6 +755,7 @@ for (const service of UNDERLAY_SERVICES) {
     mapLayers.get(service.id)!.opacity = Number(input.value) / 100;
     output.value = `${input.value}%`;
     surfaceScene.setLayerOpacity(service.id, Number(input.value) / 100);
+    rememberModelLayers();
   });
 }
 function syncUnderlayMenu() {
@@ -822,11 +825,36 @@ function mapTexture(image: ImageBitmap | HTMLCanvasElement) {
   return texture;
 }
 const toBlob = (canvas: HTMLCanvasElement, type: string) => new Promise<Blob | null>(resolve => canvas.toBlob(resolve, type, .88));
-const mapsUsable = () => {
+const mapsUsable = (quiet = false) => {
   if (surfaceScene.extent() && looksLikeSJTSK(worldOrigin.x, worldOrigin.y)) return true;
-  announce('Map layers need a model with a surface in S-JTSK.', true);
+  if (!quiet) announce('Map layers need a model with a surface in S-JTSK.', true);
   return false;
 };
+// Map layers are remembered for each model (by file name and size) and come back when it opens again.
+const MODEL_LAYERS = 'loch.js-model-layers';
+let modelKey = '';
+function rememberModelLayers() {
+  if (!modelKey) return;
+  try {
+    const all = JSON.parse(localStorage.getItem(MODEL_LAYERS) ?? '{}') as Record<string, Record<string, number>>;
+    const on = Object.fromEntries([...mapLayers].filter(([, state]) => state.on).map(([id, state]) => [id, state.opacity]));
+    if (Object.keys(on).length) all[modelKey] = on; else delete all[modelKey];
+    localStorage.setItem(MODEL_LAYERS, JSON.stringify(all));
+  } catch { /* Not remembered (private mode). */ }
+}
+function restoreModelLayers() {
+  let layers: Record<string, number> | undefined;
+  try { layers = (JSON.parse(localStorage.getItem(MODEL_LAYERS) ?? '{}') as Record<string, Record<string, number>>)[modelKey]; } catch { return; }
+  if (!layers || !mapsUsable(true)) return;
+  for (const service of UNDERLAY_SERVICES) {
+    const opacity = layers[service.id];
+    if (opacity === undefined || mapLayers.get(service.id)!.on) continue;
+    mapLayers.get(service.id)!.opacity = opacity;
+    setMapLayer(service.id, true, true);
+  }
+}
+// Copies of Mapy.com maps saved by earlier versions are removed (their terms do not allow storing tiles).
+for (const service of ['mapy-aerial', 'mapy-outdoor']) void forgetStoredUnderlaysOf(service).catch(() => undefined);
 /** Distance from a piece to the nearest survey station (file coordinates): maps are sharpest over the caves. */
 function caveGap() {
   const stations = centreline.stationDetails.filter(station => !temporaryStation(station));
@@ -903,20 +931,27 @@ function refreshOnDemand(id: string) {
     request.signal.addEventListener('abort', () => loading.abort());
     const entry: { zoom: number; pixels: number; loading?: AbortController } = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading };
     shown.set(piece.key, entry); started++;
-    void fetchMap(service, piece.extent, width, rows, loading.signal, '', piece.zoom).then(canvas => {
+    void fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom).then(canvas => {
       if (entry.loading !== loading || !state.on) return;
-      entry.loading = undefined; entry.pixels = width * rows; onDemandFailures = 0;
+      entry.loading = undefined; entry.pixels = width * rows; state.failures = 0;
       surfaceScene.setLayerPiece(id, piece.key, mapTexture(canvas), piece.extent);
     }).catch(error => {
       if ((error as Error).name === 'AbortError' || entry.loading !== loading) return;
       shown.delete(piece.key);
       // A service that refuses everything (no CORS, no answer) is switched off with the reason.
-      if (++onDemandFailures >= 3 && state.on) { announce(`${service.title}: ${exceptionMessage(error)}`, true); setMapLayer(id, false); }
+      if ((state.failures = (state.failures ?? 0) + 1) >= 3 && state.on) {
+        // A refused Mapy.com key: ask for it once more and start again.
+        if (service.apiKey && /API key/.test(exceptionMessage(error)) && !keyAskedAgain) {
+          keyAskedAgain = true; setMapLayer(id, false);
+          void askMapyKey().then(key => { if (key) setMapLayer(id, true); });
+          return;
+        }
+        announce(`${service.title}: ${exceptionMessage(error)}`, true); setMapLayer(id, false);
+      }
     });
   }
-  if (started && !onDemandAnnounced) { onDemandAnnounced = true; announce(`${service.title} ${service.attribution} · loaded for the view as it rests`); }
+  if (started && !state.announced) { state.announced = true; announce(`${service.title} ${service.attribution} · loaded for the view as it rests`); }
 }
-let onDemandFailures = 0, onDemandAnnounced = false;
 let onDemandTimer: number | undefined;
 // After the view rests a moment, on-demand layers load what it now shows.
 controls.addEventListener('change', () => {
@@ -924,13 +959,14 @@ controls.addEventListener('change', () => {
   onDemandTimer = window.setTimeout(() => { for (const [id, state] of mapLayers) if (state.on && state.shown) refreshOnDemand(id); }, 400);
 });
 
-function setMapLayer(id: string, on: boolean) {
+function setMapLayer(id: string, on: boolean, quiet = false) {
   const state = mapLayers.get(id)!, service = UNDERLAY_SERVICES.find(item => item.id === id)!;
   state.request?.abort(); state.request = undefined;
   for (const piece of state.shown?.values() ?? []) piece.loading?.abort();
   state.shown = undefined;
   surfaceScene.removeLayer(id);
-  state.on = on && mapsUsable();
+  state.on = on && mapsUsable(quiet);
+  if (!quiet && !on) rememberModelLayers();
   syncAttribution();
   // One imagery or outdoor map at a time (the geological map can lie over it).
   if (state.on && service.levels) for (const other of UNDERLAY_SERVICES) if (other.id !== id && other.levels && mapLayers.get(other.id)!.on) setMapLayer(other.id, false);
@@ -938,7 +974,20 @@ function setMapLayer(id: string, on: boolean) {
   if (!state.on) return;
   surfaceScene.setLayer(id, UNDERLAY_SERVICES.indexOf(service), state.opacity);
   syncAttribution();
-  if (service.kind === 'xyz' && service.onDemand) { state.shown = new Map(); state.request = new AbortController(); refreshOnDemand(id); return; }
+  rememberModelLayers();
+  if (service.kind === 'xyz' && service.onDemand) {
+    const request = state.request = new AbortController();
+    state.shown = new Map(); state.failures = 0; state.announced = false;
+    void (async () => {
+      if (service.apiKey) {
+        state.apiKey = mapyKey() || await askMapyKey();
+        if (state.request !== request) return;
+        if (!state.apiKey) { announce(`${service.title} needs an API key.`, true); setMapLayer(id, false); return; }
+      }
+      refreshOnDemand(id);
+    })();
+    return;
+  }
   const request = state.request = new AbortController();
   const current = () => state.request === request;
   const back = (message: string) => {
@@ -1227,6 +1276,7 @@ function draw(model: Model, label: string) {
 }
 async function loadFile(file: File) {
   const id = ++loadId;
+  modelKey = `${file.name}|${file.size}`;
   // A section and a map underlay belong to the model they were made for.
   applySection(undefined);
   for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
@@ -1334,6 +1384,7 @@ function finishFileLoading() {
   collapseAfterRender = false;
   setStatusProgress(status);
   menus.collapse();
+  restoreModelLayers();
 }
 detail.addEventListener('change', () => { loadingError = false; invalidateView(); });
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
@@ -1547,6 +1598,7 @@ function frame(time = performance.now()) {
 }
 frame();
 async function loadSample() {
+  modelKey = '';
   const source = `${import.meta.env.BASE_URL}sample/demo.lox`;
   let phase = 'Fetching sample';
   try {

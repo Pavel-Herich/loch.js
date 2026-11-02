@@ -32,3 +32,5 @@ export async function storeUnderlay(key: string, value: StoredUnderlay) {
   await run('readwrite', store => store.put(value, key));
 }
 export const forgetStoredUnderlays = () => run('readwrite', store => store.clear());
+/** Removes the copies of one service (keys start with its name). */
+export const forgetStoredUnderlaysOf = (service: string) => run('readwrite', store => store.delete(IDBKeyRange.bound(`${service}|`, `${service}|\uffff`)));

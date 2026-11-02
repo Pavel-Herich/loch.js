@@ -23,6 +23,10 @@ describe('map underlays', () => {
     expect(tileGround(49, 512, 16)).toBeCloseTo(.78, 2);
   });
 
+  it('loads Mapy.com on demand too (its terms forbid storing or pre-caching tiles)', () => {
+    for (const id of ['mapy-aerial', 'mapy-outdoor']) expect(UNDERLAY_SERVICES.find(s => s.id === id)).toMatchObject({ onDemand: true, minZoom: 5, maxZoom: 19, apiKey: 'mapy' });
+  });
+
   it('measures the gap between extents', () => {
     expect(extentGap([0, 0, 10, 10], [5, 5, 20, 20])).toBe(0);
     expect(extentGap([0, 0, 10, 10], [13, 14, 20, 20])).toBe(5);

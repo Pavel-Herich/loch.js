@@ -46,8 +46,9 @@ export type UnderlayService = (WmsService | XyzService) & {
 
 /** All map layers lie over the LOX image, in this order (later ones on top). */
 export const UNDERLAY_SERVICES: UnderlayService[] = [
+  // Mapy.com's terms forbid storing, caching or pre-caching tiles: loaded on demand like Freemap.
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 256, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1,
+    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }] },
   // Freemap's terms: zoom 5–18, tiles for the pixel ratio, no bulk or offline download, attribution at the map.
   { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}{retina}', tileSize: 256, retina: true,
@@ -55,7 +56,7 @@ export const UNDERLAY_SERVICES: UnderlayService[] = [
     credits: [{ text: '© Freemap Slovakia', href: 'https://www.freemap.sk/' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
       { text: 'Elevation data sources', href: 'https://www.freemap.sk/' }] },
   { id: 'mapy-outdoor', kind: 'xyz', title: 'Mapy.com outdoor map', url: 'https://api.mapy.com/v1/maptiles/outdoor/256@2x/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 512, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1,
+    tileSize: 512, minZoom: 5, maxZoom: 19, onDemand: true, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' }] },
   { id: 'geology', kind: 'wms', title: 'Geological map 1:50 000', url: 'https://ags.geology.sk/arcgis/services/WebServices/GM50/MapServer/WMSServer',
     layers: '0,1,2', discover: true, format: 'image/png', transparent: true, attribution: '© ŠGÚDŠ', bytesPerPixel: .25, opacity: .5,
