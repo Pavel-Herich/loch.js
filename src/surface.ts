@@ -297,6 +297,22 @@ export class SurfaceScene {
   pieces() {
     return this.entries.flatMap((entry, e) => entry.tiles.map(tile => ({ key: `${e}:${tile.column}:${tile.row}`, extent: tile.extent })));
   }
+  /** The pieces with their bounding boxes in scene coordinates (for what the view shows). */
+  pieceBoxes() {
+    return this.entries.flatMap((entry, e) => entry.tiles.map(tile => {
+      if (!tile.geometry.boundingBox) tile.geometry.computeBoundingBox();
+      return { key: `${e}:${tile.column}:${tile.row}`, extent: tile.extent, box: tile.geometry.boundingBox! };
+    }));
+  }
+  /** Takes one piece of a layer off (the LOX image shows there again). */
+  removeLayerPiece(id: string, key: string) {
+    const [e, column, row] = key.split(':').map(Number), entry = this.entries[e];
+    const tile = entry?.tiles.find(item => item.column === column && item.row === row);
+    const image = tile?.pieces.get(id);
+    if (!entry || !tile || !image) return;
+    tile.pieces.delete(id); this.assign(entry, tile); image.texture.dispose();
+    this.onChange();
+  }
   private image(texture: THREE.Texture, extent: Extent): LayerImage {
     const [minX, minY, maxX, maxY] = extent;
     // Canvas rows run from the north edge; texture v grows with them (no flip on upload).

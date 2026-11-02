@@ -361,3 +361,6 @@ body.computer #section-panel{background:#162531}
 .map-layer .menu-range[hidden]{display:none}
 #underlay-menu{max-height:calc(100dvh - 120px);overflow:auto}
 #tracks-import{margin-left:auto}
+#map-attribution{position:absolute;right:6px;bottom:env(safe-area-inset-bottom,0px);z-index:3;max-width:calc(100% - 12px);padding:0 5px;border-radius:4px 4px 0 0;background:#0b141bcc;color:#c9d8e3;font-size:10px;line-height:13px;text-align:right}
+#map-attribution[hidden]{display:none}
+#map-attribution a{color:inherit;text-decoration:underline;text-decoration-color:#c9d8e366}

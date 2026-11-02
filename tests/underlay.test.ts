@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { downloadEstimate, extentGap, nearestPointGap, getMapUrl, imageComplete, mercatorPixel, planPieces, split, UNDERLAY_SERVICES, zoomFor, type Extent, type WmsService } from '../src/underlay';
+import { downloadEstimate, extentGap, retinaScale, tileGround, tileTemplate, type XyzService, nearestPointGap, getMapUrl, imageComplete, mercatorPixel, planPieces, split, UNDERLAY_SERVICES, zoomFor, type Extent, type WmsService } from '../src/underlay';
 import { tileCells } from '../src/surface';
 
 describe('map underlays', () => {
@@ -10,6 +10,17 @@ describe('map underlays', () => {
     expect(UNDERLAY_SERVICES.find(s => s.id === 'geology')!.opacity).toBe(.5);
     const geology = UNDERLAY_SERVICES.find(s => s.id === 'geology') as WmsService;
     expect(getMapUrl(geology, '0', [0, 0, 10, 10], 10, 10)).toContain('TRANSPARENT=TRUE');
+  });
+
+  it('asks Freemap as its terms say: zoom 5–18, tiles for the pixel ratio, on demand, credited', () => {
+    const freemap = UNDERLAY_SERVICES.find(s => s.id === 'freemap') as XyzService;
+    expect(freemap).toMatchObject({ minZoom: 5, maxZoom: 18, onDemand: true });
+    expect(tileTemplate(freemap, 1)).toEqual({ size: 256, url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}' });
+    expect(tileTemplate(freemap, 2)).toEqual({ size: 512, url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}@2x' });
+    expect(tileTemplate(freemap, 3).url.endsWith('@3x')).toBe(true);
+    expect([1, 1.5, 2.7, 5].map(r => retinaScale(r))).toEqual([1, 2, 3, 4]);
+    expect(freemap.credits.map(c => c.href)).toEqual(['https://www.freemap.sk/', 'https://www.openstreetmap.org/copyright', 'https://www.freemap.sk/']);
+    expect(tileGround(49, 512, 16)).toBeCloseTo(.78, 2);
   });
 
   it('measures the gap between extents', () => {

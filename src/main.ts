@@ -23,7 +23,7 @@ import { WalkerControls } from './walker';
 import { orbitTo, ViewLocks } from './view-locks';
 import { FieldObjects } from './objects-ui';
 import { ObjectStore } from './objects';
-import { looksLikeSJTSK } from './geo';
+import { looksLikeSJTSK, sjtskToWgs84 } from './geo';
 import { drawLayers, LayerStore, readShapefileLayer, type PointLayer, readPointFileLayer } from './layers';
 import { POINT_FORMATS, toCsv, toGeoJson, toGpx, toKml, toShapefile, type ExportPoint } from './formats';
 import { LayerBrowser } from './layers-ui';
@@ -33,7 +33,7 @@ import { STATION_ENTRANCE, temporaryStation, type Station } from './lox-stations
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
-import { downloadEstimate, fetchMap, nearestPointGap, planPieces, UNDERLAY_SERVICES } from './underlay';
+import { downloadEstimate, fetchMap, nearestPointGap, planPieces, tileGround, tileTemplate, UNDERLAY_SERVICES } from './underlay';
 import { forgetStoredUnderlays, loadStoredUnderlay, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
@@ -734,7 +734,11 @@ document.querySelector<HTMLButtonElement>('#export-go')!.addEventListener('click
 const underlayToggle = document.querySelector<HTMLButtonElement>('#underlay-toggle')!;
 const underlayMenu = document.querySelector<HTMLElement>('#underlay-menu')!;
 const layerList = document.querySelector<HTMLElement>('#map-layers')!;
-type MapLayerState = { on: boolean; opacity: number; request?: AbortController };
+type MapLayerState = {
+  on: boolean; opacity: number; request?: AbortController;
+  /** On-demand layers: the zoom each piece shows or is loading, and its request. */
+  shown?: Map<string, { zoom: number; pixels: number; loading?: AbortController }>;
+};
 const mapLayers = new Map<string, MapLayerState>(UNDERLAY_SERVICES.map(service => [service.id, { on: false, opacity: service.opacity }]));
 // One row per layer: a switch and, while it is on, its opacity.
 for (const service of UNDERLAY_SERVICES) {
@@ -833,16 +837,108 @@ function caveGap() {
 }
 
 /** Switch a map layer on (loading it: saved copies first, then the service) or off. */
+/** Attribution of the layers shown, at the map (with links, as the map services ask). */
+const attribution = document.querySelector<HTMLElement>('#map-attribution')!;
+function syncAttribution() {
+  const shown = UNDERLAY_SERVICES.filter(service => mapLayers.get(service.id)?.on);
+  attribution.replaceChildren(...shown.flatMap(service => service.credits).flatMap((credit, i) => {
+    const item = credit.href ? Object.assign(document.createElement('a'), { href: credit.href, target: '_blank', rel: 'noopener', textContent: credit.text }) : document.createTextNode(credit.text);
+    return i ? [document.createTextNode(' · '), item] : [item];
+  }));
+  attribution.hidden = !shown.length;
+}
+
+/**
+ * On-demand layers (Freemap): each piece the view shows gets the zoom that matches how large it
+ * appears on screen, nearest pieces first, once the view rests; nothing is loaded for pieces out
+ * of view and nothing is stored beyond the browser's HTTP cache, as the service asks.
+ */
+function refreshOnDemand(id: string) {
+  const state = mapLayers.get(id)!, service = UNDERLAY_SERVICES.find(item => item.id === id)!;
+  const shown = state.shown, request = state.request;
+  if (!state.on || !shown || !request || service.kind !== 'xyz') return;
+  const height = canvas.clientHeight, extent = surfaceScene.extent();
+  if (!height || !extent) return;
+  camera.updateMatrixWorld();
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+  const [latitude] = sjtskToWgs84((extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2);
+  const tile = tileTemplate(service).size, minZoom = service.minZoom ?? 1;
+  const maxSide = Math.min(renderer.capabilities.maxTextureSize, isCoarse() ? 2048 : 4096), budget = isCoarse() ? 12e6 : 40e6;
+  // Texture pixels per screen pixel: device pixels, but not more than two per CSS pixel.
+  const density = Math.min(globalThis.devicePixelRatio || 1, 2);
+  const perspective = camera instanceof THREE.PerspectiveCamera;
+  const size = (piece: { extent: [number, number, number, number] }, zoom: number) => {
+    const ground = tileGround(latitude, tile, zoom);
+    return { width: Math.max(16, Math.round((piece.extent[2] - piece.extent[0]) / ground)), height: Math.max(16, Math.round((piece.extent[3] - piece.extent[1]) / ground)) };
+  };
+  const wanted = surfaceScene.pieceBoxes().filter(piece => frustum.intersectsBox(piece.box)).map(piece => {
+    const distance = Math.max(1, piece.box.distanceToPoint(camera.position));
+    const screen = perspective ? distance * 2 * Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).getEffectiveFOV()) / 2) / height
+      : ((camera as THREE.OrthographicCamera).top - (camera as THREE.OrthographicCamera).bottom) / (camera as THREE.OrthographicCamera).zoom / height;
+    let zoom = Math.max(minZoom, Math.min(service.maxZoom, Math.ceil(Math.log2(tileGround(latitude, tile, 0) / (screen / density)) - .05)));
+    while (zoom > minZoom && Math.max(size(piece, zoom).width, size(piece, zoom).height) > maxSide) zoom--;
+    return { ...piece, distance, zoom };
+  }).sort((a, b) => a.distance - b.distance);
+  // Within the memory budget: the farthest pieces get coarser first.
+  const total = () => wanted.reduce((sum, piece) => { const s = size(piece, piece.zoom); return sum + s.width * s.height; }, 0);
+  for (let guard = 0; total() > budget && guard < 400; guard++) {
+    const farthest = [...wanted].reverse().find(piece => piece.zoom > minZoom);
+    if (!farthest) break;
+    farthest.zoom--;
+  }
+  const visible = new Set(wanted.map(piece => piece.key));
+  // Pieces out of view keep their map until memory runs short; the farthest go first.
+  let held = [...shown.values()].reduce((sum, piece) => sum + piece.pixels, 0);
+  for (const [key, piece] of [...shown.entries()].reverse()) {
+    if (held <= budget * 1.5) break;
+    if (visible.has(key)) continue;
+    piece.loading?.abort(); shown.delete(key); surfaceScene.removeLayerPiece(id, key); held -= piece.pixels;
+  }
+  let started = 0;
+  for (const piece of wanted) {
+    const current = shown.get(piece.key);
+    if (current && current.zoom === piece.zoom) continue;
+    current?.loading?.abort();
+    const loading = new AbortController(), { width, height: rows } = size(piece, piece.zoom);
+    request.signal.addEventListener('abort', () => loading.abort());
+    const entry: { zoom: number; pixels: number; loading?: AbortController } = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading };
+    shown.set(piece.key, entry); started++;
+    void fetchMap(service, piece.extent, width, rows, loading.signal, '', piece.zoom).then(canvas => {
+      if (entry.loading !== loading || !state.on) return;
+      entry.loading = undefined; entry.pixels = width * rows; onDemandFailures = 0;
+      surfaceScene.setLayerPiece(id, piece.key, mapTexture(canvas), piece.extent);
+    }).catch(error => {
+      if ((error as Error).name === 'AbortError' || entry.loading !== loading) return;
+      shown.delete(piece.key);
+      // A service that refuses everything (no CORS, no answer) is switched off with the reason.
+      if (++onDemandFailures >= 3 && state.on) { announce(`${service.title}: ${exceptionMessage(error)}`, true); setMapLayer(id, false); }
+    });
+  }
+  if (started && !onDemandAnnounced) { onDemandAnnounced = true; announce(`${service.title} ${service.attribution} · loaded for the view as it rests`); }
+}
+let onDemandFailures = 0, onDemandAnnounced = false;
+let onDemandTimer: number | undefined;
+// After the view rests a moment, on-demand layers load what it now shows.
+controls.addEventListener('change', () => {
+  clearTimeout(onDemandTimer);
+  onDemandTimer = window.setTimeout(() => { for (const [id, state] of mapLayers) if (state.on && state.shown) refreshOnDemand(id); }, 400);
+});
+
 function setMapLayer(id: string, on: boolean) {
   const state = mapLayers.get(id)!, service = UNDERLAY_SERVICES.find(item => item.id === id)!;
   state.request?.abort(); state.request = undefined;
+  for (const piece of state.shown?.values() ?? []) piece.loading?.abort();
+  state.shown = undefined;
   surfaceScene.removeLayer(id);
   state.on = on && mapsUsable();
+  syncAttribution();
   // One imagery or outdoor map at a time (the geological map can lie over it).
   if (state.on && service.levels) for (const other of UNDERLAY_SERVICES) if (other.id !== id && other.levels && mapLayers.get(other.id)!.on) setMapLayer(other.id, false);
   syncUnderlayMenu();
   if (!state.on) return;
   surfaceScene.setLayer(id, UNDERLAY_SERVICES.indexOf(service), state.opacity);
+  syncAttribution();
+  if (service.kind === 'xyz' && service.onDemand) { state.shown = new Map(); state.request = new AbortController(); refreshOnDemand(id); return; }
   const request = state.request = new AbortController();
   const current = () => state.request === request;
   const back = (message: string) => {

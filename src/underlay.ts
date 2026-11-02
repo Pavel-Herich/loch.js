@@ -10,6 +10,8 @@ import { sjtskToWgs84 } from './geo';
 export type Extent = [number, number, number, number];
 type ServiceBase = {
   id: string; title: string; attribution: string;
+  /** Attribution shown at the map while the layer is on: text and links. */
+  credits: { text: string; href?: string }[];
   /** Typical download size per pixel of the result (bytes), for the size estimate. */
   bytesPerPixel: number;
   /** Name for copies kept on the device, when older copies must not be used again. */
@@ -21,7 +23,14 @@ export type WmsService = ServiceBase & {
   discover?: boolean;
 };
 export type XyzService = ServiceBase & {
-  kind: 'xyz'; url: string; tileSize: number; maxZoom: number;
+  kind: 'xyz'; url: string; tileSize: number; maxZoom: number; minZoom?: number;
+  /** Tiles for the screen's pixel ratio: {retina} in the URL becomes @2x, @3x or @4x and the tile grows with it. */
+  retina?: boolean;
+  /**
+   * Only the tiles the current view needs, at the zoom it needs, loaded as the view comes to
+   * rest; nothing downloaded ahead or kept on the device beyond the browser's HTTP cache.
+   */
+  onDemand?: boolean;
   /** The service needs the user's own API key, put into the URL as {apikey}. */
   apiKey?: 'mapy';
 };
@@ -38,14 +47,32 @@ export type UnderlayService = (WmsService | XyzService) & {
 /** All map layers lie over the LOX image, in this order (later ones on top). */
 export const UNDERLAY_SERVICES: UnderlayService[] = [
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 256, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1 },
-  { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}@2x', tileSize: 512, maxZoom: 19,
-    attribution: '© Freemap Slovakia, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1 },
+    tileSize: 256, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1,
+    credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }] },
+  // Freemap's terms: zoom 5–18, tiles for the pixel ratio, no bulk or offline download, attribution at the map.
+  { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}{retina}', tileSize: 256, retina: true,
+    minZoom: 5, maxZoom: 18, onDemand: true, attribution: '© Freemap Slovakia, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1,
+    credits: [{ text: '© Freemap Slovakia', href: 'https://www.freemap.sk/' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
+      { text: 'Elevation data sources', href: 'https://www.freemap.sk/' }] },
   { id: 'mapy-outdoor', kind: 'xyz', title: 'Mapy.com outdoor map', url: 'https://api.mapy.com/v1/maptiles/outdoor/256@2x/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 512, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1 },
+    tileSize: 512, maxZoom: 19, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1,
+    credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' }] },
   { id: 'geology', kind: 'wms', title: 'Geological map 1:50 000', url: 'https://ags.geology.sk/arcgis/services/WebServices/GM50/MapServer/WMSServer',
-    layers: '0,1,2', discover: true, format: 'image/png', transparent: true, attribution: '© ŠGÚDŠ', bytesPerPixel: .25, opacity: .5 },
+    layers: '0,1,2', discover: true, format: 'image/png', transparent: true, attribution: '© ŠGÚDŠ', bytesPerPixel: .25, opacity: .5,
+    credits: [{ text: '© ŠGÚDŠ', href: 'https://www.geology.sk/' }] },
 ];
+
+/** Tile scale for this screen: 1, 2, 3 or 4 (Freemap's @2x–@4x). */
+export function retinaScale(ratio = globalThis.devicePixelRatio || 1) { return Math.max(1, Math.min(4, Math.round(ratio))); }
+/** Tile size in pixels and the URL with its scale, for a service. */
+export function tileTemplate(service: XyzService, scale = retinaScale()) {
+  if (!service.retina) return { size: service.tileSize, url: service.url };
+  return { size: service.tileSize * scale, url: service.url.replace('{retina}', scale > 1 ? `@${scale}x` : '') };
+}
+/** Ground size of a tile pixel at a zoom (Web Mercator at this latitude), in metres. */
+export function tileGround(latitude: number, tile: number, zoom: number) {
+  return 2 * Math.PI * EARTH * Math.cos(latitude * Math.PI / 180) / tile / 2 ** zoom;
+}
 
 /** WMS 1.1.1 GetMap (x,y axis order for SRS, whatever the CRS definition says). */
 export function getMapUrl(service: WmsService, layers: string, bbox: Extent, width: number, height: number) {
@@ -125,7 +152,8 @@ function loadImage(url: string, signal?: AbortSignal) {
     for (let attempt = 0; attempt < 3; attempt++) {
       if (attempt) await pause(500 * attempt, signal);
       let response: Response;
-      try { response = await fetch(url, { signal, mode: 'cors' }); }
+      // The page's address goes along as the referrer, so map services can tell where requests come from.
+      try { response = await fetch(url, { signal, mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' }); }
       catch (error) {
         if ((error as Error).name === 'AbortError') throw error;
         problem = 'The map service did not answer, or does not allow its maps in other apps (CORS).'; continue;
@@ -202,28 +230,29 @@ const tileCache = new Map<string, Promise<ImageBitmap | undefined>>();
  * every output pixel is taken from where its S-JTSK position falls on them. Positions are
  * converted exactly on a coarse grid and interpolated in between (well under a pixel).
  */
-export async function fetchXyz(service: XyzService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey = '') {
+export async function fetchXyz(service: XyzService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey = '', zoomAsked?: number) {
   const [minX, minY, maxX, maxY] = extent;
   const [centreLat] = sjtskToWgs84((minX + maxX) / 2, (minY + maxY) / 2);
-  const zoom = zoomFor((maxX - minX) / width, centreLat, service.tileSize, service.maxZoom);
+  const template = tileTemplate(service);
+  const zoom = zoomAsked ?? Math.max(service.minZoom ?? 1, zoomFor((maxX - minX) / width, centreLat, template.size, service.maxZoom));
   const STEP = 32, columns = Math.ceil(width / STEP) + 1, rows = Math.ceil(height / STEP) + 1;
   const grid = new Float64Array(columns * rows * 2);
   let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
   for (let r = 0; r < rows; r++) for (let c = 0; c < columns; c++) {
     const px = Math.min(c * STEP, width), py = Math.min(r * STEP, height);
     const [lat, lon] = sjtskToWgs84(minX + px / width * (maxX - minX), maxY - py / height * (maxY - minY));
-    const [mx, my] = mercatorPixel(lat, lon, zoom, service.tileSize);
+    const [mx, my] = mercatorPixel(lat, lon, zoom, template.size);
     grid[(r * columns + c) * 2] = mx; grid[(r * columns + c) * 2 + 1] = my;
     left = Math.min(left, mx); right = Math.max(right, mx); top = Math.min(top, my); bottom = Math.max(bottom, my);
   }
-  const t = service.tileSize, tx0 = Math.floor(left / t), ty0 = Math.floor(top / t), tx1 = Math.floor(right / t), ty1 = Math.floor(bottom / t);
+  const t = template.size, tx0 = Math.floor(left / t), ty0 = Math.floor(top / t), tx1 = Math.floor(right / t), ty1 = Math.floor(bottom / t);
   const mosaic = document.createElement('canvas'); mosaic.width = (tx1 - tx0 + 1) * t; mosaic.height = (ty1 - ty0 + 1) * t;
   const context = mosaic.getContext('2d', { willReadFrequently: true })!;
   context.fillStyle = '#ffffff'; context.fillRect(0, 0, mosaic.width, mosaic.height);
   const jobs: Promise<void>[] = [];
   let failed = 0, total = 0;
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-    const url = service.url.replace('{z}', String(zoom)).replace('{x}', String(tx)).replace('{y}', String(ty)).replace('{apikey}', encodeURIComponent(apiKey));
+    const url = template.url.replace('{z}', String(zoom)).replace('{x}', String(tx)).replace('{y}', String(ty)).replace('{apikey}', encodeURIComponent(apiKey));
     let tile = tileCache.get(url);
     if (tile) tileCache.delete(url); // Most recently used last.
     else tile = loadImage(url, signal).catch(error => { if ((error as Error).name === 'AbortError') { tileCache.delete(url); throw error; } return undefined; });
@@ -234,7 +263,7 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
     jobs.push(tile.then(image => { if (image) context.drawImage(image, (tx - tx0) * t, (ty - ty0) * t, t, t); else failed++; }));
   }
   await Promise.all(jobs);
-  if (failed === total) throw new Error(await whyTileFailed(service.url.replace('{z}', String(zoom)).replace('{x}', String(tx0)).replace('{y}', String(ty0)).replace('{apikey}', encodeURIComponent(apiKey))));
+  if (failed === total) throw new Error(await whyTileFailed(template.url.replace('{z}', String(zoom)).replace('{x}', String(tx0)).replace('{y}', String(ty0)).replace('{apikey}', encodeURIComponent(apiKey))));
   const source = context.getImageData(0, 0, mosaic.width, mosaic.height).data, sourceWidth = mosaic.width, sourceHeight = mosaic.height;
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
   const output = canvas.getContext('2d')!, image = output.createImageData(width, height), data = image.data;
@@ -255,15 +284,15 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   return canvas;
 }
 
-export function fetchMap(service: UnderlayService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey?: string) {
-  return service.kind === 'wms' ? fetchWms(service, extent, width, height, signal) : fetchXyz(service, extent, width, height, signal, apiKey);
+export function fetchMap(service: UnderlayService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey?: string, zoom?: number) {
+  return service.kind === 'wms' ? fetchWms(service, extent, width, height, signal) : fetchXyz(service, extent, width, height, signal, apiKey, zoom);
 }
 
 /** Tells a service that refuses other sites (no CORS) from one that does not answer, or refuses the key. */
 async function whyTileFailed(url: string) {
   console.warn('Map tile failed:', url.replace(/apikey=[^&]+/, 'apikey=…'));
   try {
-    const response = await fetch(url, { mode: 'cors' });
+    const response = await fetch(url, { mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' });
     if (response.status === 401 || response.status === 403) return `The map service refused the request (${response.status}); check the API key.`;
     if (!response.ok) return `The map service answered ${response.status}.`;
     return 'The map service sent tiles this browser could not read.';
