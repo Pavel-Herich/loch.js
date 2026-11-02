@@ -34,7 +34,7 @@ import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './p
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
 import { downloadEstimate, fetchMap, loadBlob, nearestPointGap, offlineTiles, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type XyzService } from './underlay';
-import { forgetStoredUnderlays, forgetStoredUnderlaysOf, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
+import { forgetStored, forgetStoredUnderlays, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
@@ -751,7 +751,9 @@ for (const service of UNDERLAY_SERVICES) {
   const range = document.createElement('label'); range.className = 'menu-range';
   const input = document.createElement('input'); input.type = 'range'; input.min = '5'; input.max = '100'; input.step = '5'; input.setAttribute('aria-label', `${service.title} opacity`);
   const output = document.createElement('output');
-  range.append('Opacity', input, output); row.append(toggle, range); layerList.append(row);
+  range.append('Opacity', input, output);
+  const status = document.createElement('small'); status.className = 'layer-status';
+  row.append(toggle, range, status); layerList.append(row);
   toggle.addEventListener('click', () => setMapLayer(service.id, !mapLayers.get(service.id)!.on));
   input.addEventListener('input', () => {
     mapLayers.get(service.id)!.opacity = Number(input.value) / 100;
@@ -765,6 +767,7 @@ function syncUnderlayMenu() {
     const state = mapLayers.get(row.dataset.layer!)!;
     row.querySelector('button')!.setAttribute('aria-checked', String(state.on));
     const range = row.querySelector<HTMLElement>('.menu-range')!; range.hidden = !state.on;
+    const status = row.querySelector<HTMLElement>('.layer-status')!; status.hidden = !state.on || !status.textContent;
     const percent = String(Math.round(state.opacity * 100));
     row.querySelector('input')!.value = percent; row.querySelector('output')!.value = `${percent}%`;
   }
@@ -772,6 +775,7 @@ function syncUnderlayMenu() {
 }
 underlayToggle.addEventListener('click', () => {
   syncUnderlayMenu(); underlayMenu.hidden = !underlayMenu.hidden;
+  if (!underlayMenu.hidden) void showStorageUse();
   underlayToggle.setAttribute('aria-expanded', String(!underlayMenu.hidden));
 });
 const closeUnderlayMenu = () => { underlayMenu.hidden = true; underlayToggle.setAttribute('aria-expanded', 'false'); };
@@ -859,8 +863,52 @@ function restoreModelLayers() {
 }
 // Pieces saved by earlier versions (before the tiles themselves were kept) are not used any more.
 for (const service of ['mapy-aerial', 'mapy-outdoor']) void storedKeys(`${service}|`).then(keys => {
-  if ([...keys].some(key => !key.startsWith(`${service}|t|`))) void forgetStoredUnderlaysOf(service).catch(() => undefined);
+  void forgetStored([...keys].filter(key => !key.startsWith(`${service}|t|`))).catch(() => undefined);
 }).catch(() => undefined);
+
+/**
+ * Progress of map work, at the map while it lasts: tiles being saved for use without a
+ * signal (per layer, with a bar) and pieces of the view still loading.
+ */
+const mapProgress = document.querySelector<HTMLElement>('#map-progress')!;
+const savingProgress = new Map<string, { title: string; done: number; total: number; failed: number }>();
+let viewLoading = 0, progressFrame = 0;
+function showMapProgress() {
+  if (progressFrame) return;
+  progressFrame = requestAnimationFrame(() => {
+    progressFrame = 0;
+    const rows: HTMLElement[] = [];
+    for (const [id, saving] of savingProgress) {
+      const row = document.createElement('div'); row.className = 'map-progress-row';
+      const percent = saving.total ? Math.floor(saving.done / saving.total * 100) : 0;
+      const label = document.createElement('span');
+      label.textContent = `Saving ${saving.title}: ${saving.done.toLocaleString()} / ${saving.total.toLocaleString()} tiles (${percent} %)${saving.failed ? ` · ${saving.failed} missing` : ''}`;
+      const bar = document.createElement('progress'); bar.max = saving.total || 1; bar.value = saving.done;
+      row.append(label, bar); rows.push(row);
+      const status = layerList.querySelector<HTMLElement>(`.map-layer[data-layer="${id}"] .layer-status`);
+      if (status) { status.textContent = `Saving ${percent} % (${saving.done.toLocaleString()} / ${saving.total.toLocaleString()} tiles)`; status.hidden = false; }
+    }
+    if (viewLoading > 0) {
+      const row = document.createElement('div'); row.className = 'map-progress-row';
+      row.textContent = `Loading map for the view… ${viewLoading} ${viewLoading === 1 ? 'piece' : 'pieces'}`;
+      rows.push(row);
+    }
+    mapProgress.replaceChildren(...rows); mapProgress.hidden = !rows.length;
+  });
+}
+function layerStatus(id: string, text: string) {
+  const status = layerList.querySelector<HTMLElement>(`.map-layer[data-layer="${id}"] .layer-status`);
+  if (status) { status.textContent = text; status.hidden = !text; }
+}
+/** What the saved maps take on this device, shown in the map menu. */
+async function showStorageUse() {
+  const line = document.querySelector<HTMLElement>('#map-storage')!;
+  const estimate = await globalThis.navigator?.storage?.estimate?.().catch(() => undefined);
+  if (!estimate?.usage) { line.hidden = true; return; }
+  const counts = await Promise.all(['mapy-aerial', 'mapy-outdoor'].map(id => storedKeys(`${id}|t|`).then(keys => keys.size).catch(() => 0)));
+  line.textContent = `Saved on this device: ${Math.round(estimate.usage / 1e6)} MB${estimate.quota ? ` of ${Math.round(estimate.quota / 1e6).toLocaleString()} MB available` : ''} · Mapy.com tiles: ${counts[0].toLocaleString()} aerial, ${counts[1].toLocaleString()} outdoor`;
+  line.hidden = false;
+}
 
 /** Tiles of offline layers: the copy on the device first, else the service (and the copy is kept). */
 const tilesInFlight = new Map<string, Promise<Blob>>();
@@ -897,19 +945,27 @@ function savedTiles(id: string): TileSource {
  * lowest zooms first, so the map works without a signal; tiles already kept are skipped.
  */
 async function saveOfflineTiles(id: string, service: XyzService, tiles: [number, number, number][], request: AbortController, apiKey: string) {
+  layerStatus(id, 'Checking saved tiles…');
   const kept = await storedKeys(`${id}|t|`).catch(() => new Set<string>());
   const missing = tiles.filter(t => !kept.has(`${id}|t|${t.join('/')}`));
-  if (!missing.length || request.signal.aborted) return;
+  if (request.signal.aborted) return;
+  if (!missing.length) { layerStatus(id, `All ${tiles.length.toLocaleString()} tiles saved on this device`); return; }
   if (!await confirmDownload(service.title, missing.length * (service.tileBytes ?? 30_000), missing.length)) {
+    layerStatus(id, `Online only · ${(tiles.length - missing.length).toLocaleString()} of ${tiles.length.toLocaleString()} tiles saved`);
     announce(`${service.title}: shown online only (not saved for use without a signal).`); return;
   }
-  let done = 0, failed = 0, last = 0;
+  const progress = { title: service.title, done: 0, total: missing.length, failed: 0 };
+  savingProgress.set(id, progress); showMapProgress();
+  request.signal.addEventListener('abort', () => { savingProgress.delete(id); showMapProgress(); });
+  let done = 0, failed = 0;
   const report = (final = false) => {
-    if (request.signal.aborted || (!final && performance.now() - last < 1000)) return;
-    last = performance.now();
-    announce(final ? `${service.title}: ${done - failed} tiles saved for use without a signal${failed ? `, ${failed} missing` : ''}.` : `Saving ${service.title} for use without a signal… ${done}/${missing.length}`);
+    if (request.signal.aborted) return;
+    progress.done = done; progress.failed = failed;
+    if (!final) { showMapProgress(); return; }
+    savingProgress.delete(id); showMapProgress();
+    layerStatus(id, `All ${(tiles.length - failed).toLocaleString()} tiles saved on this device${failed ? ` · ${failed} missing` : ''}`);
+    announce(`${service.title}: ${done - failed} tiles saved for use without a signal${failed ? `, ${failed} missing` : ''}.`);
   };
-  report();
   await Promise.all(missing.map(async ([zoom, x, y]) => {
     const key = `${id}|t|${zoom}/${x}/${y}`;
     try {
@@ -1004,6 +1060,7 @@ function refreshOnDemand(id: string) {
     request.signal.addEventListener('abort', () => loading.abort());
     const entry: { zoom: number; pixels: number; loading?: AbortController } = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading };
     shown.set(piece.key, entry); started++;
+    viewLoading++; showMapProgress();
     void fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom, service.offline ? savedTiles(id) : undefined).then(canvas => {
       if (entry.loading !== loading || !state.on) return;
       entry.loading = undefined; entry.pixels = width * rows; state.failures = 0;
@@ -1021,7 +1078,7 @@ function refreshOnDemand(id: string) {
         }
         announce(`${service.title}: ${exceptionMessage(error)}`, true); setMapLayer(id, false);
       }
-    });
+    }).finally(() => { viewLoading--; showMapProgress(); });
   }
   if (started && !state.announced) { state.announced = true; announce(`${service.title} ${service.attribution} · loaded for the view as it rests`); }
 }
@@ -1037,6 +1094,7 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
   state.request?.abort(); state.request = undefined;
   for (const piece of state.shown?.values() ?? []) piece.loading?.abort();
   state.shown = undefined; state.highest = undefined; state.low = undefined;
+  layerStatus(id, '');
   surfaceScene.removeLayer(id);
   state.on = on && mapsUsable(quiet);
   if (!quiet && !on) rememberModelLayers();

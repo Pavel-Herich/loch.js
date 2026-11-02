@@ -36,8 +36,13 @@ export const forgetStoredUnderlays = () => run('readwrite', store => store.clear
 export const storedKeys = (prefix: string) => run<IDBValidKey[]>('readonly', store => store.getAllKeys(IDBKeyRange.bound(prefix, `${prefix}\uffff`))).then(keys => new Set(keys.map(String)));
 /** One saved tile (its image as the service sent it). */
 export const loadStoredTile = (key: string) => run<{ blob: Blob } | undefined>('readonly', store => store.get(key));
+let persistAsked = false;
 export async function storeTile(key: string, blob: Blob) {
+  // Ask once that the browser keeps the saved maps (not cleared when space runs low).
+  if (!persistAsked) { persistAsked = true; await globalThis.navigator?.storage?.persist?.().catch(() => false); }
   await run('readwrite', store => store.put({ blob, saved: new Date().toISOString() }, key));
 }
+/** Removes single saved copies. */
+export const forgetStored = (keys: string[]) => keys.length ? run('readwrite', store => { let last!: IDBRequest; for (const key of keys) last = store.delete(key); return last; }) : Promise.resolve();
 /** Removes the copies of one service (keys start with its name). */
 export const forgetStoredUnderlaysOf = (service: string) => run('readwrite', store => store.delete(IDBKeyRange.bound(`${service}|`, `${service}|\uffff`)));
