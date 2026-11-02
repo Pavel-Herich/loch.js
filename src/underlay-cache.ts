@@ -32,5 +32,12 @@ export async function storeUnderlay(key: string, value: StoredUnderlay) {
   await run('readwrite', store => store.put(value, key));
 }
 export const forgetStoredUnderlays = () => run('readwrite', store => store.clear());
+/** Keys of the saved copies that start with a prefix. */
+export const storedKeys = (prefix: string) => run<IDBValidKey[]>('readonly', store => store.getAllKeys(IDBKeyRange.bound(prefix, `${prefix}\uffff`))).then(keys => new Set(keys.map(String)));
+/** One saved tile (its image as the service sent it). */
+export const loadStoredTile = (key: string) => run<{ blob: Blob } | undefined>('readonly', store => store.get(key));
+export async function storeTile(key: string, blob: Blob) {
+  await run('readwrite', store => store.put({ blob, saved: new Date().toISOString() }, key));
+}
 /** Removes the copies of one service (keys start with its name). */
 export const forgetStoredUnderlaysOf = (service: string) => run('readwrite', store => store.delete(IDBKeyRange.bound(`${service}|`, `${service}|\uffff`)));

@@ -33,8 +33,8 @@ import { STATION_ENTRANCE, temporaryStation, type Station } from './lox-stations
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
-import { downloadEstimate, fetchMap, nearestPointGap, planPieces, tileGround, tileTemplate, UNDERLAY_SERVICES } from './underlay';
-import { forgetStoredUnderlays, forgetStoredUnderlaysOf, loadStoredUnderlay, storeUnderlay, underlayKey } from './underlay-cache';
+import { downloadEstimate, fetchMap, loadBlob, nearestPointGap, offlineTiles, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type XyzService } from './underlay';
+import { forgetStoredUnderlays, forgetStoredUnderlaysOf, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
@@ -738,6 +738,8 @@ type MapLayerState = {
   on: boolean; opacity: number; request?: AbortController;
   /** On-demand layers: API key, failures in a row, and whether the attribution was announced. */
   apiKey?: string; failures?: number; announced?: boolean;
+  /** Offline layers: zooms kept on the device (lowest, and the highest for each piece). */
+  low?: number; highest?: Map<string, number>;
   /** On-demand layers: the zoom each piece shows or is loading, and its request. */
   shown?: Map<string, { zoom: number; pixels: number; loading?: AbortController }>;
 };
@@ -784,14 +786,16 @@ document.querySelector<HTMLButtonElement>('#surface-maps')!.addEventListener('cl
 
 const downloadDialog = document.querySelector<HTMLDialogElement>('#download-dialog')!;
 /** On mobile data (or when the phone does not tell), ask before a download; true goes ahead. */
-function confirmDownload(title: string, bytes: number) {
+/** Downloads above this ask first on any device (with the size); smaller ones only on mobile data. */
+const ASK_ABOVE = 25e6;
+function confirmDownload(title: string, bytes: number, tiles?: number) {
   const connection = (navigator as Navigator & { connection?: { type?: string; saveData?: boolean } }).connection;
   const known = connection?.type && connection.type !== 'unknown';
   const mobile = connection?.type === 'cellular' || connection?.saveData === true || (!known && matchMedia('(pointer: coarse)').matches);
-  if (!mobile) return Promise.resolve(true);
+  if (!mobile && bytes <= ASK_ABOVE) return Promise.resolve(true);
   const megabytes = bytes / 1e6;
   document.querySelector<HTMLElement>('#download-text')!.textContent =
-    `${title} needs about ${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB of map images${connection?.type === 'cellular' ? ' over mobile data' : ''}. They are kept on this device for use without a signal.`;
+    `${title} needs about ${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB of map images${tiles ? ` (${tiles.toLocaleString()} tiles)` : ''}${connection?.type === 'cellular' ? ' over mobile data' : ''}. They are kept on this device for use without a signal.`;
   downloadDialog.returnValue = '';
   downloadDialog.showModal();
   return new Promise<boolean>(resolve => downloadDialog.addEventListener('close', () => resolve(downloadDialog.returnValue === 'download'), { once: true }));
@@ -853,15 +857,82 @@ function restoreModelLayers() {
     setMapLayer(service.id, true, true);
   }
 }
-// Copies of Mapy.com maps saved by earlier versions are removed (their terms do not allow storing tiles).
-for (const service of ['mapy-aerial', 'mapy-outdoor']) void forgetStoredUnderlaysOf(service).catch(() => undefined);
+// Pieces saved by earlier versions (before the tiles themselves were kept) are not used any more.
+for (const service of ['mapy-aerial', 'mapy-outdoor']) void storedKeys(`${service}|`).then(keys => {
+  if ([...keys].some(key => !key.startsWith(`${service}|t|`))) void forgetStoredUnderlaysOf(service).catch(() => undefined);
+}).catch(() => undefined);
+
+/** Tiles of offline layers: the copy on the device first, else the service (and the copy is kept). */
+const tilesInFlight = new Map<string, Promise<Blob>>();
+function savedTiles(id: string): TileSource {
+  return async (url, zoom, x, y, signal) => {
+    const key = `${id}|t|${zoom}/${x}/${y}`;
+    const saved = await loadStoredTile(key).catch(() => undefined);
+    if (saved) return createImageBitmap(saved.blob);
+    let blob = tilesInFlight.get(key);
+    if (!blob) {
+      blob = loadBlob(url, signal).finally(() => tilesInFlight.delete(key));
+      tilesInFlight.set(key, blob);
+      void blob.then(data => storeTile(key, data)).catch(() => undefined);
+    }
+    try { return await createImageBitmap(await blob); }
+    catch (error) {
+      if ((error as Error).name === 'AbortError') throw error;
+      // Without a signal: the part of a coarser saved tile that covers this one, enlarged.
+      for (let up = 1; up <= 6 && zoom - up >= 0; up++) {
+        const parent = await loadStoredTile(`${id}|t|${zoom - up}/${x >> up}/${y >> up}`).catch(() => undefined);
+        if (!parent) continue;
+        const image = await createImageBitmap(parent.blob), part = image.width / 2 ** up;
+        const size = image.width;
+        const crop = await createImageBitmap(image, (x % 2 ** up) * part, (y % 2 ** up) * part, part, part, { resizeWidth: size, resizeHeight: size, resizeQuality: 'high' });
+        image.close();
+        return crop;
+      }
+      throw error;
+    }
+  };
+}
+/**
+ * Saves an offline layer's tiles for the whole surface (sharpest near the survey stations),
+ * lowest zooms first, so the map works without a signal; tiles already kept are skipped.
+ */
+async function saveOfflineTiles(id: string, service: XyzService, tiles: [number, number, number][], request: AbortController, apiKey: string) {
+  const kept = await storedKeys(`${id}|t|`).catch(() => new Set<string>());
+  const missing = tiles.filter(t => !kept.has(`${id}|t|${t.join('/')}`));
+  if (!missing.length || request.signal.aborted) return;
+  if (!await confirmDownload(service.title, missing.length * (service.tileBytes ?? 30_000), missing.length)) {
+    announce(`${service.title}: shown online only (not saved for use without a signal).`); return;
+  }
+  let done = 0, failed = 0, last = 0;
+  const report = (final = false) => {
+    if (request.signal.aborted || (!final && performance.now() - last < 1000)) return;
+    last = performance.now();
+    announce(final ? `${service.title}: ${done - failed} tiles saved for use without a signal${failed ? `, ${failed} missing` : ''}.` : `Saving ${service.title} for use without a signal… ${done}/${missing.length}`);
+  };
+  report();
+  await Promise.all(missing.map(async ([zoom, x, y]) => {
+    const key = `${id}|t|${zoom}/${x}/${y}`;
+    try {
+      // The view may have fetched (and kept) it meanwhile.
+      if (await loadStoredTile(key).catch(() => undefined)) return;
+      let blob = tilesInFlight.get(key);
+      if (!blob) { blob = loadBlob(tileUrl(service, zoom, x, y, apiKey), request.signal, true).finally(() => tilesInFlight.delete(key)); tilesInFlight.set(key, blob); }
+      await storeTile(key, await blob);
+    } catch (error) { if ((error as Error).name === 'AbortError') return; failed++; }
+    finally { done++; report(); }
+  }));
+  if (!request.signal.aborted) report(true);
+}
 /** Distance from a piece to the nearest survey station (file coordinates): maps are sharpest over the caves. */
-function caveGap() {
+function stationPoints() {
   const stations = centreline.stationDetails.filter(station => !temporaryStation(station));
-  if (!stations.length) return undefined;
   const points = new Float64Array(stations.length * 2);
   stations.forEach((station, i) => { points[i * 2] = station.position[0]; points[i * 2 + 1] = station.position[1]; });
-  return nearestPointGap(points);
+  return points;
+}
+function caveGap() {
+  const points = stationPoints();
+  return points.length ? nearestPointGap(points) : undefined;
 }
 
 /** Switch a map layer on (loading it: saved copies first, then the service) or off. */
@@ -904,6 +975,8 @@ function refreshOnDemand(id: string) {
     const screen = perspective ? distance * 2 * Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).getEffectiveFOV()) / 2) / height
       : ((camera as THREE.OrthographicCamera).top - (camera as THREE.OrthographicCamera).bottom) / (camera as THREE.OrthographicCamera).zoom / height;
     let zoom = Math.max(minZoom, Math.min(service.maxZoom, Math.ceil(Math.log2(tileGround(latitude, tile, 0) / (screen / density)) - .05)));
+    // Offline layers stay within the zooms kept on the device.
+    if (state.highest) zoom = Math.max(state.low ?? minZoom, Math.min(zoom, state.highest.get(piece.key) ?? zoom));
     while (zoom > minZoom && Math.max(size(piece, zoom).width, size(piece, zoom).height) > maxSide) zoom--;
     return { ...piece, distance, zoom };
   }).sort((a, b) => a.distance - b.distance);
@@ -931,7 +1004,7 @@ function refreshOnDemand(id: string) {
     request.signal.addEventListener('abort', () => loading.abort());
     const entry: { zoom: number; pixels: number; loading?: AbortController } = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading };
     shown.set(piece.key, entry); started++;
-    void fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom).then(canvas => {
+    void fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom, service.offline ? savedTiles(id) : undefined).then(canvas => {
       if (entry.loading !== loading || !state.on) return;
       entry.loading = undefined; entry.pixels = width * rows; state.failures = 0;
       surfaceScene.setLayerPiece(id, piece.key, mapTexture(canvas), piece.extent);
@@ -963,7 +1036,7 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
   const state = mapLayers.get(id)!, service = UNDERLAY_SERVICES.find(item => item.id === id)!;
   state.request?.abort(); state.request = undefined;
   for (const piece of state.shown?.values() ?? []) piece.loading?.abort();
-  state.shown = undefined;
+  state.shown = undefined; state.highest = undefined; state.low = undefined;
   surfaceScene.removeLayer(id);
   state.on = on && mapsUsable(quiet);
   if (!quiet && !on) rememberModelLayers();
@@ -984,7 +1057,17 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
         if (state.request !== request) return;
         if (!state.apiKey) { announce(`${service.title} needs an API key.`, true); setMapLayer(id, false); return; }
       }
+      let tiles: [number, number, number][] = [];
+      if (service.offline) {
+        // From the zoom that shows the whole surface up to the sharpest near the survey stations.
+        const extent = surfaceScene.extent()!, [latitude] = sjtskToWgs84((extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2);
+        const tile = tileTemplate(service).size;
+        state.low = Math.max(service.minZoom ?? 1, zoomFor((extent[2] - extent[0]) / 1024, latitude, tile, service.maxZoom) - 1);
+        const plan = offlineTiles(service, surfaceScene.pieces(), stationPoints(), state.low, latitude);
+        state.highest = plan.highest; tiles = plan.tiles;
+      }
       refreshOnDemand(id);
+      if (service.offline) void saveOfflineTiles(id, service, tiles, request, state.apiKey ?? '');
     })();
     return;
   }

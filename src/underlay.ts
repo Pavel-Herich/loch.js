@@ -31,6 +31,13 @@ export type XyzService = ServiceBase & {
    * rest; nothing downloaded ahead or kept on the device beyond the browser's HTTP cache.
    */
   onDemand?: boolean;
+  /**
+   * Shown on demand as well, but the tiles are first saved on the device for the whole surface
+   * (a pyramid up to the zoom of `levels` for each piece), so the map works without a signal.
+   */
+  offline?: boolean;
+  /** Typical size of one tile (bytes), for the download estimate. */
+  tileBytes?: number;
   /** The service needs the user's own API key, put into the URL as {apikey}. */
   apiKey?: 'mapy';
 };
@@ -46,9 +53,9 @@ export type UnderlayService = (WmsService | XyzService) & {
 
 /** All map layers lie over the LOX image, in this order (later ones on top). */
 export const UNDERLAY_SERVICES: UnderlayService[] = [
-  // Mapy.com's terms forbid storing, caching or pre-caching tiles: loaded on demand like Freemap.
+  // Mapy.com: shown on demand, with the tiles saved on the device first (for use without a signal).
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.5, 2, 6], opacity: 1,
+    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 25_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }] },
   // Freemap's terms: zoom 5–18, tiles for the pixel ratio, no bulk or offline download, attribution at the map.
   { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}{retina}', tileSize: 256, retina: true,
@@ -56,7 +63,7 @@ export const UNDERLAY_SERVICES: UnderlayService[] = [
     credits: [{ text: '© Freemap Slovakia', href: 'https://www.freemap.sk/' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
       { text: 'Elevation data sources', href: 'https://www.freemap.sk/' }] },
   { id: 'mapy-outdoor', kind: 'xyz', title: 'Mapy.com outdoor map', url: 'https://api.mapy.com/v1/maptiles/outdoor/256@2x/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 512, minZoom: 5, maxZoom: 19, onDemand: true, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1,
+    tileSize: 512, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 40_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [.4, 1.6, 6.5], opacity: 1,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' }] },
   { id: 'geology', kind: 'wms', title: 'Geological map 1:50 000', url: 'https://ags.geology.sk/arcgis/services/WebServices/GM50/MapServer/WMSServer',
     layers: '0,1,2', discover: true, format: 'image/png', transparent: true, attribution: '© ŠGÚDŠ', bytesPerPixel: .25, opacity: .5,
@@ -121,11 +128,12 @@ function discoverLayers(service: WmsService, signal?: AbortSignal) {
 /** At most a few images load at once, so a big download does not swamp the service or the phone. */
 const PARALLEL = 6;
 let running = 0;
-const waiting: (() => void)[] = [];
-async function slot<T>(run: () => Promise<T>) {
-  if (running >= PARALLEL) await new Promise<void>(resolve => waiting.push(resolve));
+/** What the view needs goes before background saving. */
+const waiting: (() => void)[] = [], background: (() => void)[] = [];
+async function slot<T>(run: () => Promise<T>, later = false) {
+  if (running >= PARALLEL) await new Promise<void>(resolve => (later ? background : waiting).push(resolve));
   running++;
-  try { return await run(); } finally { running--; waiting.shift()?.(); }
+  try { return await run(); } finally { running--; (waiting.shift() ?? background.shift())?.(); }
 }
 
 const pause = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
@@ -148,6 +156,10 @@ export function imageComplete(bytes: Uint8Array, type: string) {
  * missing lower part as an empty band); asked again up to three times.
  */
 function loadImage(url: string, signal?: AbortSignal) {
+  return loadBlob(url, signal).then(blob => createImageBitmap(blob));
+}
+/** A map image as it came from the service (checked whole), for drawing or keeping on the device. */
+export function loadBlob(url: string, signal?: AbortSignal, later = false) {
   return slot(async () => {
     let problem = 'The map service did not answer.';
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -171,10 +183,10 @@ function loadImage(url: string, signal?: AbortSignal) {
       }
       const bytes = new Uint8Array(await response.arrayBuffer());
       if (!imageComplete(bytes, type)) { console.warn('Map image cut off, asking again:', url); problem = 'The map service sent incomplete images.'; continue; }
-      return await createImageBitmap(new Blob([bytes], { type }));
+      return new Blob([bytes], { type });
     }
     throw new Error(problem);
-  });
+  }, later);
 }
 
 /** Sizes of `count` equal parts of `total` pixels (the first ones a pixel larger when it does not divide). */
@@ -231,7 +243,10 @@ const tileCache = new Map<string, Promise<ImageBitmap | undefined>>();
  * every output pixel is taken from where its S-JTSK position falls on them. Positions are
  * converted exactly on a coarse grid and interpolated in between (well under a pixel).
  */
-export async function fetchXyz(service: XyzService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey = '', zoomAsked?: number) {
+/** Where tiles come from: the service by default, or the device's saved copies first. */
+export type TileSource = (url: string, zoom: number, x: number, y: number, signal?: AbortSignal) => Promise<ImageBitmap>;
+export async function fetchXyz(service: XyzService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey = '', zoomAsked?: number,
+  tileSource: TileSource = url => loadImage(url, signal)) {
   const [minX, minY, maxX, maxY] = extent;
   const [centreLat] = sjtskToWgs84((minX + maxX) / 2, (minY + maxY) / 2);
   const template = tileTemplate(service);
@@ -256,7 +271,7 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
     const url = template.url.replace('{z}', String(zoom)).replace('{x}', String(tx)).replace('{y}', String(ty)).replace('{apikey}', encodeURIComponent(apiKey));
     let tile = tileCache.get(url);
     if (tile) tileCache.delete(url); // Most recently used last.
-    else tile = loadImage(url, signal).catch(error => { if ((error as Error).name === 'AbortError') { tileCache.delete(url); throw error; } return undefined; });
+    else tile = tileSource(url, zoom, tx, ty, signal).catch(error => { if ((error as Error).name === 'AbortError') { tileCache.delete(url); throw error; } return undefined; });
     tileCache.set(url, tile);
     // Only recent tiles stay (dropped ones are freed by the browser once drawn).
     while (tileCache.size > 96) tileCache.delete(tileCache.keys().next().value!);
@@ -285,8 +300,8 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   return canvas;
 }
 
-export function fetchMap(service: UnderlayService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey?: string, zoom?: number) {
-  return service.kind === 'wms' ? fetchWms(service, extent, width, height, signal) : fetchXyz(service, extent, width, height, signal, apiKey, zoom);
+export function fetchMap(service: UnderlayService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey?: string, zoom?: number, source?: TileSource) {
+  return service.kind === 'wms' ? fetchWms(service, extent, width, height, signal) : fetchXyz(service, extent, width, height, signal, apiKey, zoom, source);
 }
 
 /** Tells a service that refuses other sites (no CORS) from one that does not answer, or refuses the key. */
@@ -352,6 +367,63 @@ export function nearestPointGap(points: Float64Array) {
     }
     return Math.sqrt(best);
   };
+}
+
+/** The tile URL (with key) for a tile of a service. */
+export function tileUrl(service: XyzService, zoom: number, x: number, y: number, apiKey = '') {
+  return tileTemplate(service).url.replace('{z}', String(zoom)).replace('{x}', String(x)).replace('{y}', String(y)).replace('{apikey}', encodeURIComponent(apiKey));
+}
+/** Tiles (zoom/x/y) covering an S-JTSK extent at a zoom. */
+export function tilesFor(extent: Extent, zoom: number, tile: number) {
+  const corners = [[extent[0], extent[1]], [extent[2], extent[1]], [extent[0], extent[3]], [extent[2], extent[3]]].map(([e, n]) => {
+    const [lat, lon] = sjtskToWgs84(e, n);
+    return mercatorPixel(lat, lon, zoom, tile);
+  });
+  const x0 = Math.floor(Math.min(...corners.map(c => c[0])) / tile), x1 = Math.floor(Math.max(...corners.map(c => c[0])) / tile);
+  const y0 = Math.floor(Math.min(...corners.map(c => c[1])) / tile), y1 = Math.floor(Math.max(...corners.map(c => c[1])) / tile);
+  const tiles: [number, number, number][] = [];
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) tiles.push([zoom, x, y]);
+  return tiles;
+}
+/** Survey stations in cells of this size (metres), for finding the tiles near them. */
+const STATION_CELL = 50;
+/**
+ * Sharpness kept on the device, by distance from the nearest survey station: the whole
+ * surface at about 3 m/px, within 1 km at 1.6 m/px, within 250 m at 0.8 m/px and within
+ * 100 m at 0.4 m/px (each the next zoom of the service's tiles).
+ */
+export const OFFLINE_BANDS: [metresPerPixel: number, distance: number][] = [[1.6, 1000], [.8, 250], [.4, 100]];
+export const OFFLINE_BASE = 3.2;
+/**
+ * The tiles to keep on the device for a surface: every zoom from `low` up to the base over
+ * the whole surface, and the sharper zooms only for tiles near survey stations (x, y pairs),
+ * lowest zooms first, each tile once. Also the sharpest zoom kept anywhere on each piece.
+ */
+export function offlineTiles(service: XyzService, pieces: { key: string; extent: Extent }[], stations: Float64Array, low: number, latitude: number) {
+  const tile = tileTemplate(service).size;
+  const zoomOf = (metres: number) => Math.max(low, Math.min(service.maxZoom, zoomFor(metres, latitude, tile, service.maxZoom)));
+  const seen = new Set<string>(), tiles: [number, number, number][] = [];
+  const add = (t: [number, number, number]) => { const key = t.join('/'); if (!seen.has(key)) { seen.add(key); tiles.push(t); } };
+  const base = zoomOf(OFFLINE_BASE);
+  for (const piece of pieces) for (let zoom = low; zoom <= base; zoom++) tilesFor(piece.extent, zoom, tile).forEach(add);
+  // Stations as occupied cells; each band takes the tiles over the cells grown by its distance.
+  const cells = new Set<string>();
+  for (let i = 0; i < stations.length; i += 2) cells.add(`${Math.floor(stations[i] / STATION_CELL)},${Math.floor(stations[i + 1] / STATION_CELL)}`);
+  const occupied = [...cells].map(cell => cell.split(',').map(Number));
+  const [minX, minY, maxX, maxY] = pieces.reduce<Extent>((all, piece) => [Math.min(all[0], piece.extent[0]), Math.min(all[1], piece.extent[1]), Math.max(all[2], piece.extent[2]), Math.max(all[3], piece.extent[3])], [Infinity, Infinity, -Infinity, -Infinity]);
+  const highest = new Map(pieces.map(piece => [piece.key, base]));
+  for (const [metres, distance] of OFFLINE_BANDS) {
+    const zoom = zoomOf(metres);
+    if (zoom <= base) continue;
+    for (const [cx, cy] of occupied) {
+      const area: Extent = [Math.max(minX, cx * STATION_CELL - distance), Math.max(minY, cy * STATION_CELL - distance),
+        Math.min(maxX, (cx + 1) * STATION_CELL + distance), Math.min(maxY, (cy + 1) * STATION_CELL + distance)];
+      if (area[0] >= area[2] || area[1] >= area[3]) continue;
+      tilesFor(area, zoom, tile).forEach(add);
+      for (const piece of pieces) if (extentGap(piece.extent, area) === 0 && highest.get(piece.key)! < zoom) highest.set(piece.key, zoom);
+    }
+  }
+  return { tiles: tiles.sort((a, b) => a[0] - b[0]), highest };
 }
 
 /** Expected download for pieces of a service, in bytes. */

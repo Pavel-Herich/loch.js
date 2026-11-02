@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { downloadEstimate, extentGap, retinaScale, tileGround, tileTemplate, type XyzService, nearestPointGap, getMapUrl, imageComplete, mercatorPixel, planPieces, split, UNDERLAY_SERVICES, zoomFor, type Extent, type WmsService } from '../src/underlay';
+import { downloadEstimate, extentGap, offlineTiles, tilesFor, retinaScale, tileGround, tileTemplate, type XyzService, nearestPointGap, getMapUrl, imageComplete, mercatorPixel, planPieces, split, UNDERLAY_SERVICES, zoomFor, type Extent, type WmsService } from '../src/underlay';
 import { tileCells } from '../src/surface';
 
 describe('map underlays', () => {
@@ -23,8 +23,23 @@ describe('map underlays', () => {
     expect(tileGround(49, 512, 16)).toBeCloseTo(.78, 2);
   });
 
-  it('loads Mapy.com on demand too (its terms forbid storing or pre-caching tiles)', () => {
-    for (const id of ['mapy-aerial', 'mapy-outdoor']) expect(UNDERLAY_SERVICES.find(s => s.id === id)).toMatchObject({ onDemand: true, minZoom: 5, maxZoom: 19, apiKey: 'mapy' });
+  it('shows Mapy.com on demand from tiles saved on the device, sharpest near the stations', () => {
+    for (const id of ['mapy-aerial', 'mapy-outdoor']) expect(UNDERLAY_SERVICES.find(s => s.id === id)).toMatchObject({ onDemand: true, offline: true, minZoom: 5, maxZoom: 19, apiKey: 'mapy' });
+    const aerial = UNDERLAY_SERVICES.find(s => s.id === 'mapy-aerial') as XyzService;
+    // A 1 km piece at the Low Tatras covers a few tiles at zoom 14 and many at 18.
+    const piece: Extent = [-389000, -1206000, -388000, -1205000];
+    expect(tilesFor(piece, 14, 256).length).toBeLessThanOrEqual(4);
+    expect(tilesFor(piece, 18, 256).length).toBeGreaterThan(100);
+    // Stations in the middle of the piece: zoom 18 kept near them, the base (zoom 15) everywhere.
+    const stations = new Float64Array([-388500, -1205500]);
+    const plan = offlineTiles(aerial, [{ key: 'p', extent: piece }], stations, 12, 48.95);
+    expect(plan.highest.get('p')).toBe(18);
+    const byZoom = (z: number) => plan.tiles.filter(t => t[0] === z).length;
+    expect(byZoom(15)).toBe(tilesFor(piece, 15, 256).length);
+    expect(byZoom(18)).toBeGreaterThan(0); expect(byZoom(18)).toBeLessThan(tilesFor(piece, 18, 256).length / 4);
+    expect(plan.tiles[0][0]).toBe(12); // lowest zooms first
+    expect(new Set(plan.tiles.map(t => t.join('/'))).size).toBe(plan.tiles.length);
+    expect(offlineTiles(aerial, [{ key: 'p', extent: piece }], new Float64Array(), 12, 48.95).highest.get('p')).toBe(15);
   });
 
   it('measures the gap between extents', () => {
