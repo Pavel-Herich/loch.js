@@ -38,7 +38,8 @@ export function surfaceGeometry(surface: Surface, origin: THREE.Vector3, firstCo
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(triangle === indices.length ? indices : indices.slice(0, triangle), 1));
-  if (surface.id < 0) geometry.setAttribute('normal', new THREE.BufferAttribute(gridNormals(surface, firstColumn, firstRow, columns, rows), 3));
+  // Smooth shading, as Therion's Loch draws surfaces: normals from the grid, not per triangle.
+  geometry.setAttribute('normal', new THREE.BufferAttribute(gridNormals(surface, firstColumn, firstRow, columns, rows), 3));
   return geometry;
 }
 
@@ -50,6 +51,7 @@ export function gridNormals(surface: Pick<Surface, 'width' | 'height' | 'heights
   const { width, height, heights } = surface, [, , xx, xy, yx, yy] = surface.calibration;
   const normals = new Float32Array((columns + 1) * (rows + 1) * 3);
   const span = Math.max(1, Math.round(4 / Math.max(Math.hypot(xx, yx), Math.hypot(xy, yy))));
+  const determinant = xx * yy - xy * yx;
   const at = (c: number, r: number, fallback: number) => {
     if (c < 0 || r < 0 || c >= width || r >= height) return fallback;
     const value = heights[r * width + c];
@@ -61,9 +63,10 @@ export function gridNormals(surface: Pick<Surface, 'width' | 'height' | 'heights
     // Height change per grid step along columns and rows (over about ±4 m, so a fine grid shades
     // smoothly rather than showing every metre's roughness), then in east and north.
     const dc = (at(c + span, r, here) - at(c - span, r, here)) / (2 * span), dr = (at(c, r + span, here) - at(c, r - span, here)) / (2 * span);
-    const determinant = xx * yy - xy * yx;
     const dzdx = (dc * yy - dr * yx) / determinant, dzdy = (dr * xx - dc * xy) / determinant;
-    const length = Math.hypot(dzdx, dzdy, 1);
+    // Up, as seen from the side the grid's cells face (a mirrored grid faces down; double-sided
+    // materials flip the normal of faces seen from behind).
+    const length = Math.hypot(dzdx, dzdy, 1) * (determinant > 0 ? 1 : -1);
     normals[next++] = -dzdx / length; normals[next++] = -dzdy / length; normals[next++] = 1 / length;
   }
   return normals;
@@ -246,9 +249,9 @@ export class SurfaceScene {
 
   add(surface: Surface, origin: THREE.Vector3) {
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-    const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
+    const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, roughness: .85, metalness: 0 });
     // A terrain model has no image: a darker grey keeps sunlit slopes from washing out, so the relief shows.
-    if (surface.id < 0) { lit.color.setHex(0x969696); lit.flatShading = false; }
+    if (surface.id < 0) lit.color.setHex(0x969696);
     // Cells wind a → b → d; whether that faces up depends on the grid's handedness.
     const [, , xx, xy, yx, yy] = surface.calibration;
     const frontUp = { value: xx * yy - xy * yx > 0 ? 1 : 0 };

@@ -883,6 +883,15 @@ async function restoreTerrain() {
   const kept = await loadDmr(key).catch(() => undefined);
   if (!kept || key !== modelKey) return;
   terrain = kept; showSurfaces();
+  if (kept.image) return;
+  // Kept by an older version without its relief image: shaded from the kept grid now (from the
+  // GeoTIFF again for the full detail).
+  try {
+    kept.image = { ...imagePlace(kept), data: await jpegBytes(hillshade(kept), kept.width, kept.height) };
+    if (terrain !== kept) return;
+    showSurfaces(); void saveDmr(key, kept).catch(() => undefined);
+    announce('Relief image added from the terrain grid; open the GeoTIFF again for the full detail.');
+  } catch (error) { console.warn('Relief image not made:', error); }
 }
 /** The model's centre as S-JTSK east, north. */
 function modelCentre(): [number, number] {
@@ -944,7 +953,8 @@ async function importTerrain(picked: File) {
       setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
     });
     if (key !== modelKey) return;
-    dmr.image = { ...imagePlace(fine), data: await jpegBytes(hillshade(fine), fine.width, fine.height) };
+    try { dmr.image = { ...imagePlace(fine), data: await jpegBytes(hillshade(fine), fine.width, fine.height) }; }
+    catch (error) { announce(`The relief image could not be made here (${error instanceof Error ? error.message : String(error)}); the terrain is shaded instead.`, true); }
     setStatusProgress(status); setStatusText(status, '');
     terrain = dmr; showSurfaces();
     void saveDmr(key, dmr).catch(() => announce('The terrain is shown, but there was no room to keep it on this device.', true));

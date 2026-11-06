@@ -43,7 +43,9 @@ describe('LOX terrain surfaces', () => {
     const geometry = surfaceGeometry(surface, new THREE.Vector3(1000, 2000, 10));
     expect(Array.from(geometry.getAttribute('position').array)).toEqual([0, 0, 0, 2, 1, 1, -1, 3, 2, 1, 4, 3]);
     expect(Array.from(geometry.index!.array)).toEqual([0, 1, 3, 0, 3, 2]);
-    expect(geometry.getAttribute('normal')).toBeUndefined();
+    // Smooth normals from the grid, one per node.
+    expect(Array.from(geometry.getAttribute('normal').array).every(Number.isFinite)).toBe(true);
+    expect(geometry.getAttribute('normal').count).toBe(4);
     const uv = surfaceUV(surface, { calibration: surface.calibration, data: new Uint8Array(), mime: 'image/png' }, 2, 2, 0, 0, 1, 1);
     expect(Array.from(uv.array)).toEqual([0, 1, .5, 1, 0, .5, .5, .5]);
   });
@@ -112,8 +114,7 @@ describe('LOX terrain surfaces', () => {
     group.visible = false; scene.setImageOverlay(false);
     const lit = mesh.material as THREE.MeshStandardMaterial;
     expect(lit).toBeInstanceOf(THREE.MeshStandardMaterial); expect(lit.color.getHex()).toBe(0xffffff);
-    expect(lit.flatShading).toBe(true); expect(mesh.geometry).toBe(geometry);
-    expect(geometry.getAttribute('normal')).toBeUndefined();
+    expect(lit.flatShading).toBe(false); expect(geometry.getAttribute('normal')).toBeDefined(); expect(mesh.geometry).toBe(geometry);
     expect(lit.opacity).toBe(.5); expect(lit.transparent).toBe(true); expect(lit.depthWrite).toBe(false);
     scene.setAppearance(false, .3); scene.setImageOverlay(true);
     expect(mesh.material).toBe(imageMaterial); expect(mesh.material.opacity).toBe(1); expect(mesh.material.transparent).toBe(false);

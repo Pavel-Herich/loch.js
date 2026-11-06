@@ -127,3 +127,12 @@ describe('terrain relief image', () => {
     expect(Array.from(normals.slice(0, 3)).map(v => +v.toFixed(4))).toEqual([-.5 / length, 0, 1 / length].map(v => +v.toFixed(4)));
   });
 });
+
+describe('surface shading', () => {
+  it('turns normals of a mirrored grid so they face where its cells face', async () => {
+    const { gridNormals } = await import('../src/surface');
+    const flat = { width: 3, height: 3, heights: new Float64Array(9) };
+    expect(gridNormals({ ...flat, calibration: [0, 0, 1, 0, 0, 1] }, 0, 0, 0, 0)[2]).toBeCloseTo(1);
+    expect(gridNormals({ ...flat, calibration: [0, 0, 1, 0, 0, -1] }, 0, 0, 0, 0)[2]).toBeCloseTo(-1);
+  });
+});
