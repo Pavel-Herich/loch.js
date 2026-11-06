@@ -34,7 +34,7 @@ import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './p
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
 import { addLocalMap, localMaps, localService, localTiles, removeLocalMap } from './local-maps';
-import { downloadEstimate, fetchMap, loadBlob, nearestPointGap, offlineTiles, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
+import { downloadEstimate, fetchMap, loadBlob, prepareWms, nearestPointGap, offlineTiles, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
 import { forgetStored, forgetStoredUnderlays, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
@@ -1167,6 +1167,10 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
         state.apiKey = mapyKey() || await askMapyKey();
         if (state.request !== request) return;
         if (!state.apiKey) { announce(`${service.title} needs an API key.`, true); setMapLayer(id, false); return; }
+      }
+      if (service.kind === 'xyz' && service.wms) {
+        try { await prepareWms(service.wms, request.signal); } catch { return; }
+        if (state.request !== request) return;
       }
       if (service.local) {
         const map = localMaps().find(item => item.id === id);

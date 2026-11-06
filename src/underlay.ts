@@ -44,6 +44,12 @@ export type XyzService = ServiceBase & {
   local?: boolean;
   /** Keep the tiles' transparency (areas without map stay clear). */
   transparent?: boolean;
+  /**
+   * A WMS asked for map tiles: each Web Mercator tile becomes a GetMap request for its area
+   * (EPSG:3857 when the service offers it, else EPSG:4326, exact enough within a tile), so
+   * the WMS is shown, saved and used offline exactly like the tile maps.
+   */
+  wms?: { url: string; layers: string; format: string; srs?: string };
   /** The service needs the user's own API key, put into the URL as {apikey}. */
   apiKey?: 'mapy';
 };
@@ -59,6 +65,11 @@ export type UnderlayService = (WmsService | XyzService) & {
 
 /** All map layers lie over the LOX image, in this order (later ones on top). */
 export const UNDERLAY_SERVICES: UnderlayService[] = [
+  // ZBGIS orthophoto (ÚGKK SR) from its WMS, as 512 px tiles; saved like Mapy.com.
+  { id: 'zbgis-ortho', kind: 'xyz', title: 'ZBGIS orthophoto', url: '', tileSize: 512, minZoom: 5, maxZoom: 18, onDemand: true, offline: true, tileBytes: 60_000,
+    wms: { url: 'https://zbgisws.skgeodesy.sk/zbgis_ortofoto_wms/service.svc/get', layers: '', format: 'image/jpeg' },
+    attribution: '© ÚGKK SR', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true,
+    credits: [{ text: '© ÚGKK SR (ZBGIS)', href: 'https://www.geoportal.sk/' }] },
   // Mapy.com: shown on demand, with the tiles saved on the device first (for use without a signal).
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
     tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 25_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true,
@@ -274,7 +285,7 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   const jobs: Promise<void>[] = [];
   let failed = 0, total = 0;
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
-    const url = template.url.replace('{z}', String(zoom)).replace('{x}', String(tx)).replace('{y}', String(ty)).replace('{apikey}', encodeURIComponent(apiKey));
+    const url = tileUrl(service, zoom, tx, ty, apiKey);
     let tile = tileCache.get(url);
     if (tile) tileCache.delete(url); // Most recently used last.
     else tile = tileSource(url, zoom, tx, ty, signal).catch(error => { if ((error as Error).name === 'AbortError') { tileCache.delete(url); throw error; } return undefined; });
@@ -286,7 +297,7 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   }
   await Promise.all(jobs);
   // A map file simply has no tiles outside its area.
-  if (failed === total && !service.local) throw new Error(await whyTileFailed(template.url.replace('{z}', String(zoom)).replace('{x}', String(tx0)).replace('{y}', String(ty0)).replace('{apikey}', encodeURIComponent(apiKey))));
+  if (failed === total && !service.local) throw new Error(await whyTileFailed(tileUrl(service, zoom, tx0, ty0, apiKey)));
   const source = context.getImageData(0, 0, mosaic.width, mosaic.height).data, sourceWidth = mosaic.width, sourceHeight = mosaic.height;
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
   const output = canvas.getContext('2d')!, image = output.createImageData(width, height), data = image.data;
@@ -378,7 +389,58 @@ export function nearestPointGap(points: Float64Array) {
 
 /** The tile URL (with key) for a tile of a service. */
 export function tileUrl(service: XyzService, zoom: number, x: number, y: number, apiKey = '') {
+  if (service.wms) return wmsTileUrl(service.wms, service.tileSize, zoom, x, y);
   return tileTemplate(service).url.replace('{z}', String(zoom)).replace('{x}', String(x)).replace('{y}', String(y)).replace('{apikey}', encodeURIComponent(apiKey));
+}
+/** WMS GetMap (1.1.1) for the area of a Web Mercator tile. */
+export function wmsTileUrl(wms: NonNullable<XyzService['wms']>, size: number, zoom: number, x: number, y: number) {
+  const n = 2 ** zoom, srs = wms.srs ?? 'EPSG:4326';
+  let bbox: number[];
+  if (srs === 'EPSG:4326') {
+    const lon = (i: number) => i / n * 360 - 180, lat = (j: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * j / n))) * 180 / Math.PI;
+    bbox = [lon(x), lat(y + 1), lon(x + 1), lat(y)];
+  } else {
+    const half = Math.PI * EARTH, step = 2 * half / n;
+    bbox = [-half + x * step, half - (y + 1) * step, -half + (x + 1) * step, half - y * step];
+  }
+  const params = new URLSearchParams({
+    SERVICE: 'WMS', VERSION: '1.1.1', REQUEST: 'GetMap', LAYERS: wms.layers, STYLES: '', SRS: srs,
+    BBOX: bbox.map(v => v.toFixed(srs === 'EPSG:4326' ? 9 : 3)).join(','), WIDTH: String(size), HEIGHT: String(size), FORMAT: wms.format,
+  });
+  return `${wms.url}?${params}`;
+}
+/**
+ * The one layer to ask an imagery WMS for: the root when it is named (the whole service),
+ * else the named layer that sounds like the orthophoto (not an index of sheets or footprints),
+ * else the first named layer. Several layers together could cover the imagery.
+ */
+export function imageryLayer(xml: string) {
+  const document = new DOMParser().parseFromString(xml, 'text/xml');
+  const root = document.querySelector('Capability > Layer');
+  if (!root) return undefined;
+  const child = (layer: Element, name: string) => Array.from(layer.children).find(item => item.localName === name)?.textContent?.trim() ?? '';
+  if (child(root, 'Name')) return child(root, 'Name');
+  const named = Array.from(root.getElementsByTagName('Layer')).filter(layer => child(layer, 'Name'))
+    .map(layer => ({ name: child(layer, 'Name'), title: child(layer, 'Title') }));
+  const label = (layer: { name: string; title: string }) => `${layer.name} ${layer.title}`;
+  return (named.find(layer => /ort[oh]/i.test(label(layer)) && !/index|klad|footprint|hranic|okraj|mosaicelement|sheet|list/i.test(label(layer))) ?? named[0])?.name;
+}
+/**
+ * Layer names and the best coordinate system from the WMS capabilities (once per session);
+ * without them, the first layer and EPSG:4326.
+ */
+export async function prepareWms(wms: NonNullable<XyzService['wms']>, signal?: AbortSignal) {
+  if (wms.layers) return;
+  try {
+    const response = await fetch(`${wms.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetCapabilities`, { signal, mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' });
+    const xml = response.ok ? await response.text() : '';
+    wms.layers = imageryLayer(xml) ?? '0';
+    const systems = new Set([...xml.matchAll(/<(?:SRS|CRS)>([^<]+)<\/(?:SRS|CRS)>/g)].flatMap(match => match[1].trim().split(/\s+/)).map(code => code.toUpperCase()));
+    wms.srs = systems.has('EPSG:3857') ? 'EPSG:3857' : systems.has('EPSG:900913') ? 'EPSG:900913' : 'EPSG:4326';
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') throw error;
+    wms.layers = '0'; wms.srs = 'EPSG:4326';
+  }
 }
 /** Tiles (zoom/x/y) covering an S-JTSK extent at a zoom. */
 export function tilesFor(extent: Extent, zoom: number, tile: number) {

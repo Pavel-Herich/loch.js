@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { downloadEstimate, extentGap, offlineTiles, tilesFor, retinaScale, tileGround, tileTemplate, type XyzService, nearestPointGap, getMapUrl, imageComplete, mercatorPixel, planPieces, split, UNDERLAY_SERVICES, zoomFor, type Extent, type WmsService } from '../src/underlay';
+import { wmsTileUrl, downloadEstimate, extentGap, offlineTiles, tilesFor, retinaScale, tileGround, tileTemplate, type XyzService, nearestPointGap, getMapUrl, imageComplete, mercatorPixel, planPieces, split, UNDERLAY_SERVICES, zoomFor, type Extent, type WmsService } from '../src/underlay';
 import { tileCells } from '../src/surface';
 
 describe('map underlays', () => {
   it('stacks imagery, outdoor maps and the geological map over the LOX image', () => {
-    expect(UNDERLAY_SERVICES.map(s => s.id)).toEqual(['mapy-aerial', 'freemap', 'mapy-outdoor', 'geology']);
+    expect(UNDERLAY_SERVICES.map(s => s.id)).toEqual(['zbgis-ortho', 'mapy-aerial', 'freemap', 'mapy-outdoor', 'geology']);
     // Imagery and maps are draped in pieces; the geological map is one image at half opacity.
-    expect(UNDERLAY_SERVICES.filter(s => s.levels).map(s => s.id)).toEqual(['mapy-aerial', 'freemap', 'mapy-outdoor']);
+    expect(UNDERLAY_SERVICES.filter(s => s.levels).map(s => s.id)).toEqual(['zbgis-ortho', 'mapy-aerial', 'freemap', 'mapy-outdoor']);
     expect(UNDERLAY_SERVICES.find(s => s.id === 'geology')!.opacity).toBe(.5);
     const geology = UNDERLAY_SERVICES.find(s => s.id === 'geology') as WmsService;
     expect(getMapUrl(geology, '0', [0, 0, 10, 10], 10, 10)).toContain('TRANSPARENT=TRUE');
@@ -42,6 +42,18 @@ describe('map underlays', () => {
     expect(offlineTiles(aerial, [{ key: 'p', extent: piece }], new Float64Array(), 12, 48.95).highest.get('p')).toBe(15);
   });
 
+  it('asks a WMS for the area of a Web Mercator tile (ZBGIS orthophoto)', () => {
+    const ortho = UNDERLAY_SERVICES.find(s => s.id === 'zbgis-ortho') as XyzService;
+    expect(ortho).toMatchObject({ offline: true, exclusive: true, tileSize: 512 });
+    const wms = { url: 'https://example.sk/wms', layers: '1', format: 'image/jpeg' };
+    const ll = new URL(wmsTileUrl(wms, 512, 1, 1, 0)).searchParams;
+    expect(ll.get('SRS')).toBe('EPSG:4326');
+    expect(ll.get('BBOX')!.split(',').map(Number)).toEqual([0, 0, 180, expect.closeTo(85.0511288, 6)]);
+    const merc = new URL(wmsTileUrl({ ...wms, srs: 'EPSG:3857' }, 512, 1, 0, 1)).searchParams;
+    expect(merc.get('BBOX')!.split(',').map(Number).map(v => Math.round(v))).toEqual([-20037508, -20037508, 0, 0]);
+    expect(merc.get('WIDTH')).toBe('512'); expect(merc.get('LAYERS')).toBe('1');
+  });
+
   it('measures the gap between extents', () => {
     expect(extentGap([0, 0, 10, 10], [5, 5, 20, 20])).toBe(0);
     expect(extentGap([0, 0, 10, 10], [13, 14, 20, 20])).toBe(5);
@@ -74,7 +86,7 @@ describe('map underlays', () => {
     expect(tight.reduce((sum, p) => sum + p.width * p.height, 0)).toBeLessThanOrEqual(2e6);
     expect(tight[0].width).toBeGreaterThan(tight[2].width);
     expect(planPieces(pieces, cave, [.1, 2, 6], Infinity, 2048)[0].width).toBe(2048);
-    expect(downloadEstimate(UNDERLAY_SERVICES[0], [{ width: 1000, height: 1000 }])).toBe(300_000); // Mapy.com aerial
+    expect(downloadEstimate(UNDERLAY_SERVICES[1], [{ width: 1000, height: 1000 }])).toBe(300_000); // Mapy.com aerial
   });
 
   it('measures pieces against the survey stations', () => {
