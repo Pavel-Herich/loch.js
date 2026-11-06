@@ -90,3 +90,40 @@ describe('terrain holes', () => {
     expect(full.index!.count).toBe(8 * 3);
   });
 });
+
+describe('terrain relief image', () => {
+  it('shades slopes facing the north-west light brighter, flat ground light grey', async () => {
+    const { hillshade } = await import('../src/dmr');
+    // Rows go north; a plane falling to the north-west (rising to the south-east) and its opposite.
+    const plane = (dx: number, dy: number) => ({ width: 5, height: 5, step: 1, heights: Float32Array.from({ length: 25 }, (_, i) => dx * (i % 5) + dy * Math.floor(i / 5)) });
+    const centre = (rgba: Uint8ClampedArray) => rgba[(2 * 5 + 2) * 4];
+    const towardsLight = centre(hillshade(plane(.2, -.2))), away = centre(hillshade(plane(-.2, .2))), flat = centre(hillshade(plane(0, 0)));
+    expect(towardsLight).toBeGreaterThan(flat); expect(flat).toBeGreaterThan(away);
+    expect(flat).toBeGreaterThan(200);
+    // Steep ground is darker whichever way it faces (lit across its slope).
+    expect(centre(hillshade(plane(1.5, -1.5)))).toBeLessThan(flat);
+    // Image rows run north first: the south-west node is the bottom-left pixel.
+    const ramp = hillshade({ width: 2, height: 2, step: 1, heights: Float32Array.from([0, 0, NaN, NaN]) });
+    expect([ramp[0], ramp[4]]).toEqual([255, 255]); // north row (first in the image) without data: white
+    expect(ramp[8]).toBe(flat); // south row: flat ground
+  });
+
+  it('puts the image over the grid cells and into Therion as a bitmap', async () => {
+    const { dmrTherion, imageFactor, imagePlace } = await import('../src/dmr');
+    expect(imageFactor({ width: 7335, height: 2717 }, 30e6, 16384)).toBe(1);
+    expect(imageFactor({ width: 7335, height: 2717 }, 12e6, 8192)).toBe(2);
+    expect(imageFactor({ width: 20000, height: 20000 }, 30e6, 16384)).toBe(4);
+    const place = imagePlace({ origin: [-359128.5, -1176364.5], step: 1, width: 260, height: 130 });
+    expect(place).toEqual({ west: -359129, south: -1176365, pixel: 1, width: 260, height: 130 });
+    const dmr = { name: 'dmr.tif', step: 2, width: 2, height: 2, origin: [-359128, -1176364] as [number, number], shift: [0, 0] as [number, number], epsg: 8353, heights: new Float32Array(4), image: { ...place, data: new Uint8Array(1) } };
+    expect(dmrTherion(dmr, 'cave-terrain.jpg')).toContain('  bitmap cave-terrain.jpg [0 0 -359129.00 -1176365.00 260 130 -358869.00 -1176235.00]');
+  });
+
+  it('gives a terrain smooth normals from its grid', async () => {
+    const { gridNormals } = await import('../src/surface');
+    const heights = Float64Array.from({ length: 64 }, (_, i) => .5 * (i % 8) * 2); // z = 0.5 x on a 2 m grid
+    const normals = gridNormals({ width: 8, height: 8, heights, calibration: [0, 0, 2, 0, 0, 2] }, 3, 3, 1, 1);
+    const length = Math.hypot(.5, 1);
+    expect(Array.from(normals.slice(0, 3)).map(v => +v.toFixed(4))).toEqual([-.5 / length, 0, 1 / length].map(v => +v.toFixed(4)));
+  });
+});

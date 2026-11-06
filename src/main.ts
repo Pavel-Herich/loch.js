@@ -13,7 +13,7 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
-import { dmrSteps, dmrSurface, dmrTherion, inspectDmr, resampleDmr, tiffFromZip, type Dmr } from './dmr';
+import { dmrSteps, dmrSurface, dmrTherion, hillshade, imageFactor, imagePlace, inspectDmr, resampleDmr, tiffFromZip, type Dmr } from './dmr';
 import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators, metresPerPixel } from './indicators';
@@ -918,7 +918,7 @@ function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: 
     button.append(title, text);
     return button;
   }));
-  document.querySelector('#dmr-text')!.textContent = `${name}: cells of ${cell} m. Heights are averaged onto a grid of the chosen step; the same grid goes to Therion.`;
+  document.querySelector('#dmr-text')!.textContent = `${name}: cells of ${cell} m. Heights are averaged onto a grid of the chosen step; a shaded relief image from the full cells lies over it. Both go to Therion.`;
   dmrDialog.returnValue = ''; dmrDialog.showModal();
   return new Promise<number | undefined>(resolve => dmrDialog.addEventListener('close', () => {
     const factor = Number(dmrDialog.returnValue); resolve(factor > 0 ? factor : undefined);
@@ -938,6 +938,13 @@ async function importTerrain(picked: File) {
       setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
     }, jtsk03Shift);
     if (key !== modelKey) return;
+    // The shaded relief image, from the file's own cells (coarser only on big areas or small devices).
+    const imageAt = imageFactor(tiff, isCoarse() ? 12e6 : 30e6, isCoarse() ? 8192 : 16384);
+    const fine = await resampleDmr(blob, tiff, epsg, imageAt, name, (done, total) => {
+      setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
+    });
+    if (key !== modelKey) return;
+    dmr.image = { ...imagePlace(fine), data: await jpegBytes(hillshade(fine), fine.width, fine.height) };
     setStatusProgress(status); setStatusText(status, '');
     terrain = dmr; showSurfaces();
     void saveDmr(key, dmr).catch(() => announce('The terrain is shown, but there was no room to keep it on this device.', true));
@@ -953,8 +960,28 @@ async function importTerrain(picked: File) {
 document.querySelector<HTMLButtonElement>('#surface-dmr-export')!.addEventListener('click', () => {
   if (!terrain) return;
   const base = (modelKey.split('|')[0] || 'model').replace(/\.[^.]+$/, '');
-  download(`${base}-terrain.th`, dmrTherion(terrain), 'text/plain');
+  if (!terrain.image) { download(`${base}-terrain.th`, dmrTherion(terrain), 'text/plain'); return; }
+  // The surface with its relief image beside it, as Therion reads a bitmap.
+  const zip = createZip([
+    { name: `${base}-terrain.th`, data: new TextEncoder().encode(dmrTherion(terrain, `${base}-terrain.jpg`)) },
+    { name: `${base}-terrain.jpg`, data: terrain.image.data },
+  ]);
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(zip); link.download = `${base}-terrain.zip`;
+  document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
 });
+/** Grey RGBA rows (north first) as JPEG, drawn in strips so a large image needs no second full copy. */
+async function jpegBytes(rgba: Uint8ClampedArray<ArrayBuffer>, width: number, height: number) {
+  const canvas = new OffscreenCanvas(width, height), context = canvas.getContext('2d')!;
+  const STRIP = 512;
+  for (let row = 0; row < height; row += STRIP) {
+    const rows = Math.min(STRIP, height - row);
+    context.putImageData(new ImageData(rgba.subarray(row * width * 4, (row + rows) * width * 4), width, rows), 0, row);
+  }
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: .88 });
+  return new Uint8Array(await blob.arrayBuffer());
+}
 document.querySelector<HTMLButtonElement>('#surface-dmr-remove')!.addEventListener('click', () => {
   if (!terrain) return;
   terrain = undefined; void forgetDmr(modelKey).catch(() => undefined);

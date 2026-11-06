@@ -13,7 +13,10 @@ export type Dmr = {
   origin: [number, number]; shift: [number, number]; epsg: number;
   /** Rows from south to north, west to east. */
   heights: Float32Array;
+  /** Hillshade of the terrain (JPEG), finer than the grid, over its cells; south-west corner in the file's system. */
+  image?: DmrImage;
 };
+export type DmrImage = { data: Uint8Array<ArrayBuffer>; width: number; height: number; west: number; south: number; pixel: number };
 
 /** EPSG codes read as S-JTSK east–north (negative) coordinates. */
 const JTSK03 = 8353, JTSK = 5514;
@@ -45,7 +48,8 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
   progress?: (done: number, total: number) => void, shift: (east: number, north: number) => [number, number] = () => [0, 0]): Promise<Dmr> {
   const width = Math.floor(tiff.width / factor), height = Math.floor(tiff.height / factor);
   if (!width || !height) throw new Error('The GeoTIFF is too small for this grid step.');
-  const sum = new Float64Array(width * height), count = new Uint16Array(width * height);
+  // Single precision keeps a full-resolution pass (for the relief image) at 6 bytes a cell.
+  const sum = new Float32Array(width * height), count = new Uint16Array(width * height);
   const across = Math.ceil(tiff.width / tiff.blockWidth), blocks = tiff.offsets.length;
   for (let index = 0; index < blocks; index++) {
     const values = await readBlock(file, tiff, index);
@@ -83,9 +87,65 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
   return { name, step, width: w, height: h, origin: [east, north], shift: epsg === JTSK03 ? shift(east + w * step / 2, north + h * step / 2) : [0, 0], epsg, heights };
 }
 
+/**
+ * Multidirectional hillshade (as gdaldem -multidirectional, after Mark 1992): light from 225°,
+ * 270°, 315° and 360° at the given altitude, each weighted by sin² of its angle to the slope's
+ * aspect, so every slope is lit across rather than along. RGBA rows from north to south; cells
+ * without data white. Horn's gradient; a missing neighbour counts as the cell itself.
+ */
+export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, altitude = 45, exaggeration = 1) {
+  const { width, height, heights, step } = grid, rgba = new Uint8ClampedArray(width * height * 4);
+  const alt = altitude * Math.PI / 180, sinAlt = Math.sin(alt), cosAlt = Math.cos(alt);
+  const lights = [225, 270, 315, 360].map(az => [Math.sin(az * Math.PI / 180), Math.cos(az * Math.PI / 180)]);
+  for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) {
+    const at = r * width + c, here = heights[at], out = ((height - 1 - r) * width + c) * 4;
+    let value = 255;
+    if (here === here) {
+      const z = (dc: number, dr: number) => {
+        const cc = Math.min(width - 1, Math.max(0, c + dc)), rr = Math.min(height - 1, Math.max(0, r + dr));
+        const v = heights[rr * width + cc];
+        return v === v ? v : here;
+      };
+      // East and north gradients (rows go north).
+      const dzdx = ((z(1, 1) + 2 * z(1, 0) + z(1, -1)) - (z(-1, 1) + 2 * z(-1, 0) + z(-1, -1))) / (8 * step) * exaggeration;
+      const dzdy = ((z(-1, 1) + 2 * z(0, 1) + z(1, 1)) - (z(-1, -1) + 2 * z(0, -1) + z(1, -1))) / (8 * step) * exaggeration;
+      const slope2 = dzdx * dzdx + dzdy * dzdy, norm = Math.sqrt(1 + slope2);
+      let shade: number;
+      if (slope2 === 0) shade = sinAlt;
+      else {
+        // Downhill direction, and the light from each azimuth on the surface normal (-dzdx, -dzdy, 1).
+        const ax = -dzdx / Math.sqrt(slope2), ay = -dzdy / Math.sqrt(slope2);
+        let total = 0;
+        for (const [lx, ly] of lights) {
+          const lit = Math.max(0, (-dzdx * lx * cosAlt - dzdy * ly * cosAlt + sinAlt) / norm);
+          const along = ax * lx + ay * ly;
+          total += (1 - along * along) * lit;
+        }
+        shade = total / 2;
+      }
+      // Bright paper-like tone: flat ground light grey, shadows kept readable.
+      value = 255 * Math.min(1, .18 + .95 * shade);
+    }
+    rgba[out] = rgba[out + 1] = rgba[out + 2] = value; rgba[out + 3] = 255;
+  }
+  return rgba;
+}
+
+/** The image's pixel size: the file's cells, coarser only to stay within the pixel and side limits. */
+export function imageFactor(tiff: Pick<GeoTiff, 'width' | 'height'>, maxPixels: number, maxSide: number) {
+  return Math.max(1, Math.ceil(Math.sqrt(tiff.width * tiff.height / maxPixels)), Math.ceil(Math.max(tiff.width, tiff.height) / maxSide));
+}
+
+/** The image over the cells of a hillshaded grid (corners, not centres). */
+export function imagePlace(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height'>) {
+  return { west: grid.origin[0] - grid.step / 2, south: grid.origin[1] - grid.step / 2, pixel: grid.step, width: grid.width, height: grid.height };
+}
+
 /** The terrain as a surface of the model (in its JTSK). */
 export function dmrSurface(dmr: Dmr): Surface {
+  const image = dmr.image;
   return {
+    ...(image ? { bitmap: { mime: 'image/jpeg' as const, data: image.data, calibration: [image.west + dmr.shift[0], image.south + dmr.shift[1], image.pixel, 0, 0, image.pixel] as Surface['calibration'] } } : {}),
     id: -1, // negative: a terrain model, shaded rather than showing the LOX image
     width: dmr.width, height: dmr.height,
     calibration: [dmr.origin[0] + dmr.shift[0], dmr.origin[1] + dmr.shift[1], dmr.step, 0, 0, dmr.step],
@@ -127,9 +187,9 @@ const plain = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').re
 /**
  * The terrain for Therion: one surface block in the file's system (cs ijtsk03 for DMR 5.0,
  * which Therion moves into JTSK with the same GKÚ grid), rows from north to south as Therion
- * reads them, cells without data filled from their neighbours.
+ * reads them, cells without data filled from their neighbours, and the hillshade as its bitmap.
  */
-export function dmrTherion(dmr: Dmr) {
+export function dmrTherion(dmr: Dmr, imageName?: string) {
   const heights = filledHeights(dmr), lines: string[] = [];
   const missing = dmr.heights.reduce((n, h) => h === h ? n : n + 1, 0);
   lines.push(`# Terrain from ${plain(dmr.name)}: ${dmr.width} x ${dmr.height} nodes every ${dmr.step} m (made with loch.js)`);
@@ -137,6 +197,9 @@ export function dmrTherion(dmr: Dmr) {
   if (missing) lines.push(`# ${missing} nodes without data were filled from their neighbours`);
   lines.push('surface', `  cs ${dmr.epsg === JTSK03 ? 'ijtsk03' : 'ijtsk'}`);
   lines.push(`  grid ${dmr.origin[0].toFixed(2)} ${dmr.origin[1].toFixed(2)} ${dmr.step} ${dmr.step} ${dmr.width} ${dmr.height}`);
+  // Image pixels count from the bottom-left corner, as in Therion.
+  const image = dmr.image;
+  if (image && imageName) lines.push(`  bitmap ${imageName} [0 0 ${image.west.toFixed(2)} ${image.south.toFixed(2)} ${image.width} ${image.height} ${(image.west + image.width * image.pixel).toFixed(2)} ${(image.south + image.height * image.pixel).toFixed(2)}]`);
   const PER_LINE = 20;
   for (let r = dmr.height - 1; r >= 0; r--) {
     for (let c = 0; c < dmr.width; c += PER_LINE) {

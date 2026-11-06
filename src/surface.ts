@@ -38,7 +38,35 @@ export function surfaceGeometry(surface: Surface, origin: THREE.Vector3, firstCo
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setIndex(new THREE.BufferAttribute(triangle === indices.length ? indices : indices.slice(0, triangle), 1));
+  if (surface.id < 0) geometry.setAttribute('normal', new THREE.BufferAttribute(gridNormals(surface, firstColumn, firstRow, columns, rows), 3));
   return geometry;
+}
+
+/**
+ * Smooth normals of a terrain model from its whole grid (central differences), so it shades
+ * without facets and without seams between its meshes. A missing neighbour counts as the node.
+ */
+export function gridNormals(surface: Pick<Surface, 'width' | 'height' | 'heights' | 'calibration'>, firstColumn: number, firstRow: number, columns: number, rows: number) {
+  const { width, height, heights } = surface, [, , xx, xy, yx, yy] = surface.calibration;
+  const normals = new Float32Array((columns + 1) * (rows + 1) * 3);
+  const span = Math.max(1, Math.round(4 / Math.max(Math.hypot(xx, yx), Math.hypot(xy, yy))));
+  const at = (c: number, r: number, fallback: number) => {
+    if (c < 0 || r < 0 || c >= width || r >= height) return fallback;
+    const value = heights[r * width + c];
+    return Number.isFinite(value) ? value : fallback;
+  };
+  let next = 0;
+  for (let row = 0; row <= rows; row++) for (let column = 0; column <= columns; column++) {
+    const c = firstColumn + column, r = firstRow + row, here = at(c, r, 0);
+    // Height change per grid step along columns and rows (over about ±4 m, so a fine grid shades
+    // smoothly rather than showing every metre's roughness), then in east and north.
+    const dc = (at(c + span, r, here) - at(c - span, r, here)) / (2 * span), dr = (at(c, r + span, here) - at(c, r - span, here)) / (2 * span);
+    const determinant = xx * yy - xy * yx;
+    const dzdx = (dc * yy - dr * yx) / determinant, dzdy = (dr * xx - dc * xy) / determinant;
+    const length = Math.hypot(dzdx, dzdy, 1);
+    normals[next++] = -dzdx / length; normals[next++] = -dzdy / length; normals[next++] = 1 / length;
+  }
+  return normals;
 }
 
 /** Invert the bitmap's world calibration, then normalize by its pixel dimensions. */
@@ -220,7 +248,7 @@ export class SurfaceScene {
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
     const lit = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, flatShading: true, roughness: .85, metalness: 0 });
     // A terrain model has no image: a darker grey keeps sunlit slopes from washing out, so the relief shows.
-    if (surface.id < 0) lit.color.setHex(0x969696);
+    if (surface.id < 0) { lit.color.setHex(0x969696); lit.flatShading = false; }
     // Cells wind a → b → d; whether that faces up depends on the grid's handedness.
     const [, , xx, xy, yx, yy] = surface.calibration;
     const frontUp = { value: xx * yy - xy * yx > 0 ? 1 : 0 };
@@ -236,7 +264,7 @@ export class SurfaceScene {
         const columns = Math.min(cells, surface.width - column - 1), rows = Math.min(cells, surface.height - row - 1);
         const geometry = surfaceGeometry(surface, origin, column, row, columns, rows);
         if (!geometry.index!.count) { geometry.dispose(); continue; } // all outside the terrain model
-        const mesh = new THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>(geometry, this.imageOverlay && surface.id >= 0 ? material : lit); mesh.name = `Surface ${surface.id}`;
+        const mesh = new THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>(geometry, this.imageOverlay && (surface.id >= 0 || surface.bitmap) ? material : lit); mesh.name = `Surface ${surface.id}`;
         this.group.add(mesh); entry.meshes.push(mesh);
         tiles.push({ geometry, mesh, column, row, columns, rows, extent: tileExtent(surface, column, row, columns, rows), pieces: new Map() });
       }
@@ -275,8 +303,8 @@ export class SurfaceScene {
    * it, otherwise its own copy of the base with the map layers laid over it in order.
    */
   private assign(entry: SurfaceEntry, tile: SurfaceTile, rebuild = false) {
-    // A terrain model (negative id) has no image: always shaded, also under map layers.
-    const base = this.imageOverlay && entry.surface.id >= 0 ? entry.image : entry.lit;
+    // A terrain model (negative id) without its relief image is always shaded, also under map layers.
+    const base = this.imageOverlay && (entry.surface.id >= 0 || entry.surface.bitmap) ? entry.image : entry.lit;
     const layers = [...this.layers.entries()].sort((a, b) => a[1].order - b[1].order)
       .map(([id, layer]) => ({ id, layer, image: tile.pieces.get(id) ?? layer.whole }))
       .filter(item => item.image) as { id: string; layer: Layer; image: LayerImage }[];
