@@ -36,6 +36,8 @@ export type XyzService = ServiceBase & {
    * (a pyramid up to the zoom of `levels` for each piece), so the map works without a signal.
    */
   offline?: boolean;
+  /** Saved at the sharpest zoom over the whole surface (not only near the stations), with all zooms below. */
+  offlineAll?: boolean;
   /** Typical size of one tile (bytes), for the download estimate. */
   tileBytes?: number;
   /** One of the imagery / outdoor maps, of which only one is shown at a time. */
@@ -61,18 +63,20 @@ export type UnderlayService = (WmsService | XyzService) & {
   levels?: [number, number, number];
   /** Opacity over the LOX image when first shown (0–1). */
   opacity: number;
+  /** Listed under Other map layers (Scene → Surface), not with the main map layers. */
+  other?: boolean;
 };
 
 /** All map layers lie over the LOX image, in this order (later ones on top). */
 export const UNDERLAY_SERVICES: UnderlayService[] = [
   // ZBGIS orthophoto (ÚGKK SR) from its WMS, as 512 px tiles; saved like Mapy.com.
-  { id: 'zbgis-ortho', kind: 'xyz', title: 'ZBGIS orthophoto', url: '', tileSize: 512, minZoom: 5, maxZoom: 18, onDemand: true, offline: true, tileBytes: 60_000,
+  { id: 'zbgis-ortho', kind: 'xyz', title: 'ZBGIS orthophoto', url: '', tileSize: 512, minZoom: 5, maxZoom: 18, onDemand: true, offline: true, offlineAll: true, tileBytes: 60_000,
     wms: { url: 'https://zbgisws.skgeodesy.sk/zbgis_ortofoto_wms/service.svc/get', layers: '', format: 'image/jpeg' },
     attribution: '© ÚGKK SR', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true,
     credits: [{ text: '© ÚGKK SR (ZBGIS)', href: 'https://www.geoportal.sk/' }] },
   // Mapy.com: shown on demand, with the tiles saved on the device first (for use without a signal).
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 25_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true,
+    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 25_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true, other: true,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }] },
   // Freemap's terms: zoom 5–18, tiles for the pixel ratio, no bulk or offline download, attribution at the map.
   { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}{retina}', tileSize: 256, retina: true,
@@ -467,13 +471,14 @@ export const OFFLINE_BASE = 3.2;
  * The tiles to keep on the device for a surface: every zoom from `low` up to the base over
  * the whole surface, and the sharper zooms only for tiles near survey stations (x, y pairs),
  * lowest zooms first, each tile once. Also the sharpest zoom kept anywhere on each piece.
+ * A service with `offlineAll` keeps its sharpest zoom over the whole surface.
  */
 export function offlineTiles(service: XyzService, pieces: { key: string; extent: Extent }[], stations: Float64Array, low: number, latitude: number) {
   const tile = tileTemplate(service).size;
   const zoomOf = (metres: number) => Math.max(low, Math.min(service.maxZoom, zoomFor(metres, latitude, tile, service.maxZoom)));
   const seen = new Set<string>(), tiles: [number, number, number][] = [];
   const add = (t: [number, number, number]) => { const key = t.join('/'); if (!seen.has(key)) { seen.add(key); tiles.push(t); } };
-  const base = zoomOf(OFFLINE_BASE);
+  const base = service.offlineAll ? service.maxZoom : zoomOf(OFFLINE_BASE);
   for (const piece of pieces) for (let zoom = low; zoom <= base; zoom++) tilesFor(piece.extent, zoom, tile).forEach(add);
   // Stations as occupied cells; each band takes the tiles over the cells grown by its distance.
   const cells = new Set<string>();

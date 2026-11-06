@@ -783,9 +783,17 @@ function addLayerRow(service: UnderlayService) {
     rememberModelLayers();
   });
 }
+/** The main map layers, or the other ones (Scene → Surface → Other map layers…); an other layer that is on shows in both. */
+let menuMode: 'main' | 'other' = 'main';
 function syncUnderlayMenu() {
+  const other = menuMode === 'other';
+  document.querySelector('#map-caption')!.textContent = other ? 'Other map layers' : 'Over the LOX image';
+  document.querySelector<HTMLElement>('#map-add')!.hidden = other;
+  if (other) document.querySelector<HTMLElement>('#map-storage')!.hidden = true;
   for (const row of Array.from(layerList.querySelectorAll<HTMLElement>('.map-layer'))) {
     const state = mapLayers.get(row.dataset.layer!)!;
+    const listed = UNDERLAY_SERVICES.find(service => service.id === row.dataset.layer)?.other === true;
+    row.hidden = other ? !listed : listed && !state.on;
     row.querySelector('button')!.setAttribute('aria-checked', String(state.on));
     const range = row.querySelector<HTMLElement>('.menu-range')!; range.hidden = !state.on;
     const status = row.querySelector<HTMLElement>('.layer-status')!; status.hidden = !state.on || !status.textContent;
@@ -795,7 +803,7 @@ function syncUnderlayMenu() {
   underlayToggle.classList.toggle('on', [...mapLayers.values()].some(state => state.on));
 }
 underlayToggle.addEventListener('click', () => {
-  syncUnderlayMenu(); underlayMenu.hidden = !underlayMenu.hidden;
+  menuMode = 'main'; syncUnderlayMenu(); underlayMenu.hidden = !underlayMenu.hidden;
   if (!underlayMenu.hidden) void showStorageUse();
   underlayToggle.setAttribute('aria-expanded', String(!underlayMenu.hidden));
 });
@@ -828,9 +836,10 @@ mapFileInput.addEventListener('change', async () => {
   finally { importing = undefined; showMapProgress(); }
 });
 
-document.querySelector<HTMLButtonElement>('#surface-maps')!.addEventListener('click', () => {
+for (const [button, mode] of [['#surface-maps', 'main'], ['#surface-other-maps', 'other']] as const) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', () => {
   document.querySelectorAll<HTMLDetailsElement>('#menus details').forEach(group => { group.open = false; });
-  syncUnderlayMenu(); underlayMenu.hidden = false; underlayToggle.setAttribute('aria-expanded', 'true');
+  menuMode = mode; syncUnderlayMenu(); underlayMenu.hidden = false; underlayToggle.setAttribute('aria-expanded', 'true');
+  if (mode === 'main') void showStorageUse();
 });
 
 const downloadDialog = document.querySelector<HTMLDialogElement>('#download-dialog')!;
@@ -844,7 +853,7 @@ function confirmDownload(title: string, bytes: number, tiles?: number) {
   if (!mobile && bytes <= ASK_ABOVE) return Promise.resolve(true);
   const megabytes = bytes / 1e6;
   document.querySelector<HTMLElement>('#download-text')!.textContent =
-    `${title} needs about ${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB of map images${tiles ? ` (${tiles.toLocaleString()} tiles)` : ''}${connection?.type === 'cellular' ? ' over mobile data' : ''}. They are kept on this device for use without a signal.`;
+    `${title} needs about ${megabytes >= 1000 ? `${(megabytes / 1000).toFixed(1)} GB` : `${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB`} of map images${tiles ? ` (${tiles.toLocaleString()} tiles)` : ''}${connection?.type === 'cellular' ? ' over mobile data' : ''}. They are kept on this device for use without a signal.`;
   downloadDialog.returnValue = '';
   downloadDialog.showModal();
   return new Promise<boolean>(resolve => downloadDialog.addEventListener('close', () => resolve(downloadDialog.returnValue === 'download'), { once: true }));
@@ -1019,17 +1028,33 @@ async function saveOfflineTiles(id: string, service: XyzService, tiles: [number,
     layerStatus(id, `All ${(tiles.length - failed).toLocaleString()} tiles saved on this device${failed ? ` · ${failed} missing` : ''}`);
     announce(`${service.title}: ${done - failed} tiles saved for use without a signal${failed ? `, ${failed} missing` : ''}.`);
   };
-  await Promise.all(missing.map(async ([zoom, x, y]) => {
-    const key = `${id}|t|${zoom}/${x}/${y}`;
-    try {
-      // The view may have fetched (and kept) it meanwhile.
-      if (await loadStoredTile(key).catch(() => undefined)) return;
-      let blob = tilesInFlight.get(key);
-      if (!blob) { blob = loadBlob(tileUrl(service, zoom, x, y, apiKey), request.signal, true).finally(() => tilesInFlight.delete(key)); tilesInFlight.set(key, blob); }
-      await storeTile(key, await blob);
-    } catch (error) { if ((error as Error).name === 'AbortError') return; failed++; }
-    finally { done++; report(); }
-  }));
+  // A few at a time, lowest zooms first (tens of thousands of tiles for a whole surface at the sharpest zoom).
+  let next = 0, full = false;
+  const worker = async () => {
+    while (next < missing.length && !request.signal.aborted && !full) {
+      const [zoom, x, y] = missing[next++];
+      const key = `${id}|t|${zoom}/${x}/${y}`;
+      try {
+        // The view may have fetched (and kept) it meanwhile.
+        if (await loadStoredTile(key).catch(() => undefined)) continue;
+        let blob = tilesInFlight.get(key);
+        if (!blob) { blob = loadBlob(tileUrl(service, zoom, x, y, apiKey), request.signal, true).finally(() => tilesInFlight.delete(key)); tilesInFlight.set(key, blob); }
+        await storeTile(key, await blob);
+      } catch (error) {
+        if ((error as Error).name === 'AbortError') return;
+        if ((error as Error).name === 'QuotaExceededError') full = true;
+        failed++;
+      }
+      finally { done++; report(); }
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
+  if (full && !request.signal.aborted) {
+    savingProgress.delete(id); showMapProgress();
+    layerStatus(id, `Device storage full · ${(done - failed).toLocaleString()} of ${missing.length.toLocaleString()} new tiles saved`);
+    announce(`${service.title}: the device storage is full; ${(done - failed).toLocaleString()} tiles saved, the rest shown online only.`, true);
+    return;
+  }
   if (!request.signal.aborted) report(true);
 }
 /** Distance from a piece to the nearest survey station (file coordinates): maps are sharpest over the caves. */
