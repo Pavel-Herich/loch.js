@@ -191,7 +191,9 @@ export function toShapefile(points: ExportPoint[]) {
   const shp = new DataView(new ArrayBuffer(100 + points.length * (8 + recordLength)));
   const shx = new DataView(new ArrayBuffer(100 + points.length * 8));
   const xs = points.map(p => p.east), ys = points.map(p => p.north), zs = points.map(p => p.z);
-  const bounds = points.length ? [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys), Math.min(...zs), Math.max(...zs)] : [0, 0, 0, 0, 0, 0];
+  // Loops, not argument spreads (large layers would overflow a phone's stack).
+  const least = (values: number[]) => values.reduce((a, b) => Math.min(a, b), Infinity), most = (values: number[]) => values.reduce((a, b) => Math.max(a, b), -Infinity);
+  const bounds = points.length ? [least(xs), least(ys), most(xs), most(ys), least(zs), most(zs)] : [0, 0, 0, 0, 0, 0];
   for (const [view, length] of [[shp, shp.byteLength], [shx, shx.byteLength]] as const) {
     view.setInt32(0, 9994, false); view.setInt32(24, length / 2, false); view.setInt32(28, 1000, true); view.setInt32(32, 11, true);
     bounds.slice(0, 4).forEach((value, i) => view.setFloat64(36 + i * 8, value, true));

@@ -1459,7 +1459,7 @@ function draw(model: Model, label: string) {
     for (const p of scrap.points) {
       positions.push(...offset(p, origin)); const col = altitudeColor(p[2], model); colors.push(col.r, col.g, col.b);
     }
-    for (const triangle of scrap.triangles) indices.push(...triangle);
+    for (const triangle of scrap.triangles) indices.push(triangle[0], triangle[1], triangle[2]);
     if (!indices.length) continue;
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.setIndex(indices); g.computeVertexNormals();

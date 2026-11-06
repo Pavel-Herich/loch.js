@@ -29,7 +29,7 @@ export function sectionSvg(section: Section, shots: [Vector3, Vector3][], statio
   const step = Math.max(.5, (s1 - s0) / 600);
   for (let s = s0; s <= s1; s += step) { const z = terrainAt(s); if (z !== undefined) terrain.push({ s, z }); }
   const heights = [...all.map(p => p.z), ...terrain.map(p => p.z)];
-  let z0 = Math.min(...heights), z1 = Math.max(...heights);
+  let z0 = heights.reduce((a, b) => Math.min(a, b), Infinity), z1 = heights.reduce((a, b) => Math.max(a, b), -Infinity);
   if (!Number.isFinite(z0)) { z0 = originZ - 50; z1 = originZ + 50; }
   const zMargin = Math.max(10, (z1 - z0) * .08); z0 -= zMargin; z1 += zMargin;
   const left = 22, top = 16, width = s1 - s0, height = z1 - z0;

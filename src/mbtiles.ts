@@ -188,8 +188,9 @@ export async function indexMbtiles(file: Blob, progress?: (done: number, total: 
       if (seen.has(page)) continue;
       seen.add(page);
       const children = interior.get(page);
-      if (children) stack.push(...children.reverse());
-      else out.push(...(leaves.get(page) ?? []));
+      // Loops, not argument spreads: a large map has more rows than a phone's stack allows arguments.
+      if (children) for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+      else for (const cell of leaves.get(page) ?? []) out.push(cell);
     }
     return out;
   };
@@ -234,10 +235,11 @@ export async function indexMbtiles(file: Blob, progress?: (done: number, total: 
     }
   }
   if (!tiles.size) throw new Error('The MBTiles file has no tiles.');
-  const zooms = [...tiles.keys()].map(key => Number(key.split('/')[0]));
+  let lowest = Infinity, highest = -Infinity;
+  for (const key of tiles.keys()) { const zoom = Number(key.slice(0, key.indexOf('/'))); if (zoom < lowest) lowest = zoom; if (zoom > highest) highest = zoom; }
   return {
     pageSize, usable, next, tiles, metadata,
-    minZoom: Number(metadata.minzoom ?? Math.min(...zooms)), maxZoom: Number(metadata.maxzoom ?? Math.max(...zooms)),
+    minZoom: Number(metadata.minzoom ?? lowest), maxZoom: Number(metadata.maxzoom ?? highest),
     format: (metadata.format ?? 'png').toLowerCase(),
   };
 }
