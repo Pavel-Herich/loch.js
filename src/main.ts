@@ -34,7 +34,7 @@ import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './p
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
 import { addLocalMap, localMaps, localService, localTiles, removeLocalMap } from './local-maps';
-import { downloadEstimate, fetchMap, loadBlob, prepareWms, nearestPointGap, offlineTiles, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
+import { downloadEstimate, fetchMap, loadBlob, prepareWms, nearestPointGap, offlineTiles, OFFLINE_BASE, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
 import { forgetStored, forgetStoredUnderlays, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
@@ -859,6 +859,43 @@ function confirmDownload(title: string, bytes: number, tiles?: number) {
   return new Promise<boolean>(resolve => downloadDialog.addEventListener('close', () => resolve(downloadDialog.returnValue === 'download'), { once: true }));
 }
 
+/** How much of a map with a choice (ZBGIS orthophoto) is saved: remembered per map in this browser. */
+type MapQuality = 'optimal' | 'max' | 'online';
+const MAP_QUALITY = 'loch.js-map-quality';
+function mapQuality(id: string): MapQuality {
+  try { return (JSON.parse(localStorage.getItem(MAP_QUALITY) ?? '{}') as Record<string, MapQuality>)[id] ?? 'optimal'; } catch { return 'optimal'; }
+}
+function setMapQuality(id: string, quality: MapQuality) {
+  try { localStorage.setItem(MAP_QUALITY, JSON.stringify({ ...JSON.parse(localStorage.getItem(MAP_QUALITY) ?? '{}') as object, [id]: quality })); } catch { /* This session only. */ }
+}
+const qualityDialog = document.querySelector<HTMLDialogElement>('#quality-dialog')!;
+const formatBytes = (bytes: number) => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${bytes < 1e7 ? (bytes / 1e6).toFixed(1) : Math.round(bytes / 1e6)} MB`;
+/** Optimal or Max, each with what it still has to download; the last choice is marked. */
+type OfflinePlan = ReturnType<typeof offlineTiles>;
+async function askQuality(service: XyzService, optimal: OfflinePlan, max: OfflinePlan) {
+  const kept = await storedKeys(`${service.id}|t|`).catch(() => new Set<string>());
+  const describe = (tiles: [number, number, number][], what: string) => {
+    const missing = tiles.filter(t => !kept.has(`${service.id}|t|${t.join('/')}`)).length;
+    return `${what} ${missing ? `About ${formatBytes(missing * (service.tileBytes ?? 30_000))} to download (${missing.toLocaleString()} of ${tiles.length.toLocaleString()} tiles).` : `All ${tiles.length.toLocaleString()} tiles already saved.`}`;
+  };
+  const [latitude] = (() => { const e = surfaceScene.extent()!; return sjtskToWgs84((e[0] + e[2]) / 2, (e[1] + e[3]) / 2); })();
+  let near = 0;
+  for (const zoom of optimal.highest.values()) near = Math.max(near, zoom);
+  const ground = (zoom: number) => tileGround(latitude, tileTemplate(service).size, zoom).toFixed(1);
+  document.querySelector('#quality-optimal')!.textContent = describe(optimal.tiles, `About ${OFFLINE_BASE} m/px over the whole surface, sharper near the survey stations (${ground(near)} m/px within 100 m).`);
+  document.querySelector('#quality-max')!.textContent = describe(max.tiles, `About ${ground(service.maxZoom)} m/px over the whole surface.`);
+  const connection = (navigator as Navigator & { connection?: { type?: string } }).connection;
+  document.querySelector('#quality-text')!.textContent = `How much of ${service.title} to keep on this device for use without a signal${connection?.type === 'cellular' ? ' (you are on mobile data)' : ''}? The map is shown either way.`;
+  const last = mapQuality(service.id);
+  qualityDialog.querySelectorAll<HTMLButtonElement>('.quality-option').forEach(button => button.classList.toggle('last', button.value === last));
+  qualityDialog.returnValue = '';
+  qualityDialog.showModal();
+  return new Promise<MapQuality | 'cancel'>(resolve => qualityDialog.addEventListener('close', () => {
+    const value = qualityDialog.returnValue;
+    resolve(value === 'optimal' || value === 'max' || value === 'online' ? value : 'cancel');
+  }, { once: true }));
+}
+
 const isCoarse = () => matchMedia('(pointer: coarse)').matches;
 // Mapy.com tiles need the user's own (free) API key; it stays in this browser.
 const MAPY_KEY = 'loch.js-mapy-key';
@@ -1006,13 +1043,13 @@ function savedTiles(id: string): TileSource {
  * Saves an offline layer's tiles for the whole surface (sharpest near the survey stations),
  * lowest zooms first, so the map works without a signal; tiles already kept are skipped.
  */
-async function saveOfflineTiles(id: string, service: XyzService, tiles: [number, number, number][], request: AbortController, apiKey: string) {
+async function saveOfflineTiles(id: string, service: XyzService, tiles: [number, number, number][], request: AbortController, apiKey: string, asked = false) {
   layerStatus(id, 'Checking saved tiles…');
   const kept = await storedKeys(`${id}|t|`).catch(() => new Set<string>());
   const missing = tiles.filter(t => !kept.has(`${id}|t|${t.join('/')}`));
   if (request.signal.aborted) return;
   if (!missing.length) { layerStatus(id, `All ${tiles.length.toLocaleString()} tiles saved on this device`); return; }
-  if (!await confirmDownload(service.title, missing.length * (service.tileBytes ?? 30_000), missing.length)) {
+  if (!asked && !await confirmDownload(service.title, missing.length * (service.tileBytes ?? 30_000), missing.length)) {
     layerStatus(id, `Online only · ${(tiles.length - missing.length).toLocaleString()} of ${tiles.length.toLocaleString()} tiles saved`);
     announce(`${service.title}: shown online only (not saved for use without a signal).`); return;
   }
@@ -1079,7 +1116,13 @@ function syncAttribution() {
     return i ? [document.createTextNode(' · '), item] : [item];
   }));
   attribution.hidden = !shown.length;
+  fitCredits();
 }
+/** On phones the credits lie under the dock, which moves up by their height (one or two lines). */
+function fitCredits() {
+  document.body.style.setProperty('--credits', attribution.hidden ? '0px' : `${attribution.offsetHeight + 2}px`);
+}
+addEventListener('resize', fitCredits);
 
 /**
  * On-demand layers (Freemap): each piece the view shows gets the zoom that matches how large it
@@ -1203,17 +1246,28 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
         catch (error) { if (state.request === request) { announce(`${service.title}: ${exceptionMessage(error)}`, true); setMapLayer(id, false); } return; }
         if (state.request !== request) return;
       }
-      let tiles: [number, number, number][] = [];
+      let tiles: [number, number, number][] = [], quality: MapQuality = 'optimal';
       if (service.offline) {
         // From the zoom that shows the whole surface up to the sharpest near the survey stations.
         const extent = surfaceScene.extent()!, [latitude] = sjtskToWgs84((extent[0] + extent[2]) / 2, (extent[1] + extent[3]) / 2);
         const tile = tileTemplate(service).size;
         state.low = Math.max(service.minZoom ?? 1, zoomFor((extent[2] - extent[0]) / 1024, latitude, tile, service.maxZoom) - 1);
         const plan = offlineTiles(service, surfaceScene.pieces(), stationPoints(), state.low, latitude);
-        state.highest = plan.highest; tiles = plan.tiles;
+        if (service.offlineMax) {
+          // Optimal (as Mapy.com) or Max (the sharpest zoom everywhere): asked when switched on, remembered for restoring.
+          const max = offlineTiles(service, surfaceScene.pieces(), stationPoints(), state.low, latitude, true);
+          const choice = quiet ? mapQuality(id) : await askQuality(service, plan, max);
+          if (state.request !== request) return;
+          if (choice === 'cancel') { setMapLayer(id, false); return; }
+          quality = choice; setMapQuality(id, choice);
+          if (choice === 'max') { state.highest = max.highest; tiles = max.tiles; }
+          else if (choice === 'optimal') { state.highest = plan.highest; tiles = plan.tiles; }
+          else state.highest = undefined; // online only: any zoom the view needs
+        } else { state.highest = plan.highest; tiles = plan.tiles; }
       }
       refreshOnDemand(id);
-      if (service.offline) void saveOfflineTiles(id, service, tiles, request, state.apiKey ?? '');
+      if (service.offline && quality !== 'online') void saveOfflineTiles(id, service, tiles, request, state.apiKey ?? '', service.offlineMax && !quiet);
+      else if (service.offline) layerStatus(id, 'Online only · nothing saved for use without a signal');
     })();
     return;
   }

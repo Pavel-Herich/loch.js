@@ -54,13 +54,15 @@ describe('map underlays', () => {
     expect(merc.get('WIDTH')).toBe('512'); expect(merc.get('LAYERS')).toBe('1');
   });
 
-  it('saves the orthophoto at its sharpest zoom over the whole surface, with every zoom below', () => {
+  it('offers the orthophoto at its sharpest zoom over the whole surface (Max), with every zoom below', () => {
     const ortho = UNDERLAY_SERVICES.find(s => s.id === 'zbgis-ortho') as XyzService;
-    expect(ortho).toMatchObject({ offlineAll: true, maxZoom: 18 });
+    expect(ortho).toMatchObject({ offlineMax: true, maxZoom: 18 });
     const piece: Extent = [-389000, -1206000, -388000, -1205000];
     // No stations at all: still zoom 18 everywhere.
-    const plan = offlineTiles(ortho, [{ key: 'p', extent: piece }], new Float64Array(), 12, 48.95);
+    const plan = offlineTiles(ortho, [{ key: 'p', extent: piece }], new Float64Array(), 12, 48.95, true);
     expect(plan.highest.get('p')).toBe(18);
+    // Optimal: about 3 m/px over the whole surface (zoom 14 for 512 px tiles), sharper only near stations.
+    expect(offlineTiles(ortho, [{ key: 'p', extent: piece }], new Float64Array(), 12, 48.95).highest.get('p')).toBe(14);
     for (let zoom = 12; zoom <= 18; zoom++) expect(plan.tiles.filter(t => t[0] === zoom).length).toBe(tilesFor(piece, zoom, 512).length);
   });
 

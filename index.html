@@ -179,6 +179,9 @@
   <p class="objects-hint">GPS tracks kept on this device. Tap a name to rename it; the box shows or hides the track on the model. With the screen off or in another app the phone stops the GPS for this page; the track then goes on as a new segment, not joined by a straight line. For recording with the screen off, use a GPS app and import its GPX here.</p>
   <ul id="tracks-list" class="tracks-list"></ul>
   <div class="dialog-actions"><button type="button" id="tracks-close">Close</button></div>
+</dialog><dialog id="quality-dialog" aria-labelledby="quality-heading"><form method="dialog"><h2 id="quality-heading">Map quality</h2><p id="quality-text"></p>
+  <div class="quality-options"><button value="optimal" class="quality-option"><strong>Optimal</strong><small id="quality-optimal"></small></button><button value="max" class="quality-option"><strong>Max</strong><small id="quality-max"></small></button></div>
+  <div class="dialog-actions"><button value="cancel">Cancel</button><button value="online">Online only</button></div></form>
 </dialog><dialog id="download-dialog" aria-labelledby="download-heading"><form method="dialog"><h2 id="download-heading">Download maps?</h2><p id="download-text"></p>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="download" class="primary">Download</button></div></form>
 </dialog><dialog id="mapy-key-dialog" aria-labelledby="mapy-key-heading"><form method="dialog"><h2 id="mapy-key-heading">Mapy.com API key</h2>
