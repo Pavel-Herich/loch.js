@@ -38,6 +38,12 @@ export type XyzService = ServiceBase & {
   offline?: boolean;
   /** Typical size of one tile (bytes), for the download estimate. */
   tileBytes?: number;
+  /** One of the imagery / outdoor maps, of which only one is shown at a time. */
+  exclusive?: boolean;
+  /** Tiles from a map file on the device (MBTiles): no service, missing tiles are simply empty. */
+  local?: boolean;
+  /** Keep the tiles' transparency (areas without map stay clear). */
+  transparent?: boolean;
   /** The service needs the user's own API key, put into the URL as {apikey}. */
   apiKey?: 'mapy';
 };
@@ -55,15 +61,15 @@ export type UnderlayService = (WmsService | XyzService) & {
 export const UNDERLAY_SERVICES: UnderlayService[] = [
   // Mapy.com: shown on demand, with the tiles saved on the device first (for use without a signal).
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 25_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1,
+    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 25_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }] },
   // Freemap's terms: zoom 5–18, tiles for the pixel ratio, no bulk or offline download, attribution at the map.
   { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}{retina}', tileSize: 256, retina: true,
-    minZoom: 5, maxZoom: 18, onDemand: true, attribution: '© Freemap Slovakia, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1,
+    minZoom: 5, maxZoom: 18, onDemand: true, attribution: '© Freemap Slovakia, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [1, 2.5, 6], opacity: 1, exclusive: true,
     credits: [{ text: '© Freemap Slovakia', href: 'https://www.freemap.sk/' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
       { text: 'Elevation data sources', href: 'https://www.freemap.sk/' }] },
   { id: 'mapy-outdoor', kind: 'xyz', title: 'Mapy.com outdoor map', url: 'https://api.mapy.com/v1/maptiles/outdoor/256@2x/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 512, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 40_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [.4, 1.6, 6.5], opacity: 1,
+    tileSize: 512, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 40_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' }] },
   { id: 'geology', kind: 'wms', title: 'Geological map 1:50 000', url: 'https://ags.geology.sk/arcgis/services/WebServices/GM50/MapServer/WMSServer',
     layers: '0,1,2', discover: true, format: 'image/png', transparent: true, attribution: '© ŠGÚDŠ', bytesPerPixel: .25, opacity: .5,
@@ -264,7 +270,7 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   const t = template.size, tx0 = Math.floor(left / t), ty0 = Math.floor(top / t), tx1 = Math.floor(right / t), ty1 = Math.floor(bottom / t);
   const mosaic = document.createElement('canvas'); mosaic.width = (tx1 - tx0 + 1) * t; mosaic.height = (ty1 - ty0 + 1) * t;
   const context = mosaic.getContext('2d', { willReadFrequently: true })!;
-  context.fillStyle = '#ffffff'; context.fillRect(0, 0, mosaic.width, mosaic.height);
+  if (!service.transparent) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, mosaic.width, mosaic.height); }
   const jobs: Promise<void>[] = [];
   let failed = 0, total = 0;
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
@@ -279,7 +285,8 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
     jobs.push(tile.then(image => { if (image) context.drawImage(image, (tx - tx0) * t, (ty - ty0) * t, t, t); else failed++; }));
   }
   await Promise.all(jobs);
-  if (failed === total) throw new Error(await whyTileFailed(template.url.replace('{z}', String(zoom)).replace('{x}', String(tx0)).replace('{y}', String(ty0)).replace('{apikey}', encodeURIComponent(apiKey))));
+  // A map file simply has no tiles outside its area.
+  if (failed === total && !service.local) throw new Error(await whyTileFailed(template.url.replace('{z}', String(zoom)).replace('{x}', String(tx0)).replace('{y}', String(ty0)).replace('{apikey}', encodeURIComponent(apiKey))));
   const source = context.getImageData(0, 0, mosaic.width, mosaic.height).data, sourceWidth = mosaic.width, sourceHeight = mosaic.height;
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
   const output = canvas.getContext('2d')!, image = output.createImageData(width, height), data = image.data;
@@ -293,7 +300,7 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
       const sy = (grid[i00 + 1] * (1 - u) + grid[i10 + 1] * u) * (1 - v) + (grid[i01 + 1] * (1 - u) + grid[i11 + 1] * u) * v - oy;
       const ix = Math.min(sourceWidth - 1, Math.max(0, Math.floor(sx))), iy = Math.min(sourceHeight - 1, Math.max(0, Math.floor(sy)));
       const from = (iy * sourceWidth + ix) * 4, to = (y * width + x) * 4;
-      data[to] = source[from]; data[to + 1] = source[from + 1]; data[to + 2] = source[from + 2]; data[to + 3] = 255;
+      data[to] = source[from]; data[to + 1] = source[from + 1]; data[to + 2] = source[from + 2]; data[to + 3] = service.transparent ? source[from + 3] : 255;
     }
   }
   output.putImageData(image, 0, 0);

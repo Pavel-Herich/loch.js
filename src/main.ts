@@ -33,7 +33,8 @@ import { STATION_ENTRANCE, temporaryStation, type Station } from './lox-stations
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
-import { downloadEstimate, fetchMap, loadBlob, nearestPointGap, offlineTiles, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type XyzService } from './underlay';
+import { addLocalMap, localMaps, localService, localTiles, removeLocalMap } from './local-maps';
+import { downloadEstimate, fetchMap, loadBlob, nearestPointGap, offlineTiles, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
 import { forgetStored, forgetStoredUnderlays, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
@@ -742,10 +743,15 @@ type MapLayerState = {
   low?: number; highest?: Map<string, number>;
   /** On-demand layers: the zoom each piece shows or is loading, and its request. */
   shown?: Map<string, { zoom: number; pixels: number; loading?: AbortController }>;
+  /** Map files: where their tiles come from. */
+  source?: TileSource;
 };
+// Map files added earlier (MBTiles) join the layers, under the geological map.
+for (const map of localMaps()) UNDERLAY_SERVICES.splice(UNDERLAY_SERVICES.findIndex(service => service.id === 'geology'), 0, localService(map));
 const mapLayers = new Map<string, MapLayerState>(UNDERLAY_SERVICES.map(service => [service.id, { on: false, opacity: service.opacity }]));
 // One row per layer: a switch and, while it is on, its opacity.
-for (const service of UNDERLAY_SERVICES) {
+for (const service of UNDERLAY_SERVICES) addLayerRow(service);
+function addLayerRow(service: UnderlayService) {
   const row = document.createElement('div'); row.className = 'map-layer'; row.dataset.layer = service.id;
   const toggle = document.createElement('button'); toggle.type = 'button'; toggle.setAttribute('role', 'menuitemcheckbox'); toggle.textContent = service.title;
   const range = document.createElement('label'); range.className = 'menu-range';
@@ -753,7 +759,22 @@ for (const service of UNDERLAY_SERVICES) {
   const output = document.createElement('output');
   range.append('Opacity', input, output);
   const status = document.createElement('small'); status.className = 'layer-status';
-  row.append(toggle, range, status); layerList.append(row);
+  row.append(toggle, range, status);
+  // Before the geological map, which stays on top.
+  const geology = layerList.querySelector('.map-layer[data-layer="geology"]');
+  if (geology && service.id !== 'geology') layerList.insertBefore(row, geology); else layerList.append(row);
+  if (service.kind === 'xyz' && service.local) {
+    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'layer-remove'; remove.textContent = 'Remove map file';
+    remove.addEventListener('click', () => {
+      if (remove.dataset.armed !== 'true') { remove.dataset.armed = 'true'; remove.textContent = 'Remove? Tap again'; return; }
+      setMapLayer(service.id, false);
+      void removeLocalMap(service.id).then(() => {
+        UNDERLAY_SERVICES.splice(UNDERLAY_SERVICES.indexOf(service), 1); mapLayers.delete(service.id); row.remove();
+        announce(`${service.title} removed from this device.`); void showStorageUse();
+      });
+    });
+    range.after(remove);
+  }
   toggle.addEventListener('click', () => setMapLayer(service.id, !mapLayers.get(service.id)!.on));
   input.addEventListener('input', () => {
     mapLayers.get(service.id)!.opacity = Number(input.value) / 100;
@@ -783,6 +804,30 @@ document.addEventListener('pointerdown', event => {
   if (!underlayMenu.hidden && !underlayMenu.contains(event.target as Node) && !underlayToggle.contains(event.target as Node)
     && !(event.target as Element).closest?.('dialog')) closeUnderlayMenu();
 });
+// Map files (MBTiles) from the device: copied into the app, indexed, then a layer like the others.
+const mapFileInput = document.querySelector<HTMLInputElement>('#map-file')!;
+if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) mapFileInput.removeAttribute('accept');
+document.querySelector<HTMLButtonElement>('#map-add')!.addEventListener('click', () => mapFileInput.click());
+mapFileInput.addEventListener('change', async () => {
+  const file = mapFileInput.files?.[0]; mapFileInput.value = '';
+  if (!file) return;
+  closeUnderlayMenu();
+  const megabytes = (bytes: number) => Math.round(bytes / 1e6).toLocaleString();
+  try {
+    const { map, kept } = await addLocalMap(file, (stage, done, total) => {
+      importing = { text: stage === 'copy' ? `Copying ${file.name} to this device: ${megabytes(done)} / ${megabytes(total)} MB` : `Indexing ${file.name}: ${Math.floor(done / total * 100)} %`, fraction: total ? done / total : 0 };
+      showMapProgress();
+    });
+    const service = localService(map);
+    UNDERLAY_SERVICES.splice(UNDERLAY_SERVICES.findIndex(item => item.id === 'geology'), 0, service);
+    mapLayers.set(service.id, { on: false, opacity: service.opacity });
+    addLayerRow(service);
+    announce(`${map.title} added (zoom ${map.minZoom}–${map.maxZoom}, ${map.format.toUpperCase()})${kept ? '' : ' for this session only: the browser could not keep a copy'}.`);
+    if (mapsUsable(true)) setMapLayer(service.id, true);
+  } catch (error) { announce(`${file.name}: ${exceptionMessage(error)}`, true); }
+  finally { importing = undefined; showMapProgress(); }
+});
+
 document.querySelector<HTMLButtonElement>('#surface-maps')!.addEventListener('click', () => {
   document.querySelectorAll<HTMLDetailsElement>('#menus details').forEach(group => { group.open = false; });
   syncUnderlayMenu(); underlayMenu.hidden = false; underlayToggle.setAttribute('aria-expanded', 'true');
@@ -873,6 +918,7 @@ for (const service of ['mapy-aerial', 'mapy-outdoor']) void storedKeys(`${servic
 const mapProgress = document.querySelector<HTMLElement>('#map-progress')!;
 const savingProgress = new Map<string, { title: string; done: number; total: number; failed: number }>();
 let viewLoading = 0, progressFrame = 0;
+let importing: { text: string; fraction: number } | undefined;
 function showMapProgress() {
   if (progressFrame) return;
   progressFrame = requestAnimationFrame(() => {
@@ -887,6 +933,12 @@ function showMapProgress() {
       row.append(label, bar); rows.push(row);
       const status = layerList.querySelector<HTMLElement>(`.map-layer[data-layer="${id}"] .layer-status`);
       if (status) { status.textContent = `Saving ${percent} % (${saving.done.toLocaleString()} / ${saving.total.toLocaleString()} tiles)`; status.hidden = false; }
+    }
+    if (importing) {
+      const row = document.createElement('div'); row.className = 'map-progress-row';
+      const label = document.createElement('span'); label.textContent = importing.text;
+      const bar = document.createElement('progress'); bar.max = 1; bar.value = importing.fraction;
+      row.append(label, bar); rows.push(row);
     }
     if (viewLoading > 0) {
       const row = document.createElement('div'); row.className = 'map-progress-row';
@@ -906,7 +958,8 @@ async function showStorageUse() {
   const estimate = await globalThis.navigator?.storage?.estimate?.().catch(() => undefined);
   if (!estimate?.usage) { line.hidden = true; return; }
   const counts = await Promise.all(['mapy-aerial', 'mapy-outdoor'].map(id => storedKeys(`${id}|t|`).then(keys => keys.size).catch(() => 0)));
-  line.textContent = `Saved on this device: ${Math.round(estimate.usage / 1e6)} MB${estimate.quota ? ` of ${Math.round(estimate.quota / 1e6).toLocaleString()} MB available` : ''} · Mapy.com tiles: ${counts[0].toLocaleString()} aerial, ${counts[1].toLocaleString()} outdoor`;
+  const files = localMaps();
+  line.textContent = `Saved on this device: ${Math.round(estimate.usage / 1e6).toLocaleString()} MB${estimate.quota ? ` of ${Math.round(estimate.quota / 1e6).toLocaleString()} MB available` : ''} · Mapy.com tiles: ${counts[0].toLocaleString()} aerial, ${counts[1].toLocaleString()} outdoor${files.length ? ` · map files: ${files.length} (${Math.round(files.reduce((sum, map) => sum + map.bytes, 0) / 1e6).toLocaleString()} MB)` : ''}`;
   line.hidden = false;
 }
 
@@ -1061,7 +1114,7 @@ function refreshOnDemand(id: string) {
     const entry: { zoom: number; pixels: number; loading?: AbortController } = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading };
     shown.set(piece.key, entry); started++;
     viewLoading++; showMapProgress();
-    void fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom, service.offline ? savedTiles(id) : undefined).then(canvas => {
+    void fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom, service.offline ? savedTiles(id) : state.source).then(canvas => {
       if (entry.loading !== loading || !state.on) return;
       entry.loading = undefined; entry.pixels = width * rows; state.failures = 0;
       surfaceScene.setLayerPiece(id, piece.key, mapTexture(canvas), piece.extent);
@@ -1100,7 +1153,7 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
   if (!quiet && !on) rememberModelLayers();
   syncAttribution();
   // One imagery or outdoor map at a time (the geological map can lie over it).
-  if (state.on && service.levels) for (const other of UNDERLAY_SERVICES) if (other.id !== id && other.levels && mapLayers.get(other.id)!.on) setMapLayer(other.id, false);
+  if (state.on && service.kind === 'xyz' && service.exclusive) for (const other of UNDERLAY_SERVICES) if (other.id !== id && other.kind === 'xyz' && other.exclusive && mapLayers.get(other.id)!.on) setMapLayer(other.id, false);
   syncUnderlayMenu();
   if (!state.on) return;
   surfaceScene.setLayer(id, UNDERLAY_SERVICES.indexOf(service), state.opacity);
@@ -1114,6 +1167,12 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
         state.apiKey = mapyKey() || await askMapyKey();
         if (state.request !== request) return;
         if (!state.apiKey) { announce(`${service.title} needs an API key.`, true); setMapLayer(id, false); return; }
+      }
+      if (service.local) {
+        const map = localMaps().find(item => item.id === id);
+        try { if (!map) throw new Error('The map file is not on this device any more.'); state.source = await localTiles(map); }
+        catch (error) { if (state.request === request) { announce(`${service.title}: ${exceptionMessage(error)}`, true); setMapLayer(id, false); } return; }
+        if (state.request !== request) return;
       }
       let tiles: [number, number, number][] = [];
       if (service.offline) {

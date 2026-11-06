@@ -373,3 +373,4 @@ body.computer #section-panel{background:#162531}
 #map-storage{display:block;margin-top:4px;padding:.45rem .7rem .3rem;border-top:1px solid #3c5668;font-size:.72rem;color:#9fb6c6;line-height:1.35}
 #map-storage[hidden]{display:none}
 body:not(.computer) #map-progress{bottom:calc(78px + env(safe-area-inset-bottom,0px))}
+.map-layer .layer-remove{display:block;margin:0 .7rem .4rem auto;padding:.2rem .5rem;font-size:.75rem;background:transparent;border:1px solid #5a3c3c;color:#ffb3b3;border-radius:6px}
