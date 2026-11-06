@@ -68,6 +68,10 @@
         <label><input id="surface-image-overlay" type="checkbox" checked/> Image overlay</label>
         <button type="button" id="surface-maps">Map layers…</button>
         <button type="button" id="surface-other-maps">Other map layers…</button>
+        <button type="button" id="surface-dmr-get">Get DMR 5.0 from ZBGIS…</button>
+        <button type="button" id="surface-dmr-open">Open terrain (GeoTIFF)…</button><input type="file" id="dmr-file" accept=".tif,.tiff,.zip,image/tiff,application/zip" hidden/>
+        <button type="button" id="surface-dmr-export" hidden>Export terrain to Therion</button>
+        <button type="button" id="surface-dmr-remove" hidden>Remove terrain</button>
         <button type="button" id="underlay-mapy-key">Mapy.com API key…</button>
         <label><input id="surface-transparency" type="checkbox" checked/> Transparency</label>
         <label><input id="surface-opaque-underside" type="checkbox"/> Opaque underside</label>
@@ -182,6 +186,9 @@
 </dialog><dialog id="quality-dialog" aria-labelledby="quality-heading"><form method="dialog"><h2 id="quality-heading">Map quality</h2><p id="quality-text"></p>
   <div class="quality-options"><button value="optimal" class="quality-option"><strong>Optimal</strong><small id="quality-optimal"></small></button><button value="max" class="quality-option"><strong>Max</strong><small id="quality-max"></small></button></div>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="online">Online only</button></div></form>
+</dialog><dialog id="dmr-dialog" aria-labelledby="dmr-heading"><form method="dialog"><h2 id="dmr-heading">Terrain grid</h2><p id="dmr-text"></p>
+  <div class="quality-options" id="dmr-options"></div>
+  <div class="dialog-actions"><button value="cancel">Cancel</button></div></form>
 </dialog><dialog id="download-dialog" aria-labelledby="download-heading"><form method="dialog"><h2 id="download-heading">Download maps?</h2><p id="download-text"></p>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="download" class="primary">Download</button></div></form>
 </dialog><dialog id="mapy-key-dialog" aria-labelledby="mapy-key-heading"><form method="dialog"><h2 id="mapy-key-heading">Mapy.com API key</h2>

@@ -13,6 +13,8 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
+import { dmrSteps, dmrSurface, dmrTherion, inspectDmr, resampleDmr, tiffFromZip, type Dmr } from './dmr';
+import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators, metresPerPixel } from './indicators';
 import { FULL_SIZE_METRES_PER_PIXEL, setSymbolFilter, setSymbolView } from './station-labels';
@@ -842,6 +844,123 @@ for (const [button, mode] of [['#surface-maps', 'main'], ['#surface-other-maps',
   if (mode === 'main') void showStorageUse();
 });
 
+// Terrain from a GeoTIFF (DMR 5.0 from ZBGIS): replaces the LOX surface of this model, kept on the device for it.
+/** The model's own surfaces (from the LOX), shown when it has no terrain of its own. */
+let loxSurfaces: Surface[] = [];
+let terrain: Dmr | undefined;
+/** The model's own box, before a terrain widened it. */
+let boxWithoutTerrain: THREE.Box3 | undefined;
+const dmrDialog = document.querySelector<HTMLDialogElement>('#dmr-dialog')!;
+const dmrInput = document.querySelector<HTMLInputElement>('#dmr-file')!;
+function syncTerrainMenu() {
+  document.querySelector<HTMLButtonElement>('#surface-dmr-export')!.hidden = !terrain;
+  document.querySelector<HTMLButtonElement>('#surface-dmr-remove')!.hidden = !terrain;
+}
+/** Shows the terrain or the LOX surfaces, with the map layers that were on laid over again. */
+function showSurfaces() {
+  const on = [...mapLayers].filter(([, state]) => state.on).map(([id]) => id);
+  for (const id of on) setMapLayer(id, false, true);
+  surfaceScene.clear();
+  for (const surface of terrain ? [dmrSurface(terrain)] : loxSurfaces) surfaceScene.add(surface, worldOrigin);
+  // The model's box takes in the terrain (as it does a LOX surface), so the view reaches all of it.
+  boxWithoutTerrain ??= activeBox.clone();
+  activeBox = boxWithoutTerrain.clone();
+  if (terrain) {
+    const surface = dmrSurface(terrain), [x0, y0, step] = surface.calibration;
+    let low = Infinity, high = -Infinity;
+    for (const h of terrain.heights) if (h === h) { if (h < low) low = h; if (h > high) high = h; }
+    activeBox.expandByPoint(new THREE.Vector3(x0, y0, low).sub(worldOrigin));
+    activeBox.expandByPoint(new THREE.Vector3(x0 + (terrain.width - 1) * step, y0 + (terrain.height - 1) * step, high).sub(worldOrigin));
+  }
+  boundingBox.box.copy(activeBox);
+  const radius = activeBox.getBoundingSphere(new THREE.Sphere()).radius;
+  if (camera.far < radius * 100) { camera.far = radius * 100; camera.updateProjectionMatrix(); }
+  for (const id of on) setMapLayer(id, true, true);
+  syncTerrainMenu(); deviceLocation.update(); invalidateView();
+}
+async function restoreTerrain() {
+  const key = modelKey;
+  const kept = await loadDmr(key).catch(() => undefined);
+  if (!kept || key !== modelKey) return;
+  terrain = kept; showSurfaces();
+}
+/** The model's centre as S-JTSK east, north. */
+function modelCentre(): [number, number] {
+  const centre = activeBox.isEmpty() ? new THREE.Vector3() : activeBox.getCenter(new THREE.Vector3());
+  return [worldOrigin.x + centre.x, worldOrigin.y + centre.y];
+}
+document.querySelector<HTMLButtonElement>('#surface-dmr-get')!.addEventListener('click', () => {
+  const [east, north] = modelCentre();
+  const [latitude, longitude] = hasModel && looksLikeSJTSK(east, north) ? sjtskToWgs84(east, north) : [48.7, 19.5];
+  // MAPKA, theme Terrain, export: draw the area (up to 400 km²) and download it as GeoTIFF.
+  window.open(`https://zbgis.skgeodesy.sk/mapka/sk/teren/export?c=${longitude.toFixed(5)},${latitude.toFixed(5)}&z=14`, '_blank', 'noopener');
+  announce('In MAPKA, choose the area round the cave and export DMR 5.0 as GeoTIFF; then open the downloaded ZIP or .tif with “Open terrain (GeoTIFF)…”.');
+});
+document.querySelector<HTMLButtonElement>('#surface-dmr-open')!.addEventListener('click', () => {
+  if (!hasModel) { announce('Open a cave model first; the terrain becomes its surface.', true); return; }
+  if (!looksLikeSJTSK(...modelCentre())) { announce('This model is not in S-JTSK, so a terrain model cannot be placed under it.', true); return; }
+  dmrInput.click();
+});
+dmrInput.addEventListener('change', () => { const file = dmrInput.files?.[0]; dmrInput.value = ''; if (file) void importTerrain(file); });
+/** Grid step: the finest within what this device draws smoothly, coarser ones offered too. */
+function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: number) {
+  const smooth = isCoarse() ? 1.5e6 : 5e6, most = isCoarse() ? 5e6 : 2e7;
+  const suggested = steps.find(step => step.nodes <= smooth) ?? steps[steps.length - 1];
+  const options = document.querySelector('#dmr-options')!;
+  options.replaceChildren(...steps.map(step => {
+    const button = document.createElement('button');
+    button.value = String(step.factor); button.className = 'quality-option';
+    button.classList.toggle('suggested', step === suggested);
+    button.disabled = step.nodes > most;
+    const title = document.createElement('strong'); title.textContent = `${step.step} m`;
+    const text = document.createElement('small');
+    text.textContent = `Up to ${step.nodes.toLocaleString()} nodes${step.nodes > most ? ': too many for this device' : step.nodes > smooth ? ': may be slow here' : ''}.`;
+    button.append(title, text);
+    return button;
+  }));
+  document.querySelector('#dmr-text')!.textContent = `${name}: cells of ${cell} m. Heights are averaged onto a grid of the chosen step; the same grid goes to Therion.`;
+  dmrDialog.returnValue = ''; dmrDialog.showModal();
+  return new Promise<number | undefined>(resolve => dmrDialog.addEventListener('close', () => {
+    const factor = Number(dmrDialog.returnValue); resolve(factor > 0 ? factor : undefined);
+  }, { once: true }));
+}
+async function importTerrain(picked: File) {
+  const key = modelKey;
+  try {
+    setStatusText(status, `${picked.name} · Reading terrain…`); setStatusProgress(status, 0);
+    const { name, blob } = /\.zip$/i.test(picked.name) ? await tiffFromZip(picked) : { name: picked.name, blob: picked as Blob };
+    const { tiff, epsg } = await inspectDmr(blob);
+    setStatusProgress(status);
+    const factor = await askTerrainStep(name, dmrSteps(tiff), tiff.pixelWidth);
+    if (!factor || key !== modelKey) { setStatusText(status, ''); return; }
+    const { jtsk03Shift } = await import('./jtsk03');
+    const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {
+      setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
+    }, jtsk03Shift);
+    if (key !== modelKey) return;
+    setStatusProgress(status); setStatusText(status, '');
+    terrain = dmr; showSurfaces();
+    void saveDmr(key, dmr).catch(() => announce('The terrain is shown, but there was no room to keep it on this device.', true));
+    // How far it lies from the cave, if apart.
+    const [east, north] = modelCentre(), x0 = dmr.origin[0] + dmr.shift[0], y0 = dmr.origin[1] + dmr.shift[1];
+    const gap = Math.hypot(Math.max(0, x0 - east, east - (x0 + dmr.width * dmr.step)), Math.max(0, y0 - north, north - (y0 + dmr.height * dmr.step)));
+    announce(gap > 100 ? `Terrain loaded, but it lies ${(gap / 1000).toFixed(1)} km from the cave.` : `Terrain loaded: ${dmr.width} × ${dmr.height} nodes every ${dmr.step} m${epsg === 8353 ? `, moved ${Math.hypot(...dmr.shift).toFixed(2)} m from JTSK03 into JTSK` : ''}.`, gap > 100);
+  } catch (error) {
+    setStatusProgress(status); setStatusText(status, '');
+    announce(error instanceof Error ? error.message : String(error), true);
+  }
+}
+document.querySelector<HTMLButtonElement>('#surface-dmr-export')!.addEventListener('click', () => {
+  if (!terrain) return;
+  const base = (modelKey.split('|')[0] || 'model').replace(/\.[^.]+$/, '');
+  download(`${base}-terrain.th`, dmrTherion(terrain), 'text/plain');
+});
+document.querySelector<HTMLButtonElement>('#surface-dmr-remove')!.addEventListener('click', () => {
+  if (!terrain) return;
+  terrain = undefined; void forgetDmr(modelKey).catch(() => undefined);
+  showSurfaces(); announce('Terrain removed; the surface from the model file is shown again.');
+});
+
 const downloadDialog = document.querySelector<HTMLDialogElement>('#download-dialog')!;
 /** On mobile data (or when the phone does not tell), ask before a download; true goes ahead. */
 /** Downloads above this ask first on any device (with the size); smaller ones only on mobile data. */
@@ -1533,7 +1652,7 @@ function draw(model: Model, label: string) {
   }
   const origin = bounds.getCenter(new THREE.Vector3());
   const centered = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(), bounds.getSize(new THREE.Vector3()));
-  activeBox = bounds.isEmpty() ? new THREE.Box3() : centered;
+  activeBox = bounds.isEmpty() ? new THREE.Box3() : centered; boxWithoutTerrain = undefined;
   worldOrigin.copy(origin); hasModel = !bounds.isEmpty();
   boundingBox.box.copy(centered);
   flashBoundingBox();
@@ -1550,6 +1669,7 @@ function draw(model: Model, label: string) {
   }
   updateProjectTitle(model.title, label);
   centreline.setModel(model, origin);
+  loxSurfaces = model.surfaces;
   for (const surface of model.surfaces) surfaceScene.add(surface, origin);
   updateLegend(model);
   applyWallCulling();
@@ -1564,6 +1684,7 @@ async function loadFile(file: File) {
   applySection(undefined);
   for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
   syncUnderlayMenu();
+  loxSurfaces = []; terrain = undefined; boxWithoutTerrain = undefined; syncTerrainMenu();
   collapseAfterRender = false;
   menus.expand();
   largeWorker?.terminate(); largeWorker = undefined;
@@ -1625,7 +1746,7 @@ function loadLargeFile(file: File, id: number) {
         invalidateView();
         const origin = new THREE.Vector3(...model.origin); modelOrigin = origin;
         worldOrigin.copy(origin); hasModel = true;
-        activeBox = new THREE.Box3(new THREE.Vector3(...model.min).sub(origin), new THREE.Vector3(...model.max).sub(origin));
+        activeBox = new THREE.Box3(new THREE.Vector3(...model.min).sub(origin), new THREE.Vector3(...model.max).sub(origin)); boxWithoutTerrain = undefined;
         boundingBox.box.copy(activeBox);
         flashBoundingBox();
         material = largeWallMaterial(model);
@@ -1638,6 +1759,7 @@ function loadLargeFile(file: File, id: number) {
         worker.postMessage({ acknowledge: true });
       } else if (message.type === 'surface') {
         phase = 'Preparing surface';
+        loxSurfaces.push(message.surface);
         surfaceScene.add(message.surface, modelOrigin);
         deviceLocation.update();
         worker.postMessage({ acknowledge: true });
@@ -1667,7 +1789,7 @@ function finishFileLoading() {
   collapseAfterRender = false;
   setStatusProgress(status);
   menus.collapse();
-  restoreModelLayers();
+  void restoreTerrain().finally(restoreModelLayers);
 }
 detail.addEventListener('change', () => { loadingError = false; invalidateView(); });
 const chooser = document.querySelector<HTMLInputElement>('#file')!;
