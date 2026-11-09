@@ -886,6 +886,9 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
     context.strokeStyle = '#8ed9ff'; context.lineWidth = 2 * scale; context.strokeRect(x0, y0, x1 - x0, y1 - y0);
     context.fillStyle = '#8ed9ff';
     for (const [x, y] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) context.fillRect(x - 4 * scale, y - 4 * scale, 8 * scale, 8 * scale);
+    // Grips in the middle of the sides: each side drags on its own.
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+    for (const [x, y, w, h] of [[mx, y0, 18, 6], [mx, y1, 18, 6], [x0, my, 6, 18], [x1, my, 6, 18]]) context.fillRect(x - w / 2 * scale, y - h / 2 * scale, w * scale, h * scale);
     if (!typing) rect.forEach((value, i) => { inputs[i].value = String(snap(value)); });
     const w = rect[2] - rect[0], h = rect[3] - rect[1];
     size.textContent = `${(w / 1000).toFixed(2)} × ${(h / 1000).toFixed(2)} km · ${(w * h / 1e6).toFixed(2)} km²`;
@@ -895,32 +898,59 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
     rect = [Math.max(full[0], rect[0]), Math.max(full[1], rect[1]), Math.min(full[2], rect[2]), Math.min(full[3], rect[3])];
   };
   // Pointer: new rectangle, move, or a corner.
-  let mode: 'new' | 'move' | number | undefined, start: [number, number] = [0, 0], startRect = rect;
+  // What a pointer takes: a corner (0 south-west, 1 south-east, 2 north-west, 3 north-east), a side
+  // (west, south, east, north, as the rectangle's 0–3), the inside to move, or a new rectangle.
+  type Grip = { corner: number } | { side: number } | 'move' | 'new';
+  let mode: Grip | undefined, start: [number, number] = [0, 0], startRect = rect;
   const point = (event: PointerEvent): [number, number] => {
     const box = canvas.getBoundingClientRect();
     return toWorld((event.clientX - box.left) / box.width * canvas.width, (event.clientY - box.top) / box.height * canvas.height);
   };
-  const down = (event: PointerEvent) => {
-    event.preventDefault(); canvas.setPointerCapture(event.pointerId);
-    const p = point(event), box = canvas.getBoundingClientRect(), near = 14 * preview.step * canvas.width / box.width;
+  const grip = (event: PointerEvent): Grip => {
+    const p = point(event), box = canvas.getBoundingClientRect();
+    const near = (event.pointerType === 'touch' ? 22 : 10) * preview.step * canvas.width / box.width;
+    // While the rectangle is the whole area, dragging inside draws a new one (its sides still move).
+    const whole = rect.every((value, i) => Math.abs(value - full[i]) < preview.step);
     const corners: [number, number][] = [[rect[0], rect[1]], [rect[2], rect[1]], [rect[0], rect[3]], [rect[2], rect[3]]];
     const corner = corners.findIndex(([e, n]) => Math.abs(e - p[0]) < near && Math.abs(n - p[1]) < near);
-    // While the rectangle is the whole area, dragging draws a new one.
-    const whole = rect.every((value, i) => Math.abs(value - full[i]) < preview.step);
-    mode = corner >= 0 && !whole ? corner : !whole && p[0] > rect[0] && p[0] < rect[2] && p[1] > rect[1] && p[1] < rect[3] ? 'move' : 'new';
-    start = p; startRect = [...rect];
+    if (corner >= 0) return { corner };
+    const alongX = p[0] > rect[0] - near && p[0] < rect[2] + near, alongY = p[1] > rect[1] - near && p[1] < rect[3] + near;
+    if (alongY && Math.abs(p[0] - rect[0]) < near) return { side: 0 };
+    if (alongY && Math.abs(p[0] - rect[2]) < near) return { side: 2 };
+    if (alongX && Math.abs(p[1] - rect[1]) < near) return { side: 1 };
+    if (alongX && Math.abs(p[1] - rect[3]) < near) return { side: 3 };
+    return !whole && p[0] > rect[0] && p[0] < rect[2] && p[1] > rect[1] && p[1] < rect[3] ? 'move' : 'new';
+  };
+  const cursorOf = (g: Grip) => g === 'move' ? 'move' : g === 'new' ? 'crosshair'
+    : 'corner' in g ? (g.corner === 0 || g.corner === 3 ? 'nesw-resize' : 'nwse-resize') : g.side % 2 ? 'ns-resize' : 'ew-resize';
+  const down = (event: PointerEvent) => {
+    event.preventDefault(); canvas.setPointerCapture(event.pointerId);
+    const p = point(event);
+    mode = grip(event); start = p; startRect = [...rect];
     if (mode === 'new') rect = [p[0], p[1], p[0], p[1]];
   };
   const move = (event: PointerEvent) => {
-    if (mode === undefined) return;
+    if (mode === undefined) { canvas.style.cursor = cursorOf(grip(event)); return; }
     const p = point(event);
     if (mode === 'move') {
       const w = startRect[2] - startRect[0], h = startRect[3] - startRect[1];
       const e = Math.min(full[2] - w, Math.max(full[0], startRect[0] + p[0] - start[0])), n = Math.min(full[3] - h, Math.max(full[1], startRect[1] + p[1] - start[1]));
       rect = [e, n, e + w, n + h];
+    } else if (mode !== 'new' && 'side' in mode) {
+      // One side follows the pointer; with Square the neighbouring side keeps it square.
+      const side = mode.side, next: [number, number, number, number] = [...startRect];
+      next[side] = Math.min(full[2 + (side % 2)] , Math.max(full[side % 2], side % 2 ? p[1] : p[0]));
+      if (square.checked) {
+        // The other side grows from its west or south edge, as far as the file allows; the dragged side stops there too.
+        const opposite = next[(side + 2) % 4], room = side % 2 ? full[2] - next[0] : full[3] - next[1];
+        const length = Math.min(Math.abs(next[side] - opposite), room);
+        next[side] = opposite + Math.sign(next[side] - opposite || 1) * length;
+        if (side % 2) next[2] = next[0] + length; else next[3] = next[1] + length;
+      }
+      rect = next; normalise();
     } else {
       // The opposite corner stays; with Square the shorter side follows the longer.
-      const fixed: [number, number] = mode === 'new' ? start : [mode % 2 ? startRect[0] : startRect[2], mode < 2 ? startRect[3] : startRect[1]];
+      const fixed: [number, number] = mode === 'new' ? start : [mode.corner % 2 ? startRect[0] : startRect[2], mode.corner < 2 ? startRect[3] : startRect[1]];
       let dx = p[0] - fixed[0], dy = p[1] - fixed[1];
       if (square.checked) { const side = Math.max(Math.abs(dx), Math.abs(dy)); dx = Math.sign(dx || 1) * side; dy = Math.sign(dy || 1) * side; }
       rect = [fixed[0], fixed[1], fixed[0] + dx, fixed[1] + dy];
