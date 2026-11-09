@@ -182,13 +182,13 @@
   <div class="quality-options"><button value="optimal" class="quality-option"><strong>Optimal</strong><small id="quality-optimal"></small></button><button value="max" class="quality-option"><strong>Max</strong><small id="quality-max"></small></button></div>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="online">Online only</button></div></form>
 </dialog><dialog id="crop-dialog" aria-labelledby="crop-heading"><form method="dialog"><h2 id="crop-heading">Crop terrain</h2>
-  <p class="crop-hint">Drag a rectangle on the map, then its sides or corners to resize it (inside it to move it), or type its corners in S-JTSK. Optional: Whole area keeps everything.</p>
+  <p class="crop-hint">Drag a rectangle on the map, then its sides or corners to resize it (inside it to move it), or type its corners in S-JTSK (for a circle, of the square round it). Optional: Whole area keeps everything.</p>
   <div class="crop-view"><canvas id="crop-canvas"></canvas></div>
   <div class="crop-corners">
     <label>South-west E <input id="crop-west" type="number" step="1" inputmode="decimal"/></label><label>N <input id="crop-south" type="number" step="1" inputmode="decimal"/></label>
     <label>North-east E <input id="crop-east" type="number" step="1" inputmode="decimal"/></label><label>N <input id="crop-north" type="number" step="1" inputmode="decimal"/></label>
   </div>
-  <div class="crop-info"><label><input id="crop-square" type="checkbox"/> Square</label><span id="crop-size"></span></div>
+  <div class="crop-info"><span class="crop-shape" role="radiogroup" aria-label="Shape"><label><input type="radio" name="crop-shape" value="rectangle" checked/> Rectangle</label><label><input type="radio" name="crop-shape" value="square"/> Square</label><label><input type="radio" name="crop-shape" value="circle"/> Circle</label></span><span id="crop-size"></span></div>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="whole">Whole area</button><button value="crop" class="primary">Crop</button></div></form>
 </dialog><dialog id="lox-dialog" aria-labelledby="lox-heading"><form method="dialog"><h2 id="lox-heading">Save terrain as LOX</h2>
   <p>A LOX file of the terrain and its relief image (as Therion makes it from the exported surface), to open later here or in Loch.</p>

@@ -841,7 +841,7 @@ function showTerrainOnly(dmr: Dmr, key: string) {
   terrain = dmr; showSurfaces();
   updateLegend({ minZ: low, maxZ: high });
   projectTitle.textContent = dmr.name; projectTitle.hidden = false;
-  setStatusText(status, `${dmr.name} · terrain ${dmr.width} × ${dmr.height} nodes every ${dmr.step} m`);
+  setStatusText(status, `${dmr.name} · terrain ${dmr.width} columns × ${dmr.height} rows every ${dmr.step} m`);
   setCameraView(camera, controls, activeBox, 'fit');
   try { localStorage.setItem(LAST_TERRAIN, key); } catch { /* Not reopened next time. */ }
   restoreModelLayers();
@@ -861,7 +861,10 @@ const cropDialog = document.querySelector<HTMLDialogElement>('#crop-dialog')!;
 function askCrop(tiff: GeoTiff, preview: Dmr) {
   const canvas = document.querySelector<HTMLCanvasElement>('#crop-canvas')!, context = canvas.getContext('2d')!;
   const inputs = (['west', 'south', 'east', 'north'] as const).map(side => document.querySelector<HTMLInputElement>(`#crop-${side}`)!);
-  const square = document.querySelector<HTMLInputElement>('#crop-square')!, size = document.querySelector('#crop-size')!;
+  const shapes = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="crop-shape"]')), size = document.querySelector('#crop-size')!;
+  const shape = () => shapes.find(input => input.checked)?.value ?? 'rectangle';
+  // Square and circle (inside its square) keep equal sides.
+  const square = { get checked() { return shape() !== 'rectangle'; } };
   // The preview: north up, one pixel per preview node, cells without data dark.
   const rgba = hillshade(preview);
   for (let r = 0; r < preview.height; r++) for (let c = 0; c < preview.width; c++) {
@@ -871,6 +874,13 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
   }
   const image = new ImageData(rgba, preview.width, preview.height);
   canvas.width = preview.width; canvas.height = preview.height;
+  // Shown at the preview's own proportions (so the pointer lands where it points), as large as the dialog allows.
+  const view = canvas.parentElement!;
+  const fit = () => {
+    const room = view.clientWidth, most = Math.min(innerHeight * .52, 460);
+    const scale = Math.min(room / preview.width, most / preview.height);
+    canvas.style.width = `${Math.floor(preview.width * scale)}px`; canvas.style.height = `${Math.floor(preview.height * scale)}px`;
+  };
   const west0 = preview.origin[0] - preview.step / 2, north0 = preview.origin[1] - preview.step / 2 + preview.height * preview.step;
   const toWorld = (x: number, y: number): [number, number] => [west0 + x * preview.step, north0 - y * preview.step];
   const toCanvas = (east: number, north: number): [number, number] => [(east - west0) / preview.step, (north0 - north) / preview.step];
@@ -880,10 +890,17 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
   const draw = () => {
     context.putImageData(image, 0, 0);
     const [x0, y0] = toCanvas(rect[0], rect[3]), [x1, y1] = toCanvas(rect[2], rect[1]);
+    const circle = shape() === 'circle', cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, radius = (x1 - x0) / 2;
     context.fillStyle = 'rgba(9, 19, 24, .55)';
-    context.beginPath(); context.rect(0, 0, canvas.width, canvas.height); context.rect(x0, y0, x1 - x0, y1 - y0); context.fill('evenodd');
+    context.beginPath(); context.rect(0, 0, canvas.width, canvas.height);
+    if (circle) context.ellipse(cx, cy, radius, (y1 - y0) / 2, 0, 0, Math.PI * 2); else context.rect(x0, y0, x1 - x0, y1 - y0);
+    context.fill('evenodd');
     const scale = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
-    context.strokeStyle = '#8ed9ff'; context.lineWidth = 2 * scale; context.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    context.strokeStyle = '#8ed9ff'; context.lineWidth = 2 * scale;
+    if (circle) {
+      context.beginPath(); context.ellipse(cx, cy, radius, (y1 - y0) / 2, 0, 0, Math.PI * 2); context.stroke();
+      context.setLineDash([4 * scale, 4 * scale]); context.lineWidth = scale; context.strokeRect(x0, y0, x1 - x0, y1 - y0); context.setLineDash([]);
+    } else context.strokeRect(x0, y0, x1 - x0, y1 - y0);
     context.fillStyle = '#8ed9ff';
     for (const [x, y] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) context.fillRect(x - 4 * scale, y - 4 * scale, 8 * scale, 8 * scale);
     // Grips in the middle of the sides: each side drags on its own.
@@ -891,7 +908,8 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
     for (const [x, y, w, h] of [[mx, y0, 18, 6], [mx, y1, 18, 6], [x0, my, 6, 18], [x1, my, 6, 18]]) context.fillRect(x - w / 2 * scale, y - h / 2 * scale, w * scale, h * scale);
     if (!typing) rect.forEach((value, i) => { inputs[i].value = String(snap(value)); });
     const w = rect[2] - rect[0], h = rect[3] - rect[1];
-    size.textContent = `${(w / 1000).toFixed(2)} × ${(h / 1000).toFixed(2)} km · ${(w * h / 1e6).toFixed(2)} km²`;
+    size.textContent = shape() === 'circle' ? `radius ${(w / 2000).toFixed(2)} km · ${(Math.PI * w * w / 4e6).toFixed(2)} km²`
+      : `${(w / 1000).toFixed(2)} × ${(h / 1000).toFixed(2)} km · ${(w * h / 1e6).toFixed(2)} km²`;
   };
   const normalise = () => {
     rect = [Math.min(rect[0], rect[2]), Math.min(rect[1], rect[3]), Math.max(rect[0], rect[2]), Math.max(rect[1], rect[3])];
@@ -973,23 +991,26 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
     // Show what was kept (clipped to the file, squared) once the typing is done.
     inputs.forEach((input, i) => { if (input !== document.activeElement) input.value = String(snap(rect[i])); });
   };
-  const squared = () => { if (square.checked) typed(); };
+  const squared = () => { if (square.checked) typed(); else draw(); };
   canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   for (const input of inputs) input.addEventListener('change', typed);
-  square.addEventListener('change', squared);
-  cropDialog.returnValue = ''; cropDialog.showModal(); draw();
+  for (const input of shapes) input.addEventListener('change', squared);
+  addEventListener('resize', fit);
+  cropDialog.returnValue = ''; cropDialog.showModal(); fit(); draw();
   cropDialog.querySelector<HTMLButtonElement>('button[value="crop"]')!.focus();
-  return new Promise<CellWindow | undefined>(resolve => cropDialog.addEventListener('close', () => {
+  return new Promise<{ area: CellWindow; circle?: [number, number, number] } | undefined>(resolve => cropDialog.addEventListener('close', () => {
     canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
     canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
     for (const input of inputs) input.removeEventListener('change', typed);
-    square.removeEventListener('change', squared);
+    for (const input of shapes) input.removeEventListener('change', squared);
+    removeEventListener('resize', fit);
     const value = cropDialog.returnValue;
-    if (value === 'whole') resolve(wholeFile(tiff));
+    if (value === 'whole') resolve({ area: wholeFile(tiff) });
     else if (value === 'crop') {
       const area = cropWindow(tiff, snap(rect[0]), snap(rect[1]), snap(rect[2]), snap(rect[3]));
-      resolve(area.columns && area.rows ? area : wholeFile(tiff));
+      const circle: [number, number, number] | undefined = shape() === 'circle' ? [(rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2, (rect[2] - rect[0]) / 2] : undefined;
+      resolve(area.columns && area.rows ? { area, circle } : { area: wholeFile(tiff) });
     } else resolve(undefined);
   }, { once: true }));
 }
@@ -1005,7 +1026,7 @@ function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: 
     button.disabled = step.nodes > most;
     const title = document.createElement('strong'); title.textContent = `${step.step} m`;
     const text = document.createElement('small');
-    text.textContent = `Up to ${step.nodes.toLocaleString()} nodes${step.nodes > most ? ': too many for this device' : step.nodes > smooth ? ': may be slow here' : ''}.`;
+    text.textContent = `${step.columns.toLocaleString()} columns × ${step.rows.toLocaleString()} rows${step.nodes > most ? ': too many for this device' : step.nodes > smooth ? ': may be slow here' : ''}.`;
     button.append(title, text);
     return button;
   }));
@@ -1027,20 +1048,21 @@ async function importTerrain(picked: File) {
     });
     setStatusProgress(status); setStatusText(status, '');
     if (id !== loadId) return;
-    const area = await askCrop(tiff, preview);
-    if (!area || id !== loadId) return;
+    const crop = await askCrop(tiff, preview);
+    if (!crop || id !== loadId) return;
+    const { area, circle } = crop;
     const factor = await askTerrainStep(name, dmrSteps(tiff, area), tiff.pixelWidth);
     if (!factor || id !== loadId) { setStatusText(status, ''); return; }
     const { jtsk03Shift } = await import('./jtsk03');
     const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {
       setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-    }, jtsk03Shift, area);
+    }, jtsk03Shift, area, circle);
     if (id !== loadId) return;
     // The shaded relief image, from the file's own cells (coarser only on big areas or small devices).
     const imageAt = imageFactor({ width: area.columns, height: area.rows }, isCoarse() ? 12e6 : 30e6, isCoarse() ? 8192 : 16384);
     const fine = await resampleDmr(blob, tiff, epsg, imageAt, name, (done, total) => {
       setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-    }, undefined, area);
+    }, undefined, area, circle);
     if (id !== loadId) return;
     try { dmr.image = { ...imagePlace(fine), data: await jpegBytes(hillshade(fine), fine.width, fine.height) }; }
     catch (error) { announce(`The relief image could not be made here (${error instanceof Error ? error.message : String(error)}); the terrain is shaded instead.`, true); }
@@ -1050,14 +1072,14 @@ async function importTerrain(picked: File) {
     if (alone) {
       showTerrainOnly(dmr, key);
       void forgetLastModel().catch(() => undefined);
-      announce(`Terrain opened on its own: ${dmr.width} × ${dmr.height} nodes every ${dmr.step} m${moved}. Export it with File → Export terrain to Therion.`);
+      announce(`Terrain opened on its own: ${dmr.width} columns × ${dmr.height} rows every ${dmr.step} m${moved}. Export it with File → Export terrain to Therion.`);
       return;
     }
     terrain = dmr; showSurfaces();
     // How far it lies from the cave, if apart.
     const [east, north] = modelCentre(), x0 = dmr.origin[0] + dmr.shift[0], y0 = dmr.origin[1] + dmr.shift[1];
     const gap = Math.hypot(Math.max(0, x0 - east, east - (x0 + dmr.width * dmr.step)), Math.max(0, y0 - north, north - (y0 + dmr.height * dmr.step)));
-    announce(gap > 100 ? `Terrain loaded, but it lies ${(gap / 1000).toFixed(1)} km from the cave.` : `Terrain loaded: ${dmr.width} × ${dmr.height} nodes every ${dmr.step} m${moved}.`, gap > 100);
+    announce(gap > 100 ? `Terrain loaded, but it lies ${(gap / 1000).toFixed(1)} km from the cave.` : `Terrain loaded: ${dmr.width} columns × ${dmr.height} rows every ${dmr.step} m${moved}.`, gap > 100);
   } catch (error) {
     setStatusProgress(status); setStatusText(status, '');
     announce(error instanceof Error ? error.message : String(error), true);

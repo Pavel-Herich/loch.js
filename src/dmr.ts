@@ -58,7 +58,10 @@ export function windowCorners(tiff: GeoTiff, window: CellWindow): [number, numbe
 export function dmrSteps(tiff: GeoTiff, window: CellWindow = wholeFile(tiff)) {
   return [1, 2, 5, 10, 20].map(step => Math.max(1, Math.round(step / tiff.pixelWidth)))
     .filter((factor, i, all) => all.indexOf(factor) === i)
-    .map(factor => ({ factor, step: factor * tiff.pixelWidth, nodes: Math.floor(window.columns / factor) * Math.floor(window.rows / factor) }));
+    .map(factor => {
+      const columns = Math.floor(window.columns / factor), rows = Math.floor(window.rows / factor);
+      return { factor, step: factor * tiff.pixelWidth, columns, rows, nodes: columns * rows };
+    });
 }
 
 /**
@@ -67,7 +70,7 @@ export function dmrSteps(tiff: GeoTiff, window: CellWindow = wholeFile(tiff)) {
  */
 export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, factor: number, name: string,
   progress?: (done: number, total: number) => void, shift: (east: number, north: number) => [number, number] = () => [0, 0],
-  window: CellWindow = wholeFile(tiff)): Promise<Dmr> {
+  window: CellWindow = wholeFile(tiff), circle?: [number, number, number]): Promise<Dmr> {
   const width = Math.floor(window.columns / factor), height = Math.floor(window.rows / factor);
   if (!width || !height) throw new Error('The area is too small for this grid step.');
   // Single precision keeps a full-resolution pass (for the relief image) at 6 bytes a cell.
@@ -100,6 +103,13 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
       }
     }
     progress?.(n + 1, needed.length);
+  }
+  // Cropped to a circle (east, north, radius): nodes whose centre lies outside it stay empty.
+  const half0 = (factor - 1) / 2 + (tiff.pixelIsPoint ? 0 : .5);
+  if (circle) for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) {
+    const east = tiff.left + (window.column + c * factor + half0) * tiff.pixelWidth;
+    const north = tiff.top - (window.row + r * factor + half0) * tiff.pixelHeight;
+    if (Math.hypot(east - circle[0], north - circle[1]) > circle[2]) count[r * width + c] = 0;
   }
   // Rows and columns that hold data (rows counted from the top of the file).
   let top = height, bottom = -1, left = width, right = -1;

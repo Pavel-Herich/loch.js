@@ -376,11 +376,12 @@ body:not(.computer) #map-progress{bottom:calc(78px + env(safe-area-inset-bottom,
 /* Crop terrain: the preview fills the dialog's width; the rectangle is drawn on it. */
 #crop-dialog{width:min(760px,calc(100vw - 24px))}
 .crop-view{margin:0 16px;background:#13202b;border:1px solid #3c5668;border-radius:8px;overflow:hidden;touch-action:none}
-#crop-canvas{display:block;width:100%;height:auto;max-height:min(52vh,460px);object-fit:contain;cursor:crosshair}
+#crop-canvas{display:block;margin:0 auto;cursor:crosshair;touch-action:none}
 .crop-corners{display:grid;grid-template-columns:auto auto;gap:6px 12px;margin:10px 16px 0;font-size:.85rem;color:#b8ccd9}
 .crop-corners label{display:flex;align-items:center;justify-content:flex-end;gap:6px}
 .crop-corners input{width:9.5em;padding:.3rem .4rem;border:1px solid #678599;border-radius:6px;background:#091318;color:#eaf3ff;font:inherit;font-variant-numeric:tabular-nums}
-.crop-info{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 16px 0;font-size:.85rem;color:#b8ccd9;font-variant-numeric:tabular-nums}
+.crop-info{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;margin:8px 16px 0;font-size:.85rem;color:#b8ccd9;font-variant-numeric:tabular-nums}
 .lox-name{display:flex;align-items:center;gap:8px;margin:0 16px}
 .lox-name input{flex:1;padding:.4rem .5rem;border:1px solid #678599;border-radius:6px;background:#091318;color:#eaf3ff;font:inherit}
 @media (max-width:560px){.crop-corners{grid-template-columns:1fr 1fr;gap:6px}.crop-corners label{flex-direction:column;align-items:stretch;gap:2px}.crop-corners input{width:100%;box-sizing:border-box}}
+.crop-shape{display:flex;flex-wrap:wrap;gap:4px 12px}.crop-shape label{display:flex;align-items:center;gap:4px}
