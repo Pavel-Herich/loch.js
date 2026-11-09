@@ -469,7 +469,7 @@ document.querySelector<HTMLButtonElement>('#model-forget')!.addEventListener('cl
 const START_EMPTY = 'loch.js-start-empty';
 document.querySelector<HTMLButtonElement>('#new')!.addEventListener('click', () => {
   newScene();
-  try { localStorage.setItem(START_EMPTY, '1'); } catch { /* The sample may open next time. */ }
+  try { localStorage.setItem(START_EMPTY, '1'); localStorage.removeItem(LAST_TERRAIN); } catch { /* The sample may open next time. */ }
   void forgetLastModel().catch(() => undefined);
 });
 
@@ -764,6 +764,7 @@ const dmrDialog = document.querySelector<HTMLDialogElement>('#dmr-dialog')!;
 const dmrInput = document.querySelector<HTMLInputElement>('#dmr-file')!;
 function syncTerrainMenu() {
   document.querySelector<HTMLButtonElement>('#surface-dmr-export')!.hidden = !terrain;
+  document.querySelector<HTMLButtonElement>('#file-dmr-export')!.hidden = !terrain;
   document.querySelector<HTMLButtonElement>('#surface-dmr-remove')!.hidden = !terrain;
 }
 /** Shows the terrain or the LOX surfaces, with the map layers that were on laid over again. */
@@ -815,15 +816,39 @@ document.querySelector<HTMLButtonElement>('#surface-dmr-get')!.addEventListener(
   window.open(`https://zbgis.skgeodesy.sk/mapka/sk/teren/export?c=${longitude.toFixed(5)},${latitude.toFixed(5)}&z=14`, '_blank', 'noopener');
   announce('In MAPKA, choose the area round the cave and export DMR 5.0 as GeoTIFF; then open the downloaded ZIP or .tif with “Open terrain (GeoTIFF)…”.');
 });
-/** Whether a terrain can go under the model now (it says why not). */
-function terrainAllowed() {
-  if (!hasModel) { announce('Open a cave model first; the terrain becomes its surface.', true); return false; }
-  if (!looksLikeSJTSK(...modelCentre())) { announce('This model is not in S-JTSK, so a terrain model cannot be placed under it.', true); return false; }
+/**
+ * A terrain goes under an open S-JTSK model; with no model, or one in other coordinates (the
+ * sample), it becomes the whole scene on its own, e.g. just to make a Therion surface.
+ */
+const underModel = () => hasModel && !terrainOnly && looksLikeSJTSK(...modelCentre());
+for (const button of ['#surface-dmr-open', '#import-tif']) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', () => dmrInput.click());
+/** A GeoTIFF or ZIP dropped on the app or picked with Open…. */
+function openTerrain(file: File) { void importTerrain(file); }
+/** The terrain alone: an empty scene centred on it, kept on the device and reopened at the next start. */
+let terrainOnly = false;
+const LAST_TERRAIN = 'loch.js-last-terrain';
+function showTerrainOnly(dmr: Dmr, key: string) {
+  newScene();
+  modelKey = key; terrainOnly = true; hasModel = true;
+  const step = dmr.step, x0 = dmr.origin[0] + dmr.shift[0], y0 = dmr.origin[1] + dmr.shift[1];
+  let low = Infinity, high = -Infinity;
+  for (const h of dmr.heights) if (h === h) { if (h < low) low = h; if (h > high) high = h; }
+  worldOrigin.set(x0 + (dmr.width - 1) * step / 2, y0 + (dmr.height - 1) * step / 2, (low + high) / 2);
+  activeBox = new THREE.Box3(); boxWithoutTerrain = undefined;
+  terrain = dmr; showSurfaces();
+  updateLegend({ minZ: low, maxZ: high });
+  projectTitle.textContent = dmr.name; projectTitle.hidden = false;
+  setStatusText(status, `${dmr.name} · terrain ${dmr.width} × ${dmr.height} nodes every ${dmr.step} m`);
+  setCameraView(camera, controls, activeBox, 'fit');
+  try { localStorage.setItem(LAST_TERRAIN, key); } catch { /* Not reopened next time. */ }
+  restoreModelLayers();
+}
+async function restoreTerrainOnly(key: string) {
+  const id = loadId, dmr = await loadDmr(key).catch(() => undefined);
+  if (!dmr || id !== loadId) return false;
+  showTerrainOnly(dmr, key);
   return true;
 }
-document.querySelector<HTMLButtonElement>('#surface-dmr-open')!.addEventListener('click', () => { if (terrainAllowed()) dmrInput.click(); });
-/** A GeoTIFF or ZIP dropped on the app or picked with Open…. */
-function openTerrain(file: File) { if (terrainAllowed()) void importTerrain(file); }
 dmrInput.addEventListener('change', () => { const file = dmrInput.files?.[0]; dmrInput.value = ''; if (file) void importTerrain(file); });
 /** Grid step: the finest within what this device draws smoothly, coarser ones offered too. */
 function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: number) {
@@ -848,40 +873,47 @@ function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: 
   }, { once: true }));
 }
 async function importTerrain(picked: File) {
-  const key = modelKey;
+  const id = loadId, alone = !underModel(), key = alone ? `${picked.name}|${picked.size}|terrain` : modelKey;
   try {
     setStatusText(status, `${picked.name} · Reading terrain…`); setStatusProgress(status, 0);
     const { name, blob } = /\.zip$/i.test(picked.name) ? await tiffFromZip(picked) : { name: picked.name, blob: picked as Blob };
     const { tiff, epsg } = await inspectDmr(blob);
     setStatusProgress(status);
     const factor = await askTerrainStep(name, dmrSteps(tiff), tiff.pixelWidth);
-    if (!factor || key !== modelKey) { setStatusText(status, ''); return; }
+    if (!factor || id !== loadId) { setStatusText(status, ''); return; }
     const { jtsk03Shift } = await import('./jtsk03');
     const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {
       setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
     }, jtsk03Shift);
-    if (key !== modelKey) return;
+    if (id !== loadId) return;
     // The shaded relief image, from the file's own cells (coarser only on big areas or small devices).
     const imageAt = imageFactor(tiff, isCoarse() ? 12e6 : 30e6, isCoarse() ? 8192 : 16384);
     const fine = await resampleDmr(blob, tiff, epsg, imageAt, name, (done, total) => {
       setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
     });
-    if (key !== modelKey) return;
+    if (id !== loadId) return;
     try { dmr.image = { ...imagePlace(fine), data: await jpegBytes(hillshade(fine), fine.width, fine.height) }; }
     catch (error) { announce(`The relief image could not be made here (${error instanceof Error ? error.message : String(error)}); the terrain is shaded instead.`, true); }
     setStatusProgress(status); setStatusText(status, '');
-    terrain = dmr; showSurfaces();
     void saveDmr(key, dmr).catch(() => announce('The terrain is shown, but there was no room to keep it on this device.', true));
+    const moved = epsg === 8353 ? `, moved ${Math.hypot(...dmr.shift).toFixed(2)} m from JTSK03 into JTSK` : '';
+    if (alone) {
+      showTerrainOnly(dmr, key);
+      void forgetLastModel().catch(() => undefined);
+      announce(`Terrain opened on its own: ${dmr.width} × ${dmr.height} nodes every ${dmr.step} m${moved}. Export it with File → Export terrain to Therion.`);
+      return;
+    }
+    terrain = dmr; showSurfaces();
     // How far it lies from the cave, if apart.
     const [east, north] = modelCentre(), x0 = dmr.origin[0] + dmr.shift[0], y0 = dmr.origin[1] + dmr.shift[1];
     const gap = Math.hypot(Math.max(0, x0 - east, east - (x0 + dmr.width * dmr.step)), Math.max(0, y0 - north, north - (y0 + dmr.height * dmr.step)));
-    announce(gap > 100 ? `Terrain loaded, but it lies ${(gap / 1000).toFixed(1)} km from the cave.` : `Terrain loaded: ${dmr.width} × ${dmr.height} nodes every ${dmr.step} m${epsg === 8353 ? `, moved ${Math.hypot(...dmr.shift).toFixed(2)} m from JTSK03 into JTSK` : ''}.`, gap > 100);
+    announce(gap > 100 ? `Terrain loaded, but it lies ${(gap / 1000).toFixed(1)} km from the cave.` : `Terrain loaded: ${dmr.width} × ${dmr.height} nodes every ${dmr.step} m${moved}.`, gap > 100);
   } catch (error) {
     setStatusProgress(status); setStatusText(status, '');
     announce(error instanceof Error ? error.message : String(error), true);
   }
 }
-document.querySelector<HTMLButtonElement>('#surface-dmr-export')!.addEventListener('click', () => {
+for (const button of ['#surface-dmr-export', '#file-dmr-export']) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', () => {
   if (!terrain) return;
   const base = (modelKey.split('|')[0] || 'model').replace(/\.[^.]+$/, '');
   if (!terrain.image) { download(`${base}-terrain.th`, dmrTherion(terrain), 'text/plain'); return; }
@@ -908,7 +940,9 @@ async function jpegBytes(rgba: Uint8ClampedArray<ArrayBuffer>, width: number, he
 }
 document.querySelector<HTMLButtonElement>('#surface-dmr-remove')!.addEventListener('click', () => {
   if (!terrain) return;
-  terrain = undefined; void forgetDmr(modelKey).catch(() => undefined);
+  void forgetDmr(modelKey).catch(() => undefined);
+  if (terrainOnly) { try { localStorage.removeItem(LAST_TERRAIN); } catch { /* Nothing kept. */ } newScene(); announce('Terrain removed.'); return; }
+  terrain = undefined;
   showSurfaces(); announce('Terrain removed; the surface from the model file is shown again.');
 });
 
@@ -1635,7 +1669,7 @@ async function loadFile(file: File) {
   applySection(undefined);
   for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
   syncUnderlayMenu();
-  loxSurfaces = []; terrain = undefined; boxWithoutTerrain = undefined; syncTerrainMenu();
+  loxSurfaces = []; terrain = undefined; boxWithoutTerrain = undefined; terrainOnly = false; syncTerrainMenu();
   collapseAfterRender = false;
   menus.expand();
   largeWorker?.terminate(); largeWorker = undefined;
@@ -1759,7 +1793,7 @@ function openFiles(files: File[]) {
   const model = files.find(file => modelFileFormat(file.name));
   if (!model) return;
   void loadFile(model);
-  try { localStorage.removeItem(START_EMPTY); } catch { /* Nothing kept. */ }
+  try { localStorage.removeItem(START_EMPTY); localStorage.removeItem(LAST_TERRAIN); } catch { /* Nothing kept. */ }
   // Reopened on the next start, also without a signal.
   void saveLastModel(model).catch(() => { /* No room or no storage: the sample opens next time. */ });
 }
@@ -1957,7 +1991,7 @@ function frame(time = performance.now()) {
 frame();
 /** An empty scene: no model, sample, section, terrain or map layers. */
 function newScene() {
-  ++loadId; modelKey = '';
+  ++loadId; modelKey = ''; terrainOnly = false;
   applySection(undefined);
   for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
   syncUnderlayMenu(); syncAttribution();
@@ -1971,7 +2005,7 @@ function newScene() {
   menus.collapse();
 }
 async function loadSample() {
-  modelKey = '';
+  modelKey = ''; terrainOnly = false;
   const source = `${import.meta.env.BASE_URL}sample/demo.lox`;
   let phase = 'Fetching sample';
   try {
@@ -1992,5 +2026,9 @@ async function loadSample() {
 const startEmpty = (() => { try { return localStorage.getItem(START_EMPTY) === '1'; } catch { return false; } })();
 void loadLastModel().then(file => {
   if (file && loadId === 0) void loadFile(file);
-  else if (loadId === 0) { if (startEmpty) newScene(); else void loadSample(); }
+  else if (loadId === 0) {
+    const last = (() => { try { return localStorage.getItem(LAST_TERRAIN); } catch { return null; } })();
+    const fallback = () => { if (loadId !== 0) return; if (startEmpty) newScene(); else void loadSample(); };
+    if (last) void restoreTerrainOnly(last).then(found => { if (!found) fallback(); }); else fallback();
+  }
 }).catch(() => { if (startEmpty) newScene(); else void loadSample(); });
