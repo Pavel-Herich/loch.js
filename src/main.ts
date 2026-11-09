@@ -13,7 +13,7 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
-import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imageFactor, imagePlace, inspectDmr, resampleDmr, tiffFromZip, wholeFile, type CellWindow, type Dmr } from './dmr';
+import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlace, imagePlan, imageSize, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, type CellWindow, type Dmr } from './dmr';
 import type { GeoTiff } from './geotiff';
 import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
@@ -802,7 +802,7 @@ async function restoreTerrain() {
   // Kept by an older version without its relief image: shaded from the kept grid now (from the
   // GeoTIFF again for the full detail).
   try {
-    kept.image = { ...imagePlace(kept), data: await jpegBytes(hillshade(kept), kept.width, kept.height) };
+    kept.image = await reliefImage(kept, imagePlan(kept, imageDevice()));
     if (terrain !== kept) return;
     showSurfaces(); void saveDmr(key, kept).catch(() => undefined);
     announce('Relief image added from the terrain grid; open the GeoTIFF again for the full detail.');
@@ -1058,12 +1058,13 @@ async function importTerrain(picked: File) {
     }, jtsk03Shift, area);
     if (id !== loadId) return;
     // The shaded relief image, from the file's own cells (coarser only on big areas or small devices).
-    const imageAt = imageFactor({ width: area.columns, height: area.rows }, isCoarse() ? 12e6 : 30e6, isCoarse() ? 8192 : 16384);
-    const fine = await resampleDmr(blob, tiff, epsg, imageAt, name, (done, total) => {
+    const plan = imagePlan({ width: area.columns, height: area.rows }, imageDevice());
+    const fine = await resampleDmr(blob, tiff, epsg, plan.factor, name, (done, total) => {
       setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
     }, undefined, area);
     if (id !== loadId) return;
-    try { dmr.image = { ...imagePlace(fine), data: await jpegBytes(hillshade(fine), fine.width, fine.height) }; }
+    setStatusText(status, `${name} · Encoding relief image…`);
+    try { dmr.image = await reliefImage(fine, plan); }
     catch (error) { announce(`The relief image could not be made here (${error instanceof Error ? error.message : String(error)}); the terrain is shaded instead.`, true); }
     setStatusProgress(status); setStatusText(status, '');
     void saveDmr(key, dmr).catch(() => announce('The terrain is shown, but there was no room to keep it on this device.', true));
@@ -1132,16 +1133,47 @@ for (const button of ['#surface-dmr-lox', '#file-dmr-lox']) document.querySelect
   const name = await askTerrainName('Save terrain as LOX', 'A LOX file of the terrain and its relief image (as Therion makes it from the exported surface), to open later here or in Loch. The name is also its title.');
   if (name && terrain) saveBlob(dmrLox(terrain, name), `${name}.lox`);
 });
-/** Grey RGBA rows (north first) as JPEG, drawn in strips so a large image needs no second full copy. */
-async function jpegBytes(rgba: Uint8ClampedArray<ArrayBuffer>, width: number, height: number) {
-  const canvas = new OffscreenCanvas(width, height), context = canvas.getContext('2d')!;
-  const STRIP = 512;
-  for (let row = 0; row < height; row += STRIP) {
-    const rows = Math.min(STRIP, height - row);
-    context.putImageData(new ImageData(rgba.subarray(row * width * 4, (row + rows) * width * 4), width, rows), 0, row);
+/** What this device can draw: phones (Safari above all) keep canvases to about 16 million pixels. */
+const imageDevice = () => isCoarse() ? { maxPixels: 16e6, maxSide: 8192 } : { maxPixels: Infinity, maxSide: Infinity };
+/**
+ * The shaded relief of a grid as JPEG: drawn in strips (no full copy of the pixels besides the
+ * canvas), enlarged smoothly when `upscale` > 1, and encoded again at lower quality if it would
+ * pass 50 MB.
+ */
+async function reliefImage(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height' | 'heights'>, plan: ReturnType<typeof imagePlan>) {
+  const native = new OffscreenCanvas(grid.width, grid.height), context = native.getContext('2d')!;
+  const STRIP = 256;
+  for (let row = 0; row < grid.height; row += STRIP) {
+    const rows = Math.min(STRIP, grid.height - row);
+    context.putImageData(new ImageData(hillshade(grid, 45, 1, row, rows) as Uint8ClampedArray<ArrayBuffer>, grid.width, rows), 0, row);
   }
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: .88 });
-  return new Uint8Array(await blob.arrayBuffer());
+  const encode = async (upscale: number) => {
+    const size = imageSize(grid, upscale);
+    let canvas = native;
+    if (size.width !== grid.width) {
+      canvas = new OffscreenCanvas(size.width, size.height);
+      const large = canvas.getContext('2d')!;
+      large.imageSmoothingEnabled = true; large.imageSmoothingQuality = 'high';
+      large.drawImage(native, 0, 0, size.width, size.height);
+    }
+    let blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: RELIEF_IMAGE.quality });
+    for (const quality of [.94, .9, .85]) {
+      if (blob.size <= RELIEF_IMAGE.maxBytes) break;
+      blob = await canvas.convertToBlob({ type: 'image/jpeg', quality });
+    }
+    return { size, blob };
+  };
+  let { size, blob } = await encode(plan.upscale);
+  // Smooth ground (or an enlarged image) packs tighter than estimated: below 3 MB, drawn once more
+  // as much larger as the shortfall asks, within the pixel and side limits.
+  const longer = Math.max(grid.width, grid.height);
+  const most = Math.min(Math.sqrt(plan.mostPixels / (grid.width * grid.height)), plan.mostSide / longer);
+  let upscale = plan.upscale;
+  for (let attempt = 0; attempt < 3 && blob.size < RELIEF_IMAGE.minBytes && upscale < most * .99; attempt++) {
+    upscale = Math.min(most, upscale * Math.sqrt(RELIEF_IMAGE.minBytes * 1.1 / blob.size));
+    ({ size, blob } = await encode(upscale));
+  }
+  return { ...imagePlace(grid, size), data: new Uint8Array(await blob.arrayBuffer()) };
 }
 document.querySelector<HTMLButtonElement>('#surface-dmr-remove')!.addEventListener('click', () => {
   if (!terrain) return;

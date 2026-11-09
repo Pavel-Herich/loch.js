@@ -16,7 +16,8 @@ export type Dmr = {
   /** Hillshade of the terrain (JPEG), finer than the grid, over its cells; south-west corner in the file's system. */
   image?: DmrImage;
 };
-export type DmrImage = { data: Uint8Array<ArrayBuffer>; width: number; height: number; west: number; south: number; pixel: number };
+/** The relief image: its outer south-west corner, pixel size east (and north, when it differs) and pixels. */
+export type DmrImage = { data: Uint8Array<ArrayBuffer>; width: number; height: number; west: number; south: number; pixel: number; pixelY?: number };
 
 /** EPSG codes read as S-JTSK east–north (negative) coordinates. */
 const JTSK03 = 8353, JTSK = 5514;
@@ -73,8 +74,9 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
   window: CellWindow = wholeFile(tiff)): Promise<Dmr> {
   const width = Math.floor(window.columns / factor), height = Math.floor(window.rows / factor);
   if (!width || !height) throw new Error('The area is too small for this grid step.');
-  // Single precision keeps a full-resolution pass (for the relief image) at 6 bytes a cell.
-  const sum = new Float32Array(width * height), count = new Uint16Array(width * height);
+  // Single precision and (up to 15 × 15 cells a node) byte counts keep a large pass (for the
+  // relief image) at 5 bytes a node; rows are kept from the south, as the result needs them.
+  const sum = new Float32Array(width * height), count = factor <= 15 ? new Uint8Array(width * height) : new Uint16Array(width * height);
   const across = Math.ceil(tiff.width / tiff.blockWidth), blocks = tiff.offsets.length;
   const needed: number[] = [];
   for (let index = 0; index < blocks; index++) {
@@ -99,22 +101,25 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
         const node = Math.floor(column / factor);
         if (column >= window.columns || node >= width) break;
         const v = values[r * tiff.blockWidth + c];
-        if (v === v) { const at = target * width + node; sum[at] += v; count[at]++; }
+        if (v === v) { const at = (height - 1 - target) * width + node; sum[at] += v; count[at]++; }
       }
     }
     progress?.(n + 1, needed.length);
   }
-  // Rows and columns that hold data (rows counted from the top of the file).
-  let top = height, bottom = -1, left = width, right = -1;
+  // Rows (from the south) and columns that hold data.
+  let southRow = height, northRow = -1, left = width, right = -1;
   for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) if (count[r * width + c]) {
-    if (r < top) top = r; if (r > bottom) bottom = r; if (c < left) left = c; if (c > right) right = c;
+    if (r < southRow) southRow = r; if (r > northRow) northRow = r; if (c < left) left = c; if (c > right) right = c;
   }
-  if (bottom < 0) throw new Error('No heights in this area of the GeoTIFF.');
-  const w = right - left + 1, h = bottom - top + 1, heights = new Float32Array(w * h);
+  if (northRow < 0) throw new Error('No heights in this area of the GeoTIFF.');
+  const w = right - left + 1, h = northRow - southRow + 1;
+  // Means written over the sums in place (each source lies at or after its target).
   for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
-    const at = (top + r) * width + left + c;
-    heights[(h - 1 - r) * w + c] = count[at] ? sum[at] / count[at] : NaN;
+    const from = (southRow + r) * width + left + c;
+    sum[r * w + c] = count[from] ? sum[from] / count[from] : NaN;
   }
+  const heights = w * h === sum.length ? sum : sum.slice(0, w * h);
+  const bottom = height - 1 - southRow; // the south-west node's row from the top
   // Centre of the averaged cells of the south-west node.
   const centre = tiff.pixelIsPoint ? 0 : .5, half = (factor - 1) / 2 + centre;
   const east = tiff.left + (window.column + left * factor + half) * tiff.pixelWidth;
@@ -129,12 +134,13 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
  * aspect, so every slope is lit across rather than along. RGBA rows from north to south; cells
  * without data white. Horn's gradient; a missing neighbour counts as the cell itself.
  */
-export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, altitude = 45, exaggeration = 1) {
-  const { width, height, heights, step } = grid, rgba = new Uint8ClampedArray(width * height * 4);
+export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, altitude = 45, exaggeration = 1, firstRow = 0, rowCount = grid.height - firstRow) {
+  // Image rows run north first; a strip of them (firstRow, rowCount) keeps a large image's memory low.
+  const { width, height, heights, step } = grid, rgba = new Uint8ClampedArray(width * rowCount * 4);
   const alt = altitude * Math.PI / 180, sinAlt = Math.sin(alt), cosAlt = Math.cos(alt);
   const lights = [225, 270, 315, 360].map(az => [Math.sin(az * Math.PI / 180), Math.cos(az * Math.PI / 180)]);
-  for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) {
-    const at = r * width + c, here = heights[at], out = ((height - 1 - r) * width + c) * 4;
+  for (let r = height - 1 - firstRow; r > height - 1 - firstRow - rowCount && r >= 0; r--) for (let c = 0; c < width; c++) {
+    const at = r * width + c, here = heights[at], out = ((height - 1 - r - firstRow) * width + c) * 4;
     let value = 255;
     if (here === here) {
       const z = (dc: number, dr: number) => {
@@ -167,21 +173,44 @@ export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step
   return rgba;
 }
 
-/** The image's pixel size: the file's cells, coarser only to stay within the pixel and side limits. */
-export function imageFactor(area: { width: number; height: number }, maxPixels: number, maxSide: number) {
-  return Math.max(1, Math.ceil(Math.sqrt(area.width * area.height / maxPixels)), Math.ceil(Math.max(area.width, area.height) / maxSide));
+/**
+ * The relief image: JPEG at quality 0.98 (about 0.39 bytes a pixel for this shading), its longer
+ * side 1 000–15 000 px and its size about 3–50 MB (7.7–128 million pixels), within what the
+ * device can draw. Within those limits it has the file's own cells; a larger area averages
+ * `factor` × `factor` cells into a pixel, a smaller one is drawn `upscale` times larger, smoothly.
+ */
+export const RELIEF_IMAGE = { quality: .98, bytesPerPixel: .39, maxBytes: 50e6, minBytes: 3e6, maxSide: 15000, minSide: 1000 };
+export function imagePlan(area: { width: number; height: number }, device: { maxPixels: number; maxSide: number }) {
+  const { bytesPerPixel, maxBytes, minBytes, maxSide, minSide } = RELIEF_IMAGE;
+  const cells = area.width * area.height, longer = Math.max(area.width, area.height);
+  const mostPixels = Math.min(maxBytes / bytesPerPixel, device.maxPixels), mostSide = Math.min(maxSide, device.maxSide);
+  const most = Math.min(Math.sqrt(mostPixels / cells), mostSide / longer);
+  const least = Math.max(Math.sqrt(Math.min(minBytes / bytesPerPixel, mostPixels) / cells), minSide / longer);
+  const scale = Math.min(most, Math.max(1, least));
+  // Averaged by whole cells (memory); drawn larger only when that falls below the smallest size
+  // (a large area stays as averaged: a second, larger canvas would need about a gigabyte).
+  const factor = scale < 1 ? Math.ceil(1 / scale - 1e-9) : 1;
+  const averaged = cells / (factor * factor), smallest = Math.min(minBytes / bytesPerPixel, mostPixels);
+  const upscale = factor > 1 && averaged >= smallest && longer / factor >= minSide ? 1 : scale * factor;
+  return { factor, upscale, mostPixels, mostSide };
+}
+/** The image's size in pixels for a grid drawn `upscale` times larger. */
+export function imageSize(grid: { width: number; height: number }, upscale: number) {
+  const width = Math.max(1, Math.round(grid.width * upscale));
+  return { width, height: Math.max(1, Math.round(grid.height * width / grid.width)) };
 }
 
-/** The image over the cells of a hillshaded grid (corners, not centres). */
-export function imagePlace(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height'>) {
-  return { west: grid.origin[0] - grid.step / 2, south: grid.origin[1] - grid.step / 2, pixel: grid.step, width: grid.width, height: grid.height };
+export function imagePlace(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height'>, size: { width: number; height: number } = grid) {
+  // Pixels fill the grid's cells exactly, also where rounding left them a little taller than wide.
+  const pixel = grid.step * grid.width / size.width, pixelY = grid.step * grid.height / size.height;
+  return { west: grid.origin[0] - grid.step / 2, south: grid.origin[1] - grid.step / 2, pixel, ...(Math.abs(pixelY - pixel) > 1e-9 ? { pixelY } : {}), width: size.width, height: size.height };
 }
 
 /** The terrain as a surface of the model (in its JTSK). */
 export function dmrSurface(dmr: Dmr): Surface {
   const image = dmr.image;
   return {
-    ...(image ? { bitmap: { mime: 'image/jpeg' as const, data: image.data, calibration: [image.west + dmr.shift[0], image.south + dmr.shift[1], image.pixel, 0, 0, image.pixel] as Surface['calibration'] } } : {}),
+    ...(image ? { bitmap: { mime: 'image/jpeg' as const, data: image.data, calibration: [image.west + dmr.shift[0], image.south + dmr.shift[1], image.pixel, 0, 0, image.pixelY ?? image.pixel] as Surface['calibration'] } } : {}),
     id: -1, // negative: a terrain model, shaded rather than showing the LOX image
     width: dmr.width, height: dmr.height,
     calibration: [dmr.origin[0] + dmr.shift[0], dmr.origin[1] + dmr.shift[1], dmr.step, 0, 0, dmr.step],
@@ -239,7 +268,7 @@ export function dmrTherion(dmr: Dmr, imageName?: string) {
   lines.push(`  grid ${(dmr.origin[0] + dx).toFixed(2)} ${(dmr.origin[1] + dy).toFixed(2)} ${dmr.step} ${dmr.step} ${dmr.width} ${dmr.height}`);
   // Image pixels count from the bottom-left corner, as in Therion.
   const image = dmr.image;
-  if (image && imageName) lines.push(`  bitmap ${therionName(imageName)} [0 0 ${(image.west + dx).toFixed(2)} ${(image.south + dy).toFixed(2)} ${image.width} ${image.height} ${(image.west + dx + image.width * image.pixel).toFixed(2)} ${(image.south + dy + image.height * image.pixel).toFixed(2)}]`);
+  if (image && imageName) lines.push(`  bitmap ${therionName(imageName)} [0 0 ${(image.west + dx).toFixed(2)} ${(image.south + dy).toFixed(2)} ${image.width} ${image.height} ${(image.west + dx + image.width * image.pixel).toFixed(2)} ${(image.south + dy + image.height * (image.pixelY ?? image.pixel)).toFixed(2)}]`);
   const PER_LINE = 20;
   for (let r = dmr.height - 1; r >= 0; r--) {
     for (let c = 0; c < dmr.width; c += PER_LINE) {

@@ -1,6 +1,6 @@
 [package]
 name = "loch_js"
-version = "1.0.12"
+version = "1.0.13"
 description = "Offline Therion cave model viewer"
 authors = ["Contributors"]
 edition = "2021"
