@@ -23,15 +23,15 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   function setOpen(open: boolean) {
     panel.hidden = !open;
     // The status line shows with the menu, and on its own while a file loads or reports an error.
-    status.hidden = !open && !statusPinned;
+    status.hidden = !open && !statusPinned && !pinned;
     toolbar.classList.toggle('collapsed', !open);
     // The model title shows only with the menu open.
-    document.body.classList.toggle('menu-open', open);
+    document.body.classList.toggle('menu-open', open || pinned);
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
   }
 
-  // On a computer the menu stays open; only its dropdowns close.
+  // On a computer the menu stays open (unless folded with the Menu button); only its dropdowns close.
   let pinned = false;
   function close() {
     closeDropdowns();
@@ -39,7 +39,8 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
   }
 
   toggle.addEventListener('click', () => {
-    if (pinned) { closeDropdowns(); return; }
+    // On a computer the Menu button folds the menu row away (the tools below move up) and back.
+    if (pinned) { closeDropdowns(); setOpen(panel.hidden); return; }
     if (!panel.hidden) { close(); return; }
     setOpen(true);
   });

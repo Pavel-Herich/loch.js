@@ -469,6 +469,7 @@ document.querySelector<HTMLButtonElement>('#model-forget')!.addEventListener('cl
 /** After File → New the app starts empty (not with the sample) until a model is opened. */
 const START_EMPTY = 'loch.js-start-empty';
 document.querySelector<HTMLButtonElement>('#new')!.addEventListener('click', () => {
+  menus.close(); // the File dropdown closes too
   newScene();
   try { localStorage.setItem(START_EMPTY, '1'); localStorage.removeItem(LAST_TERRAIN); } catch { /* The sample may open next time. */ }
   void forgetLastModel().catch(() => undefined);
@@ -915,7 +916,7 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
   };
   const grip = (event: PointerEvent): Grip => {
     const p = point(event), box = canvas.getBoundingClientRect();
-    const near = (event.pointerType === 'touch' ? 22 : 10) * preview.step * canvas.width / box.width;
+    const near = (event.pointerType === 'touch' ? 22 : 12) * preview.step * canvas.width / box.width;
     // While the rectangle is the whole area, dragging inside draws a new one (its sides still move).
     const whole = rect.every((value, i) => Math.abs(value - full[i]) < preview.step);
     const corners: [number, number][] = [[rect[0], rect[1]], [rect[2], rect[1]], [rect[0], rect[3]], [rect[2], rect[3]]];
@@ -984,6 +985,13 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
   canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   for (const input of inputs) input.addEventListener('change', typed);
+  // Enter in a corner applies it (a form in a dialog would otherwise close with its first button, Cancel).
+  const enter = (event: KeyboardEvent) => {
+    if (event.key !== 'Enter' || !(event.target instanceof HTMLInputElement)) return;
+    event.preventDefault();
+    if (inputs.includes(event.target)) typed();
+  };
+  cropDialog.addEventListener('keydown', enter);
   square.addEventListener('change', squared);
   addEventListener('resize', fit);
   cropDialog.returnValue = ''; cropDialog.showModal(); fit(); draw();
@@ -992,6 +1000,7 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
     canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
     canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
     for (const input of inputs) input.removeEventListener('change', typed);
+    cropDialog.removeEventListener('keydown', enter);
     square.removeEventListener('change', squared);
     removeEventListener('resize', fit);
     const value = cropDialog.returnValue;
@@ -1084,15 +1093,22 @@ function saveBlob(blob: Blob, name: string) {
  * characters files cannot have; the suggestion comes from the model or the GeoTIFF.
  */
 const nameDialog = document.querySelector<HTMLDialogElement>('#lox-dialog')!, nameInput = document.querySelector<HTMLInputElement>('#lox-name')!;
+/** A name as it is saved: no diacritics, every space and character files cannot have an underscore. */
+function plainFileName(name: string) {
+  return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s\\/:*?"<>|]/g, '_').replace(/[^\x20-\x7e]/g, '_');
+}
+// Enter saves (a form in a dialog would otherwise close with its first button, Cancel).
+nameInput.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); nameDialog.close('save'); } });
 function askTerrainName(heading: string, text: string) {
   nameDialog.querySelector('h2')!.textContent = heading;
   nameDialog.querySelector('p')!.textContent = text;
-  nameInput.value = (modelKey.split('|')[0] || terrain?.name || 'terrain').replace(/\.[^.]+$/, '') + (terrainOnly ? '' : '-terrain');
+  nameInput.value = plainFileName((modelKey.split('|')[0] || terrain?.name || 'terrain').replace(/\.[^.]+$/, '') + (terrainOnly ? '' : '-terrain'));
   nameDialog.returnValue = ''; nameDialog.showModal(); nameInput.select();
   return new Promise<string | undefined>(resolve => nameDialog.addEventListener('close', () => {
     if (nameDialog.returnValue !== 'save') { resolve(undefined); return; }
     const name = nameInput.value.trim().replace(/\.(lox|th|zip)$/i, '') || 'terrain';
-    resolve(name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\\/:*?"<>|]+/g, '_'));
+    // Without diacritics, and every space (or character files cannot have) an underscore.
+    resolve(plainFileName(name));
   }, { once: true }));
 }
 // For Therion: a folder <name> with <name>.th, <name>.jpg and a thconfig that makes <name>.lox, zipped.
