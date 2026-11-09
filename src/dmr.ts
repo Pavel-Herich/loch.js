@@ -66,6 +66,105 @@ export function dmrSteps(tiff: GeoTiff, window: CellWindow = wholeFile(tiff)) {
 }
 
 /**
+ * How `cells` cells share out among `nodes` nodes of `factor` cells each (any factor ≥ 1): the
+ * first node each cell falls in and the part of the cell there, and the part in the next node
+ * (0 when it falls in one node only); parts in cells (1 = the whole cell).
+ */
+export function cellShares(cells: number, nodes: number, factor: number) {
+  const first = new Int32Array(cells), part = new Float32Array(cells), second = new Float32Array(cells);
+  for (let i = 0; i < cells; i++) {
+    const from = i / factor, to = (i + 1) / factor, node = Math.floor(from + 1e-12);
+    first[i] = node < nodes ? node : -1;
+    part[i] = (Math.min(to, node + 1) - from) * factor;
+    second[i] = to > node + 1 + 1e-12 && node + 1 < nodes ? (to - node - 1) * factor : 0;
+  }
+  return { first, part, second };
+}
+
+/**
+ * The shaded relief of a part of the file at `factor` cells a pixel (any factor ≥ 1), shaded from
+ * the file's own cells and only then reduced, area-weighted, to the pixels (shading heights that
+ * were averaged first shows the averaging as a pattern). Read strip by strip of the file, so
+ * only the reduced image's sums stay in memory (6 bytes a pixel). Cells without data are left
+ * out; pixels with none at all come out white.
+ */
+export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWindow, factor: number, progress?: (done: number, total: number) => void) {
+  const width = Math.max(1, Math.floor(window.columns / factor + 1e-9)), height = Math.max(1, Math.floor(window.rows / factor + 1e-9));
+  const columns = cellShares(window.columns, width, factor), rows = cellShares(window.rows, height, factor);
+  const parts = Math.floor(65000 / Math.ceil(factor) ** 2);
+  const sums = new Float32Array(width * height), weights = new Uint16Array(width * height);
+  const across = Math.ceil(tiff.width / tiff.blockWidth);
+  const blockRows = tiff.tiled ? Math.ceil(tiff.height / tiff.blockHeight) : tiff.offsets.length;
+  const firstBlock = Math.floor(window.row / tiff.blockHeight), lastBlock = Math.min(blockRows - 1, Math.floor((window.row + window.rows - 1) / tiff.blockHeight));
+  const firstTile = Math.floor(window.column / tiff.blockWidth), lastTile = Math.floor((window.column + window.columns - 1) / tiff.blockWidth);
+  // One band of the file's rows (inside the window) as heights, rows from the top.
+  const band = async (blockRow: number) => {
+    const top = Math.max(window.row, blockRow * tiff.blockHeight), bottom = Math.min(window.row + window.rows, (blockRow + 1) * tiff.blockHeight);
+    const heights = new Float32Array((bottom - top) * window.columns).fill(NaN);
+    for (let tile = tiff.tiled ? firstTile : 0; tile <= (tiff.tiled ? lastTile : 0); tile++) {
+      const index = tiff.tiled ? blockRow * across + tile : blockRow, values = await readBlock(file, tiff, index);
+      const firstColumn = tiff.tiled ? tile * tiff.blockWidth : 0, firstRow = blockRow * tiff.blockHeight;
+      for (let row = top; row < bottom; row++) {
+        const r = row - firstRow;
+        if (r * tiff.blockWidth >= values.length) break;
+        for (let c = 0; c < tiff.blockWidth; c++) {
+          const column = firstColumn + c - window.column;
+          if (column < 0) continue;
+          if (column >= window.columns) break;
+          heights[(row - top) * window.columns + column] = values[r * tiff.blockWidth + c];
+        }
+      }
+    }
+    return { top: top - window.row, rows: bottom - top, heights };
+  };
+  let previous: Awaited<ReturnType<typeof band>> | undefined, current = await band(firstBlock);
+  const total = lastBlock - firstBlock + 1;
+  for (let blockRow = firstBlock; blockRow <= lastBlock; blockRow++) {
+    const next = blockRow < lastBlock ? await band(blockRow + 1) : undefined;
+    // The band with a row of its neighbours above and below, rows from the south for the shading.
+    const above = previous ? 1 : 0, below = next ? 1 : 0, count = current.rows + above + below;
+    const grid = new Float32Array(count * window.columns);
+    const put = (source: Float32Array, sourceRow: number, row: number) => grid.set(source.subarray(sourceRow * window.columns, (sourceRow + 1) * window.columns), (count - 1 - row) * window.columns);
+    if (previous) put(previous.heights, previous.rows - 1, 0);
+    for (let r = 0; r < current.rows; r++) put(current.heights, r, r + above);
+    if (next) put(next.heights, 0, count - 1);
+    const shade = hillshade({ width: window.columns, height: count, heights: grid, step: tiff.pixelWidth }, 45, 1, above, current.rows);
+    for (let r = 0; r < current.rows; r++) {
+      const row = current.top + r, target = rows.first[row];
+      if (target < 0) continue;
+      for (const [pixelRow, rowPart] of [[target, rows.part[row]], [target + 1, rows.second[row]]]) {
+        if (!rowPart) continue;
+        const base = pixelRow * width;
+        for (let c = 0; c < window.columns; c++) {
+          const pixel = columns.first[c];
+          if (pixel < 0 || current.heights[r * window.columns + c] !== current.heights[r * window.columns + c]) continue;
+          const grey = shade[(r * window.columns + c) * 4];
+          const q0 = Math.round(rowPart * columns.part[c] * parts), q1 = Math.round(rowPart * columns.second[c] * parts);
+          if (q0) { sums[base + pixel] += grey * q0; weights[base + pixel] += q0; }
+          if (q1) { sums[base + pixel + 1] += grey * q1; weights[base + pixel + 1] += q1; }
+        }
+      }
+    }
+    previous = current; current = next!;
+    progress?.(blockRow - firstBlock + 1, total);
+  }
+  const pixel = factor * tiff.pixelWidth;
+  return {
+    width, height,
+    /** Pixel rows (north first) as RGBA, a strip at a time. */
+    rows(first: number, count: number) {
+      const rgba = new Uint8ClampedArray(width * count * 4);
+      for (let i = 0; i < width * count; i++) {
+        const at = first * width + i, weight = weights[at];
+        rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = weight ? sums[at] / weight : 255; rgba[i * 4 + 3] = 255;
+      }
+      return rgba;
+    },
+    west: tiff.left + window.column * tiff.pixelWidth, south: tiff.top - (window.row + height * factor) * tiff.pixelHeight, pixel,
+  };
+}
+
+/**
  * Averages factor × factor cells into one node (cells without data left out), then trims
  * rows and columns with no data at all. Reads the file block by block, only the blocks in the window.
  */
@@ -76,8 +175,17 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
   if (!width || !height) throw new Error('The area is too small for this grid step.');
   // Single precision and (up to 15 × 15 cells a node) byte counts keep a large pass (for the
   // relief image) at 5 bytes a node; rows are kept from the south, as the result needs them.
-  // The factor need not be whole (the relief image): each cell goes to the node it falls in.
-  const sum = new Float32Array(width * height), count = Math.ceil(factor) <= 15 ? new Uint8Array(width * height) : new Uint16Array(width * height);
+  // The factor need not be whole (the relief image, to an exact size): then each cell is shared by
+  // the nodes it overlaps, by area, so every node weighs the same ground (counting whole cells
+  // would give some nodes one cell and others two or four: a grid pattern in the shading). The
+  // shares are counted in as fine parts of a cell as two bytes a node allow (16 250ths for up to
+  // 2 × 2 cells a node, 64ths for 32 × 32).
+  const whole = Math.abs(factor - Math.round(factor)) < 1e-9;
+  const sum = new Float32Array(width * height);
+  const count = whole && factor <= 15 ? new Uint8Array(width * height) : new Uint16Array(width * height);
+  const shares = (cells: number, nodes: number) => cellShares(cells, nodes, factor);
+  const columnShares = whole ? undefined : shares(window.columns, width), rowShares = whole ? undefined : shares(window.rows, height);
+  const parts = Math.floor(65000 / Math.ceil(factor) ** 2);
   const across = Math.ceil(tiff.width / tiff.blockWidth), blocks = tiff.offsets.length;
   const needed: number[] = [];
   for (let index = 0; index < blocks; index++) {
@@ -94,8 +202,29 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
     for (let r = 0; r < rows; r++) {
       const row = firstRow + r - window.row;
       if (row < 0) continue;
+      if (row >= window.rows) break;
+      if (columnShares && rowShares) {
+        const target = rowShares.first[row];
+        if (target < 0) break;
+        const rowParts = [[target, rowShares.part[row]], [target + 1, rowShares.second[row]]];
+        for (let c = 0; c < tiff.blockWidth; c++) {
+          const column = firstColumn + c - window.column;
+          if (column < 0) continue;
+          if (column >= window.columns) break;
+          const node = columnShares.first[column], v = values[r * tiff.blockWidth + c];
+          if (node < 0 || v !== v) continue;
+          for (const [rr, wr] of rowParts) {
+            if (!wr) continue;
+            const base = (height - 1 - rr) * width;
+            const q0 = Math.round(wr * columnShares.part[column] * parts), q1 = Math.round(wr * columnShares.second[column] * parts);
+            if (q0) { sum[base + node] += v * q0; count[base + node] += q0; }
+            if (q1) { sum[base + node + 1] += v * q1; count[base + node + 1] += q1; }
+          }
+        }
+        continue;
+      }
       const target = Math.floor(row / factor);
-      if (row >= window.rows || target >= height) break;
+      if (target >= height) break;
       for (let c = 0; c < tiff.blockWidth; c++) {
         const column = firstColumn + c - window.column;
         if (column < 0) continue;
@@ -140,36 +269,46 @@ export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step
   const { width, height, heights, step } = grid, rgba = new Uint8ClampedArray(width * rowCount * 4);
   const alt = altitude * Math.PI / 180, sinAlt = Math.sin(alt), cosAlt = Math.cos(alt);
   const lights = [225, 270, 315, 360].map(az => [Math.sin(az * Math.PI / 180), Math.cos(az * Math.PI / 180)]);
-  for (let r = height - 1 - firstRow; r > height - 1 - firstRow - rowCount && r >= 0; r--) for (let c = 0; c < width; c++) {
-    const at = r * width + c, here = heights[at], out = ((height - 1 - r - firstRow) * width + c) * 4;
-    let value = 255;
-    if (here === here) {
-      const z = (dc: number, dr: number) => {
-        const cc = Math.min(width - 1, Math.max(0, c + dc)), rr = Math.min(height - 1, Math.max(0, r + dr));
-        const v = heights[rr * width + cc];
-        return v === v ? v : here;
-      };
-      // East and north gradients (rows go north).
-      const dzdx = ((z(1, 1) + 2 * z(1, 0) + z(1, -1)) - (z(-1, 1) + 2 * z(-1, 0) + z(-1, -1))) / (8 * step) * exaggeration;
-      const dzdy = ((z(-1, 1) + 2 * z(0, 1) + z(1, 1)) - (z(-1, -1) + 2 * z(0, -1) + z(1, -1))) / (8 * step) * exaggeration;
-      const slope2 = dzdx * dzdx + dzdy * dzdy, norm = Math.sqrt(1 + slope2);
-      let shade: number;
-      if (slope2 === 0) shade = sinAlt;
-      else {
-        // Downhill direction, and the light from each azimuth on the surface normal (-dzdx, -dzdy, 1).
-        const ax = -dzdx / Math.sqrt(slope2), ay = -dzdy / Math.sqrt(slope2);
-        let total = 0;
-        for (const [lx, ly] of lights) {
-          const lit = Math.max(0, (-dzdx * lx * cosAlt - dzdy * ly * cosAlt + sinAlt) / norm);
-          const along = ax * lx + ay * ly;
-          total += (1 - along * along) * lit;
+  const [l0x, l0y] = lights[0], [l1x, l1y] = lights[1], [l2x, l2y] = lights[2], [l3x, l3y] = lights[3];
+  const scale = exaggeration / (8 * step);
+  for (let r = height - 1 - firstRow; r > height - 1 - firstRow - rowCount && r >= 0; r--) {
+    // Neighbouring rows (north up, south down) and columns, kept within the grid.
+    const up = (r < height - 1 ? r + 1 : r) * width, row = r * width, down = (r > 0 ? r - 1 : r) * width;
+    let out = (height - 1 - r - firstRow) * width * 4;
+    for (let c = 0; c < width; c++, out += 4) {
+      const here = heights[row + c];
+      let value = 255;
+      if (here === here) {
+        const w = c > 0 ? c - 1 : c, e = c < width - 1 ? c + 1 : c;
+        // A missing neighbour counts as this cell.
+        let a = heights[up + w], b = heights[up + c], d = heights[up + e];
+        let f = heights[row + w], g = heights[row + e];
+        let h = heights[down + w], i = heights[down + c], j = heights[down + e];
+        if (a !== a) a = here; if (b !== b) b = here; if (d !== d) d = here; if (f !== f) f = here;
+        if (g !== g) g = here; if (h !== h) h = here; if (i !== i) i = here; if (j !== j) j = here;
+        // East and north gradients (Horn).
+        const dzdx = ((d + 2 * g + j) - (a + 2 * f + h)) * scale;
+        const dzdy = ((a + 2 * b + d) - (h + 2 * i + j)) * scale;
+        const slope2 = dzdx * dzdx + dzdy * dzdy;
+        let shade: number;
+        if (slope2 === 0) shade = sinAlt;
+        else {
+          // Downhill direction, and the light from each azimuth on the surface normal (-dzdx, -dzdy, 1),
+          // weighted by how much it falls across the slope.
+          const norm = Math.sqrt(1 + slope2), length = Math.sqrt(slope2), ax = -dzdx / length, ay = -dzdy / length;
+          const nx = -dzdx * cosAlt, ny = -dzdy * cosAlt;
+          let total = 0, along: number, lit: number;
+          lit = (nx * l0x + ny * l0y + sinAlt) / norm; along = ax * l0x + ay * l0y; if (lit > 0) total += (1 - along * along) * lit;
+          lit = (nx * l1x + ny * l1y + sinAlt) / norm; along = ax * l1x + ay * l1y; if (lit > 0) total += (1 - along * along) * lit;
+          lit = (nx * l2x + ny * l2y + sinAlt) / norm; along = ax * l2x + ay * l2y; if (lit > 0) total += (1 - along * along) * lit;
+          lit = (nx * l3x + ny * l3y + sinAlt) / norm; along = ax * l3x + ay * l3y; if (lit > 0) total += (1 - along * along) * lit;
+          shade = total / 2;
         }
-        shade = total / 2;
+        // Bright paper-like tone: flat ground light grey, shadows kept readable.
+        value = 255 * Math.min(1, .18 + .95 * shade);
       }
-      // Bright paper-like tone: flat ground light grey, shadows kept readable.
-      value = 255 * Math.min(1, .18 + .95 * shade);
+      rgba[out] = rgba[out + 1] = rgba[out + 2] = value; rgba[out + 3] = 255;
     }
-    rgba[out] = rgba[out + 1] = rgba[out + 2] = value; rgba[out + 3] = 255;
   }
   return rgba;
 }

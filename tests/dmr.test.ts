@@ -206,3 +206,42 @@ describe('terrain crop, thconfig and LOX', () => {
   });
 });
 
+
+describe('relief image resampling', () => {
+  it('shares cells by area for a factor that is not whole, so a plane stays a plane (no grid pattern)', async () => {
+    const file = fixture('dmr-lzw.tif'), { tiff, epsg } = await inspectDmr(file);
+    const factor = 1.41, dmr = await resampleDmr(file, tiff, epsg, factor, 'dmr.tif');
+    let worst = 0, checked = 0;
+    for (let r = 0; r < dmr.height; r++) for (let c = 0; c < dmr.width; c++) {
+      const h = dmr.heights[r * dmr.width + c];
+      if (h !== h) continue;
+      // The node's centre in the file's cells (columns east, rows down from the top).
+      const east = dmr.origin[0] + c * dmr.step, north = dmr.origin[1] + r * dmr.step;
+      const column = east - tiff.left - .5, row = tiff.top - north - .5;
+      // Skip nodes touching the empty rows or the hole (their means lean to one side).
+      if (row < 21.5 || (row > 98 && row < 111 && column > 48 && column < 61)) continue;
+      worst = Math.max(worst, Math.abs(h - expected(row, column))); checked++;
+    }
+    expect(checked).toBeGreaterThan(10000);
+    // Box shares of cell values lean towards whole cells: within a tenth of a cell's slope.
+    expect(worst).toBeLessThan(.1);
+  });
+
+  it('shades the relief from the file’s own cells, then reduces it: a plane stays one even grey', async () => {
+    const { reliefFromFile, wholeFile } = await import('../src/dmr');
+    const file = fixture('dmr-deflate.tif'), { tiff } = await inspectDmr(file);
+    const relief = await reliefFromFile(file, tiff, wholeFile(tiff), 1.41);
+    expect([relief.width, relief.height]).toEqual([184, 106]);
+    expect(relief.west).toBe(-359129); expect(relief.south).toBeCloseTo(-1176215 - 106 * 1.41, 6); expect(relief.pixel).toBeCloseTo(1.41, 9);
+    const rgba = relief.rows(0, relief.height), greys: number[] = [];
+    // Away from the empty rows at the top, the hole and the edges.
+    for (let r = 20; r < relief.height - 2; r++) for (let c = 2; c < relief.width - 2; c++) {
+      const row = r * 1.41, column = c * 1.41;
+      if (row > 96 && row < 113 && column > 46 && column < 63) continue;
+      greys.push(rgba[(r * relief.width + c) * 4]);
+    }
+    expect(Math.max(...greys) - Math.min(...greys)).toBeLessThanOrEqual(2);
+    // The empty rows come out white.
+    expect(rgba[(2 * relief.width + 50) * 4]).toBe(255);
+  });
+});

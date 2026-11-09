@@ -13,7 +13,7 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
-import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlace, imagePlan, imageSize, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
+import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlan, imageSize, reliefFromFile, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
 import type { GeoTiff } from './geotiff';
 import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
@@ -1126,14 +1126,15 @@ async function importTerrain(picked: File) {
     // for it, and the terrain shaded without one if even that fails.
     let plan = chosen.image;
     for (let attempt = 0; ; attempt++) {
-      const pixels = area.columns * area.rows / plan.factor ** 2 * plan.upscale ** 2;
+      const pixels = held.columns * held.rows / plan.factor ** 2 * plan.upscale ** 2;
       try {
-        const fine = await resampleDmr(blob, tiff, epsg, plan.factor, name, (done, total) => {
+        // Shaded from the file's own cells, then reduced to the chosen size (no pattern from averaging).
+        const relief = await reliefFromFile(blob, tiff, held, plan.factor, (done, total) => {
           setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-        }, undefined, area);
+        });
         if (id !== loadId) return;
         setStatusText(status, `${name} · Encoding relief image (${Math.round(pixels / 1e6)} million pixels)…`);
-        dmr.image = await reliefImage(fine, plan);
+        dmr.image = await encodeRelief(relief, plan);
         break;
       } catch (error) {
         if (id !== loadId) return;
@@ -1228,17 +1229,26 @@ const imageDevice = () => {
  * canvas), enlarged smoothly when `upscale` > 1, and encoded again at lower quality if it would
  * pass 50 MB.
  */
-async function reliefImage(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height' | 'heights'>, plan: ReturnType<typeof imagePlan>) {
-  const native = new OffscreenCanvas(grid.width, grid.height), context = native.getContext('2d')!;
+/** Shaded relief pixels to encode: their size, rows (north first) as RGBA, outer south-west corner and pixel size. */
+type ReliefSource = { width: number; height: number; rows(first: number, count: number): Uint8ClampedArray; west: number; south: number; pixel: number };
+/** The relief of a grid (a terrain kept without its image). */
+function reliefImage(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height' | 'heights'>, plan: ReturnType<typeof imagePlan>) {
+  return encodeRelief({
+    width: grid.width, height: grid.height, rows: (first, count) => hillshade(grid, 45, 1, first, count),
+    west: grid.origin[0] - grid.step / 2, south: grid.origin[1] - grid.step / 2, pixel: grid.step,
+  }, plan);
+}
+async function encodeRelief(source: ReliefSource, plan: ReturnType<typeof imagePlan>) {
+  const native = new OffscreenCanvas(source.width, source.height), context = native.getContext('2d')!;
   const STRIP = 256;
-  for (let row = 0; row < grid.height; row += STRIP) {
-    const rows = Math.min(STRIP, grid.height - row);
-    context.putImageData(new ImageData(hillshade(grid, 45, 1, row, rows) as Uint8ClampedArray<ArrayBuffer>, grid.width, rows), 0, row);
+  for (let row = 0; row < source.height; row += STRIP) {
+    const rows = Math.min(STRIP, source.height - row);
+    context.putImageData(new ImageData(source.rows(row, rows) as Uint8ClampedArray<ArrayBuffer>, source.width, rows), 0, row);
   }
   const encode = async (upscale: number) => {
-    const size = imageSize(grid, upscale);
+    const size = imageSize(source, upscale);
     let canvas = native;
-    if (size.width !== grid.width) {
+    if (size.width !== source.width) {
       canvas = new OffscreenCanvas(size.width, size.height);
       const large = canvas.getContext('2d')!;
       large.imageSmoothingEnabled = true; large.imageSmoothingQuality = 'high';
@@ -1252,16 +1262,18 @@ async function reliefImage(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height
     return { size, blob };
   };
   let { size, blob } = await encode(plan.upscale);
-  // Smooth ground (or an enlarged image) packs tighter than estimated: below 3 MB, drawn once more
-  // as much larger as the shortfall asks, within the pixel and side limits.
-  const longer = Math.max(grid.width, grid.height);
-  const most = Math.min(Math.sqrt(plan.mostPixels / (grid.width * grid.height)), plan.mostSide / longer);
+  // Smooth ground (or an enlarged image) packs tighter than estimated: below 3 MB (the suggested
+  // size only), drawn larger as the shortfall asks, within the pixel and side limits.
+  const longer = Math.max(source.width, source.height);
+  const most = Math.min(Math.sqrt(plan.mostPixels / (source.width * source.height)), plan.mostSide / longer);
   let upscale = plan.upscale;
   for (let attempt = 0; attempt < 3 && blob.size < RELIEF_IMAGE.minBytes && upscale < most * .99; attempt++) {
     upscale = Math.min(most, upscale * Math.sqrt(RELIEF_IMAGE.minBytes * 1.1 / blob.size));
     ({ size, blob } = await encode(upscale));
   }
-  return { ...imagePlace(grid, size), data: new Uint8Array(await blob.arrayBuffer()) };
+  // Pixels fill the source exactly, also where rounding left them a little taller than wide.
+  const pixel = source.pixel * source.width / size.width, pixelY = source.pixel * source.height / size.height;
+  return { west: source.west, south: source.south, pixel, ...(Math.abs(pixelY - pixel) > 1e-9 ? { pixelY } : {}), width: size.width, height: size.height, data: new Uint8Array(await blob.arrayBuffer()) };
 }
 document.querySelector<HTMLButtonElement>('#surface-dmr-remove')!.addEventListener('click', () => {
   if (!terrain) return;

@@ -195,8 +195,10 @@
   <label class="lox-name">Name <input id="lox-name" type="text" autocomplete="off" spellcheck="false"/></label>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="save" class="primary">Save</button></div></form>
 </dialog><dialog id="dmr-dialog" aria-labelledby="dmr-heading"><form method="dialog"><h2 id="dmr-heading">Terrain grid and relief image</h2><p id="dmr-text"></p>
-  <h3 class="dmr-section">Grid step</h3><div class="quality-options" id="dmr-options" role="radiogroup" aria-label="Grid step"></div>
-  <h3 class="dmr-section">Relief image</h3><div class="quality-options" id="dmr-images" role="radiogroup" aria-label="Relief image size"></div>
+  <div class="dmr-columns">
+    <section><h3 class="dmr-section">Grid step</h3><div class="quality-options" id="dmr-options" role="radiogroup" aria-label="Grid step"></div></section>
+    <section><h3 class="dmr-section">Relief image</h3><div class="quality-options" id="dmr-images" role="radiogroup" aria-label="Relief image size"></div></section>
+  </div>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="make" class="primary">Make terrain</button></div></form>
 </dialog><dialog id="download-dialog" aria-labelledby="download-heading"><form method="dialog"><h2 id="download-heading">Download maps?</h2><p id="download-text"></p>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="download" class="primary">Download</button></div></form>
