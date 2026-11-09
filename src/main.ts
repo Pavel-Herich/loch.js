@@ -863,6 +863,8 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
   const canvas = document.querySelector<HTMLCanvasElement>('#crop-canvas')!, context = canvas.getContext('2d')!;
   const inputs = (['west', 'south', 'east', 'north'] as const).map(side => document.querySelector<HTMLInputElement>(`#crop-${side}`)!);
   const square = document.querySelector<HTMLInputElement>('#crop-square')!, size = document.querySelector('#crop-size')!;
+  // Each crop starts as a free rectangle (the browser would keep Square from the last time).
+  square.checked = false;
   // The preview: north up, one pixel per preview node, cells without data dark.
   const rgba = hillshade(preview);
   for (let r = 0; r < preview.height; r++) for (let c = 0; c < preview.width; c++) {
