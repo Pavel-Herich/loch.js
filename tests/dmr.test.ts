@@ -52,11 +52,13 @@ describe('elevation GeoTIFFs (DMR 5.0)', () => {
     expect(surfaceHeightAt(surface, surface.calibration[0] + 55, surface.calibration[1] + 44)).toBeUndefined();
     expect(filledHeights(dmr).every(Number.isFinite)).toBe(true);
     const text = dmrTherion(dmr), lines = text.split('\n');
-    expect(lines).toContain('surface'); expect(lines).toContain('  cs ijtsk03');
-    expect(lines).toContain('  grid -359128.50 -1176364.50 1 1 260 130');
+    // In JTSK, moved here from JTSK03 (Therion then needs no grid of its own).
+    const grid = `  grid ${(-359128.5 + dmr.shift[0]).toFixed(2)} ${(-1176364.5 + dmr.shift[1]).toFixed(2)} 1 1 260 130`;
+    expect(lines).toContain('surface'); expect(lines).toContain('  cs ijtsk'); expect(lines).toContain(grid);
+    expect(text).toContain(`Moved from S-JTSK [JTSK03] into JTSK by ${dmr.shift[0].toFixed(2)} m east`); expect(dmr.shift[0]).toBeCloseTo(-.42, 1);
     expect(text).toContain('Zdroj produktov LLS: UGKK SR');
     // Rows from north to south: the first value is the north-west node.
-    const data = lines.slice(lines.indexOf('  grid -359128.50 -1176364.50 1 1 260 130') + 1, lines.indexOf('endsurface')).join(' ').trim().split(/\s+/).map(Number);
+    const data = lines.slice(lines.indexOf(grid) + 1, lines.indexOf('endsurface')).join(' ').trim().split(/\s+/).map(Number);
     expect(data.length).toBe(260 * 130);
     expect(data[0]).toBeCloseTo(expected(20, 0), 1);
     expect(data[data.length - 1]).toBeCloseTo(expected(149, 259), 1);
@@ -134,5 +136,40 @@ describe('surface shading', () => {
     const flat = { width: 3, height: 3, heights: new Float64Array(9) };
     expect(gridNormals({ ...flat, calibration: [0, 0, 1, 0, 0, 1] }, 0, 0, 0, 0)[2]).toBeCloseTo(1);
     expect(gridNormals({ ...flat, calibration: [0, 0, 1, 0, 0, -1] }, 0, 0, 0, 0)[2]).toBeCloseTo(-1);
+  });
+});
+
+describe('terrain crop, thconfig and LOX', () => {
+  it('crops to a rectangle of the file before averaging', async () => {
+    const { cropWindow, windowCorners } = await import('../src/dmr');
+    const file = fixture('dmr-lzw.tif'), { tiff, epsg } = await inspectDmr(file);
+    // 100 × 50 m from 20 m east and 30 m north of the south-west corner.
+    const window = cropWindow(tiff, -359129 + 20, -1176365 + 30, -359129 + 120, -1176365 + 80);
+    expect(window).toEqual({ column: 20, row: 70, columns: 100, rows: 50 });
+    expect(windowCorners(tiff, window)).toEqual([-359109, -1176335, -359009, -1176285]);
+    expect(dmrSteps(tiff, window)[0].nodes).toBe(5000);
+    const dmr = await resampleDmr(file, tiff, epsg, 1, 'dmr.tif', undefined, undefined, window);
+    expect([dmr.width, dmr.height]).toEqual([100, 50]);
+    expect(dmr.origin).toEqual([-359108.5, -1176334.5]);
+    expect(dmr.heights[0]).toBeCloseTo(expected(119, 20), 1); // south-west node: file row 119, column 20
+    expect(dmr.heights[49 * 100 + 99]).toBeCloseTo(expected(70, 119), 1);
+  });
+
+  it('writes a thconfig and a LOX that read back as the same surface and image', async () => {
+    const { dmrLox, dmrThconfig } = await import('../src/dmr');
+    const { parseLox } = await import('../src/lox');
+    expect(dmrThconfig('cave-terrain')).toBe('encoding utf-8\nsource cave-terrain.th\n\ncs ijtsk\n\nexport model -output cave-terrain.lox\n');
+    const file = fixture('dmr-lzw.tif'), { tiff, epsg } = await inspectDmr(file);
+    const dmr = await resampleDmr(file, tiff, epsg, 2, 'dmr.tif', undefined, jtsk03Shift);
+    dmr.image = { west: -359129, south: -1176365, pixel: 1, width: 260, height: 130, data: new Uint8Array([0xff, 0xd8, 1, 2, 0xff, 0xd9]) };
+    const model = parseLox(await dmrLox(dmr, 'Štrbské pleso').arrayBuffer());
+    expect(model.title).toBe('Strbske pleso');
+    const [surface] = model.surfaces, ours = dmrSurface(dmr);
+    expect([surface.width, surface.height]).toEqual([dmr.width, dmr.height]);
+    expect(surface.calibration).toEqual(ours.calibration);
+    expect(surface.heights[0]).toBeCloseTo(dmr.heights[0], 3);
+    expect(surface.heights.every(Number.isFinite)).toBe(true); // holes filled, as Therion needs
+    expect(surface.bitmap!.calibration).toEqual(ours.bitmap!.calibration);
+    expect(Array.from(surface.bitmap!.data)).toEqual([0xff, 0xd8, 1, 2, 0xff, 0xd9]);
   });
 });

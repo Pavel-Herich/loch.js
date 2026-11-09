@@ -13,7 +13,8 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
-import { dmrSteps, dmrSurface, dmrTherion, hillshade, imageFactor, imagePlace, inspectDmr, resampleDmr, tiffFromZip, type Dmr } from './dmr';
+import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imageFactor, imagePlace, inspectDmr, resampleDmr, tiffFromZip, wholeFile, type CellWindow, type Dmr } from './dmr';
+import type { GeoTiff } from './geotiff';
 import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators, metresPerPixel } from './indicators';
@@ -765,6 +766,8 @@ const dmrInput = document.querySelector<HTMLInputElement>('#dmr-file')!;
 function syncTerrainMenu() {
   document.querySelector<HTMLButtonElement>('#surface-dmr-export')!.hidden = !terrain;
   document.querySelector<HTMLButtonElement>('#file-dmr-export')!.hidden = !terrain;
+  document.querySelector<HTMLButtonElement>('#file-dmr-lox')!.hidden = !terrain;
+  document.querySelector<HTMLButtonElement>('#surface-dmr-lox')!.hidden = !terrain;
   document.querySelector<HTMLButtonElement>('#surface-dmr-remove')!.hidden = !terrain;
 }
 /** Shows the terrain or the LOX surfaces, with the map layers that were on laid over again. */
@@ -850,6 +853,116 @@ async function restoreTerrainOnly(key: string) {
   return true;
 }
 dmrInput.addEventListener('change', () => { const file = dmrInput.files?.[0]; dmrInput.value = ''; if (file) void importTerrain(file); });
+/**
+ * Crop (optional): a rectangle of the file, dragged on a shaded preview (inside it to move it,
+ * at a corner to resize it) or typed as its corners; Whole area keeps the whole file.
+ */
+const cropDialog = document.querySelector<HTMLDialogElement>('#crop-dialog')!;
+function askCrop(tiff: GeoTiff, preview: Dmr) {
+  const canvas = document.querySelector<HTMLCanvasElement>('#crop-canvas')!, context = canvas.getContext('2d')!;
+  const inputs = (['west', 'south', 'east', 'north'] as const).map(side => document.querySelector<HTMLInputElement>(`#crop-${side}`)!);
+  const square = document.querySelector<HTMLInputElement>('#crop-square')!, size = document.querySelector('#crop-size')!;
+  // The preview: north up, one pixel per preview node, cells without data dark.
+  const rgba = hillshade(preview);
+  for (let r = 0; r < preview.height; r++) for (let c = 0; c < preview.width; c++) {
+    if (preview.heights[r * preview.width + c] === preview.heights[r * preview.width + c]) continue;
+    const at = ((preview.height - 1 - r) * preview.width + c) * 4;
+    rgba[at] = 19; rgba[at + 1] = 32; rgba[at + 2] = 43;
+  }
+  const image = new ImageData(rgba, preview.width, preview.height);
+  canvas.width = preview.width; canvas.height = preview.height;
+  const west0 = preview.origin[0] - preview.step / 2, north0 = preview.origin[1] - preview.step / 2 + preview.height * preview.step;
+  const toWorld = (x: number, y: number): [number, number] => [west0 + x * preview.step, north0 - y * preview.step];
+  const toCanvas = (east: number, north: number): [number, number] => [(east - west0) / preview.step, (north0 - north) / preview.step];
+  const full: [number, number, number, number] = [west0, north0 - preview.height * preview.step, west0 + preview.width * preview.step, north0];
+  let rect: [number, number, number, number] = [...full], typing = false;
+  const snap = (v: number) => Math.round(v);
+  const draw = () => {
+    context.putImageData(image, 0, 0);
+    const [x0, y0] = toCanvas(rect[0], rect[3]), [x1, y1] = toCanvas(rect[2], rect[1]);
+    context.fillStyle = 'rgba(9, 19, 24, .55)';
+    context.beginPath(); context.rect(0, 0, canvas.width, canvas.height); context.rect(x0, y0, x1 - x0, y1 - y0); context.fill('evenodd');
+    const scale = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
+    context.strokeStyle = '#8ed9ff'; context.lineWidth = 2 * scale; context.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    context.fillStyle = '#8ed9ff';
+    for (const [x, y] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) context.fillRect(x - 4 * scale, y - 4 * scale, 8 * scale, 8 * scale);
+    if (!typing) rect.forEach((value, i) => { inputs[i].value = String(snap(value)); });
+    const w = rect[2] - rect[0], h = rect[3] - rect[1];
+    size.textContent = `${(w / 1000).toFixed(2)} × ${(h / 1000).toFixed(2)} km · ${(w * h / 1e6).toFixed(2)} km²`;
+  };
+  const normalise = () => {
+    rect = [Math.min(rect[0], rect[2]), Math.min(rect[1], rect[3]), Math.max(rect[0], rect[2]), Math.max(rect[1], rect[3])];
+    rect = [Math.max(full[0], rect[0]), Math.max(full[1], rect[1]), Math.min(full[2], rect[2]), Math.min(full[3], rect[3])];
+  };
+  // Pointer: new rectangle, move, or a corner.
+  let mode: 'new' | 'move' | number | undefined, start: [number, number] = [0, 0], startRect = rect;
+  const point = (event: PointerEvent): [number, number] => {
+    const box = canvas.getBoundingClientRect();
+    return toWorld((event.clientX - box.left) / box.width * canvas.width, (event.clientY - box.top) / box.height * canvas.height);
+  };
+  const down = (event: PointerEvent) => {
+    event.preventDefault(); canvas.setPointerCapture(event.pointerId);
+    const p = point(event), box = canvas.getBoundingClientRect(), near = 14 * preview.step * canvas.width / box.width;
+    const corners: [number, number][] = [[rect[0], rect[1]], [rect[2], rect[1]], [rect[0], rect[3]], [rect[2], rect[3]]];
+    const corner = corners.findIndex(([e, n]) => Math.abs(e - p[0]) < near && Math.abs(n - p[1]) < near);
+    // While the rectangle is the whole area, dragging draws a new one.
+    const whole = rect.every((value, i) => Math.abs(value - full[i]) < preview.step);
+    mode = corner >= 0 && !whole ? corner : !whole && p[0] > rect[0] && p[0] < rect[2] && p[1] > rect[1] && p[1] < rect[3] ? 'move' : 'new';
+    start = p; startRect = [...rect];
+    if (mode === 'new') rect = [p[0], p[1], p[0], p[1]];
+  };
+  const move = (event: PointerEvent) => {
+    if (mode === undefined) return;
+    const p = point(event);
+    if (mode === 'move') {
+      const w = startRect[2] - startRect[0], h = startRect[3] - startRect[1];
+      const e = Math.min(full[2] - w, Math.max(full[0], startRect[0] + p[0] - start[0])), n = Math.min(full[3] - h, Math.max(full[1], startRect[1] + p[1] - start[1]));
+      rect = [e, n, e + w, n + h];
+    } else {
+      // The opposite corner stays; with Square the shorter side follows the longer.
+      const fixed: [number, number] = mode === 'new' ? start : [mode % 2 ? startRect[0] : startRect[2], mode < 2 ? startRect[3] : startRect[1]];
+      let dx = p[0] - fixed[0], dy = p[1] - fixed[1];
+      if (square.checked) { const side = Math.max(Math.abs(dx), Math.abs(dy)); dx = Math.sign(dx || 1) * side; dy = Math.sign(dy || 1) * side; }
+      rect = [fixed[0], fixed[1], fixed[0] + dx, fixed[1] + dy];
+      normalise();
+    }
+    draw();
+  };
+  const up = () => {
+    if (mode === undefined) return;
+    normalise();
+    if (rect[2] - rect[0] < preview.step || rect[3] - rect[1] < preview.step) rect = [...startRect];
+    mode = undefined; draw();
+  };
+  const typed = () => {
+    const values = inputs.map(input => Number(input.value));
+    if (!values.every(Number.isFinite)) return;
+    rect = values as [number, number, number, number];
+    if (square.checked) { const side = Math.max(rect[2] - rect[0], rect[3] - rect[1]); rect[2] = rect[0] + side; rect[3] = rect[1] + side; }
+    normalise(); typing = true; draw(); typing = false;
+    // Show what was kept (clipped to the file, squared) once the typing is done.
+    inputs.forEach((input, i) => { if (input !== document.activeElement) input.value = String(snap(rect[i])); });
+  };
+  const squared = () => { if (square.checked) typed(); };
+  canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move);
+  canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+  for (const input of inputs) input.addEventListener('change', typed);
+  square.addEventListener('change', squared);
+  cropDialog.returnValue = ''; cropDialog.showModal(); draw();
+  cropDialog.querySelector<HTMLButtonElement>('button[value="crop"]')!.focus();
+  return new Promise<CellWindow | undefined>(resolve => cropDialog.addEventListener('close', () => {
+    canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
+    canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
+    for (const input of inputs) input.removeEventListener('change', typed);
+    square.removeEventListener('change', squared);
+    const value = cropDialog.returnValue;
+    if (value === 'whole') resolve(wholeFile(tiff));
+    else if (value === 'crop') {
+      const area = cropWindow(tiff, snap(rect[0]), snap(rect[1]), snap(rect[2]), snap(rect[3]));
+      resolve(area.columns && area.rows ? area : wholeFile(tiff));
+    } else resolve(undefined);
+  }, { once: true }));
+}
 /** Grid step: the finest within what this device draws smoothly, coarser ones offered too. */
 function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: number) {
   const smooth = isCoarse() ? 1.5e6 : 5e6, most = isCoarse() ? 5e6 : 2e7;
@@ -878,19 +991,26 @@ async function importTerrain(picked: File) {
     setStatusText(status, `${picked.name} · Reading terrain…`); setStatusProgress(status, 0);
     const { name, blob } = /\.zip$/i.test(picked.name) ? await tiffFromZip(picked) : { name: picked.name, blob: picked as Blob };
     const { tiff, epsg } = await inspectDmr(blob);
-    setStatusProgress(status);
-    const factor = await askTerrainStep(name, dmrSteps(tiff), tiff.pixelWidth);
+    // First (optional) step: a rectangle of the file, on a quick shaded preview.
+    const preview = await resampleDmr(blob, tiff, epsg, Math.max(1, Math.ceil(Math.max(tiff.width, tiff.height) / 900)), name, (done, total) => {
+      setStatusText(status, `${name} · Preview · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
+    });
+    setStatusProgress(status); setStatusText(status, '');
+    if (id !== loadId) return;
+    const area = await askCrop(tiff, preview);
+    if (!area || id !== loadId) return;
+    const factor = await askTerrainStep(name, dmrSteps(tiff, area), tiff.pixelWidth);
     if (!factor || id !== loadId) { setStatusText(status, ''); return; }
     const { jtsk03Shift } = await import('./jtsk03');
     const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {
       setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-    }, jtsk03Shift);
+    }, jtsk03Shift, area);
     if (id !== loadId) return;
     // The shaded relief image, from the file's own cells (coarser only on big areas or small devices).
-    const imageAt = imageFactor(tiff, isCoarse() ? 12e6 : 30e6, isCoarse() ? 8192 : 16384);
+    const imageAt = imageFactor({ width: area.columns, height: area.rows }, isCoarse() ? 12e6 : 30e6, isCoarse() ? 8192 : 16384);
     const fine = await resampleDmr(blob, tiff, epsg, imageAt, name, (done, total) => {
       setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-    });
+    }, undefined, area);
     if (id !== loadId) return;
     try { dmr.image = { ...imagePlace(fine), data: await jpegBytes(hillshade(fine), fine.width, fine.height) }; }
     catch (error) { announce(`The relief image could not be made here (${error instanceof Error ? error.message : String(error)}); the terrain is shaded instead.`, true); }
@@ -916,16 +1036,41 @@ async function importTerrain(picked: File) {
 for (const button of ['#surface-dmr-export', '#file-dmr-export']) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', () => {
   if (!terrain) return;
   const base = (modelKey.split('|')[0] || 'model').replace(/\.[^.]+$/, '');
-  if (!terrain.image) { download(`${base}-terrain.th`, dmrTherion(terrain), 'text/plain'); return; }
+  if (!terrain.image) {
+    const zip = createZip([
+      { name: `${base}-terrain.th`, data: new TextEncoder().encode(dmrTherion(terrain)) },
+      { name: 'thconfig', data: new TextEncoder().encode(dmrThconfig(`${base}-terrain`)) },
+    ]);
+    saveBlob(zip, `${base}-terrain.zip`); return;
+  }
   // The surface with its relief image beside it, as Therion reads a bitmap.
+  // With a thconfig: `therion` in the unpacked folder makes <model>-terrain.lox.
   const zip = createZip([
     { name: `${base}-terrain.th`, data: new TextEncoder().encode(dmrTherion(terrain, `${base}-terrain.jpg`)) },
     { name: `${base}-terrain.jpg`, data: terrain.image.data },
+    { name: 'thconfig', data: new TextEncoder().encode(dmrThconfig(`${base}-terrain`)) },
   ]);
+  saveBlob(zip, `${base}-terrain.zip`);
+});
+function saveBlob(blob: Blob, name: string) {
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(zip); link.download = `${base}-terrain.zip`;
+  link.href = URL.createObjectURL(blob); link.download = name;
   document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
+}
+// The terrain as a LOX file under a chosen name (to open later here or in Loch).
+const loxDialog = document.querySelector<HTMLDialogElement>('#lox-dialog')!, loxName = document.querySelector<HTMLInputElement>('#lox-name')!;
+for (const button of ['#surface-dmr-lox', '#file-dmr-lox']) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', () => {
+  if (!terrain) return;
+  loxName.value = (modelKey.split('|')[0] || terrain.name).replace(/\.[^.]+$/, '') + (terrainOnly ? '' : '-terrain');
+  loxDialog.returnValue = ''; loxDialog.showModal(); loxName.select();
+});
+loxDialog.addEventListener('close', () => {
+  if (loxDialog.returnValue !== 'save' || !terrain) return;
+  const name = loxName.value.trim().replace(/\.lox$/i, '') || 'terrain';
+  // No diacritics in the file name or the title.
+  const plainName = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\\/:*?"<>|]+/g, '_');
+  saveBlob(dmrLox(terrain, plainName), `${plainName}.lox`);
 });
 /** Grey RGBA rows (north first) as JPEG, drawn in strips so a large image needs no second full copy. */
 async function jpegBytes(rgba: Uint8ClampedArray<ArrayBuffer>, width: number, height: number) {
@@ -1657,6 +1802,12 @@ function draw(model: Model, label: string) {
   loxSurfaces = model.surfaces;
   for (const surface of model.surfaces) surfaceScene.add(surface, origin);
   updateLegend(model);
+  // A terrain saved as LOX (no cave): the legend shows the terrain's heights.
+  if (!model.scraps.length && !model.shots.length && model.surfaces.length) {
+    let low = Infinity, high = -Infinity;
+    for (const surface of model.surfaces) for (const h of surface.heights) { if (h < low) low = h; if (h > high) high = h; }
+    if (low < high) updateLegend({ minZ: low, maxZ: high });
+  }
   applyWallCulling();
   setStatusText(status, `${label} · ${model.scraps.length} scraps · ${model.shots.length} centerline segments`);
   setCameraView(camera, controls, activeBox, 'fit');

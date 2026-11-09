@@ -33,47 +33,80 @@ export async function inspectDmr(file: Blob) {
   return { tiff, epsg };
 }
 
+/**
+ * A part of the file: columns and rows of its cells (end exclusive, rows from the top). The
+ * whole file when not cropped.
+ */
+export type CellWindow = { column: number; row: number; columns: number; rows: number };
+export const wholeFile = (tiff: Pick<GeoTiff, 'width' | 'height'>): CellWindow => ({ column: 0, row: 0, columns: tiff.width, rows: tiff.height });
+
+/** The cells inside a rectangle given by its south-west and north-east corners (in the file's system). */
+export function cropWindow(tiff: GeoTiff, west: number, south: number, east: number, north: number): CellWindow {
+  const c0 = Math.max(0, Math.round((Math.min(west, east) - tiff.left) / tiff.pixelWidth));
+  const c1 = Math.min(tiff.width, Math.round((Math.max(west, east) - tiff.left) / tiff.pixelWidth));
+  const r0 = Math.max(0, Math.round((tiff.top - Math.max(south, north)) / tiff.pixelHeight));
+  const r1 = Math.min(tiff.height, Math.round((tiff.top - Math.min(south, north)) / tiff.pixelHeight));
+  return { column: c0, row: r0, columns: Math.max(0, c1 - c0), rows: Math.max(0, r1 - r0) };
+}
+/** Corners of a window: west, south, east, north (outer cell edges). */
+export function windowCorners(tiff: GeoTiff, window: CellWindow): [number, number, number, number] {
+  return [tiff.left + window.column * tiff.pixelWidth, tiff.top - (window.row + window.rows) * tiff.pixelHeight,
+    tiff.left + (window.column + window.columns) * tiff.pixelWidth, tiff.top - window.row * tiff.pixelHeight];
+}
+
 /** Steps offered for the grid (metres between nodes), each a whole number of the file's cells. */
-export function dmrSteps(tiff: GeoTiff) {
+export function dmrSteps(tiff: GeoTiff, window: CellWindow = wholeFile(tiff)) {
   return [1, 2, 5, 10, 20].map(step => Math.max(1, Math.round(step / tiff.pixelWidth)))
     .filter((factor, i, all) => all.indexOf(factor) === i)
-    .map(factor => ({ factor, step: factor * tiff.pixelWidth, nodes: Math.floor(tiff.width / factor) * Math.floor(tiff.height / factor) }));
+    .map(factor => ({ factor, step: factor * tiff.pixelWidth, nodes: Math.floor(window.columns / factor) * Math.floor(window.rows / factor) }));
 }
 
 /**
  * Averages factor × factor cells into one node (cells without data left out), then trims
- * rows and columns with no data at all. Reads the file block by block.
+ * rows and columns with no data at all. Reads the file block by block, only the blocks in the window.
  */
 export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, factor: number, name: string,
-  progress?: (done: number, total: number) => void, shift: (east: number, north: number) => [number, number] = () => [0, 0]): Promise<Dmr> {
-  const width = Math.floor(tiff.width / factor), height = Math.floor(tiff.height / factor);
-  if (!width || !height) throw new Error('The GeoTIFF is too small for this grid step.');
+  progress?: (done: number, total: number) => void, shift: (east: number, north: number) => [number, number] = () => [0, 0],
+  window: CellWindow = wholeFile(tiff)): Promise<Dmr> {
+  const width = Math.floor(window.columns / factor), height = Math.floor(window.rows / factor);
+  if (!width || !height) throw new Error('The area is too small for this grid step.');
   // Single precision keeps a full-resolution pass (for the relief image) at 6 bytes a cell.
   const sum = new Float32Array(width * height), count = new Uint16Array(width * height);
   const across = Math.ceil(tiff.width / tiff.blockWidth), blocks = tiff.offsets.length;
+  const needed: number[] = [];
   for (let index = 0; index < blocks; index++) {
-    const values = await readBlock(file, tiff, index);
+    const firstColumn = tiff.tiled ? (index % across) * tiff.blockWidth : 0;
+    const firstRow = tiff.tiled ? Math.floor(index / across) * tiff.blockHeight : index * tiff.blockHeight;
+    if (firstColumn < window.column + window.columns && firstColumn + tiff.blockWidth > window.column
+      && firstRow < window.row + window.rows && firstRow + tiff.blockHeight > window.row) needed.push(index);
+  }
+  for (let n = 0; n < needed.length; n++) {
+    const index = needed[n], values = await readBlock(file, tiff, index);
     const firstColumn = tiff.tiled ? (index % across) * tiff.blockWidth : 0;
     const firstRow = tiff.tiled ? Math.floor(index / across) * tiff.blockHeight : index * tiff.blockHeight;
     const rows = values.length / tiff.blockWidth;
     for (let r = 0; r < rows; r++) {
-      const row = firstRow + r, target = Math.floor(row / factor);
-      if (row >= tiff.height || target >= height) break;
+      const row = firstRow + r - window.row;
+      if (row < 0) continue;
+      const target = Math.floor(row / factor);
+      if (row >= window.rows || target >= height) break;
       for (let c = 0; c < tiff.blockWidth; c++) {
-        const column = firstColumn + c, node = Math.floor(column / factor);
-        if (column >= tiff.width || node >= width) break;
+        const column = firstColumn + c - window.column;
+        if (column < 0) continue;
+        const node = Math.floor(column / factor);
+        if (column >= window.columns || node >= width) break;
         const v = values[r * tiff.blockWidth + c];
         if (v === v) { const at = target * width + node; sum[at] += v; count[at]++; }
       }
     }
-    progress?.(index + 1, blocks);
+    progress?.(n + 1, needed.length);
   }
   // Rows and columns that hold data (rows counted from the top of the file).
   let top = height, bottom = -1, left = width, right = -1;
   for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) if (count[r * width + c]) {
     if (r < top) top = r; if (r > bottom) bottom = r; if (c < left) left = c; if (c > right) right = c;
   }
-  if (bottom < 0) throw new Error('The GeoTIFF holds no heights.');
+  if (bottom < 0) throw new Error('No heights in this area of the GeoTIFF.');
   const w = right - left + 1, h = bottom - top + 1, heights = new Float32Array(w * h);
   for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
     const at = (top + r) * width + left + c;
@@ -81,8 +114,8 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
   }
   // Centre of the averaged cells of the south-west node.
   const centre = tiff.pixelIsPoint ? 0 : .5, half = (factor - 1) / 2 + centre;
-  const east = tiff.left + (left * factor + half) * tiff.pixelWidth;
-  const north = tiff.top - (bottom * factor + half) * tiff.pixelHeight;
+  const east = tiff.left + (window.column + left * factor + half) * tiff.pixelWidth;
+  const north = tiff.top - (window.row + bottom * factor + half) * tiff.pixelHeight;
   const step = factor * tiff.pixelWidth;
   return { name, step, width: w, height: h, origin: [east, north], shift: epsg === JTSK03 ? shift(east + w * step / 2, north + h * step / 2) : [0, 0], epsg, heights };
 }
@@ -132,8 +165,8 @@ export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step
 }
 
 /** The image's pixel size: the file's cells, coarser only to stay within the pixel and side limits. */
-export function imageFactor(tiff: Pick<GeoTiff, 'width' | 'height'>, maxPixels: number, maxSide: number) {
-  return Math.max(1, Math.ceil(Math.sqrt(tiff.width * tiff.height / maxPixels)), Math.ceil(Math.max(tiff.width, tiff.height) / maxSide));
+export function imageFactor(area: { width: number; height: number }, maxPixels: number, maxSide: number) {
+  return Math.max(1, Math.ceil(Math.sqrt(area.width * area.height / maxPixels)), Math.ceil(Math.max(area.width, area.height) / maxSide));
 }
 
 /** The image over the cells of a hillshaded grid (corners, not centres). */
@@ -185,21 +218,25 @@ export function filledHeights(dmr: Pick<Dmr, 'width' | 'height' | 'heights'>) {
 const plain = (text: string) => text.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7e]/g, '_');
 
 /**
- * The terrain for Therion: one surface block in the file's system (cs ijtsk03 for DMR 5.0,
- * which Therion moves into JTSK with the same GKÚ grid), rows from north to south as Therion
- * reads them, cells without data filled from their neighbours, and the hillshade as its bitmap.
+ * The terrain for Therion: one surface block in the model's system (`cs ijtsk`; JTSK03 files are
+ * moved into JTSK here with the GKÚ grid, so Therion needs no grid of its own), rows from north
+ * to south as Therion reads them, cells without data filled from their neighbours, and the relief
+ * image as its bitmap.
  */
 export function dmrTherion(dmr: Dmr, imageName?: string) {
   const heights = filledHeights(dmr), lines: string[] = [];
   const missing = dmr.heights.reduce((n, h) => h === h ? n : n + 1, 0);
+  const [dx, dy] = dmr.shift;
+  lines.push('encoding utf-8');
   lines.push(`# Terrain from ${plain(dmr.name)}: ${dmr.width} x ${dmr.height} nodes every ${dmr.step} m (made with loch.js)`);
   lines.push('# Zdroj produktov LLS: UGKK SR (CC BY 4.0)');
+  if (dmr.epsg === JTSK03) lines.push(`# Moved from S-JTSK [JTSK03] into JTSK by ${dx.toFixed(2)} m east, ${dy.toFixed(2)} m north (GKU grid sk_gku_JTSK03_to_JTSK)`);
   if (missing) lines.push(`# ${missing} nodes without data were filled from their neighbours`);
-  lines.push('surface', `  cs ${dmr.epsg === JTSK03 ? 'ijtsk03' : 'ijtsk'}`);
-  lines.push(`  grid ${dmr.origin[0].toFixed(2)} ${dmr.origin[1].toFixed(2)} ${dmr.step} ${dmr.step} ${dmr.width} ${dmr.height}`);
+  lines.push('surface', '  cs ijtsk');
+  lines.push(`  grid ${(dmr.origin[0] + dx).toFixed(2)} ${(dmr.origin[1] + dy).toFixed(2)} ${dmr.step} ${dmr.step} ${dmr.width} ${dmr.height}`);
   // Image pixels count from the bottom-left corner, as in Therion.
   const image = dmr.image;
-  if (image && imageName) lines.push(`  bitmap ${imageName} [0 0 ${image.west.toFixed(2)} ${image.south.toFixed(2)} ${image.width} ${image.height} ${(image.west + image.width * image.pixel).toFixed(2)} ${(image.south + image.height * image.pixel).toFixed(2)}]`);
+  if (image && imageName) lines.push(`  bitmap ${imageName} [0 0 ${(image.west + dx).toFixed(2)} ${(image.south + dy).toFixed(2)} ${image.width} ${image.height} ${(image.west + dx + image.width * image.pixel).toFixed(2)} ${(image.south + dy + image.height * image.pixel).toFixed(2)}]`);
   const PER_LINE = 20;
   for (let r = dmr.height - 1; r >= 0; r--) {
     for (let c = 0; c < dmr.width; c += PER_LINE) {
@@ -210,6 +247,50 @@ export function dmrTherion(dmr: Dmr, imageName?: string) {
   }
   lines.push('endsurface', '');
   return lines.join('\n');
+}
+
+/** A thconfig that makes a LOX of the exported surface. */
+export function dmrThconfig(base: string) {
+  return ['encoding utf-8', `source ${base}.th`, '', 'cs ijtsk', '', `export model -output ${base}.lox`, ''].join('\n');
+}
+
+/**
+ * The terrain as a LOX file, as Therion writes it from the exported surface: an empty root
+ * survey (carrying the title), the grid (cells without data filled, as Therion needs) and the
+ * relief image, in JTSK.
+ */
+export function dmrLox(dmr: Dmr, title: string): Blob {
+  const surface = dmrSurface(dmr), filled = filledHeights(dmr), text = new TextEncoder();
+  const chunk = (kind: number, count: number, records: Uint8Array, data: Uint8Array | Blob) => {
+    const header = new DataView(new ArrayBuffer(16));
+    header.setUint32(0, kind, true); header.setUint32(4, records.length, true); header.setUint32(8, count, true);
+    header.setUint32(12, data instanceof Blob ? data.size : data.length, true);
+    return [header.buffer, records, data] as BlobPart[];
+  };
+  // Survey 0: name and title as zero-ended text.
+  const name = text.encode(`${plain(title)}\0`), titleBytes = name;
+  const survey = new DataView(new ArrayBuffer(24));
+  survey.setUint32(0, 0, true); survey.setUint32(4, 0, true); survey.setUint32(8, name.length, true);
+  survey.setUint32(12, 0, true); survey.setUint32(16, name.length, true); survey.setUint32(20, titleBytes.length, true);
+  const surveyData = new Uint8Array(name.length + titleBytes.length); surveyData.set(name); surveyData.set(titleBytes, name.length);
+  // Surface 0: width, height, heights pointer, calibration.
+  const record = new DataView(new ArrayBuffer(68));
+  record.setUint32(0, 0, true); record.setUint32(4, dmr.width, true); record.setUint32(8, dmr.height, true);
+  record.setUint32(12, 0, true); record.setUint32(16, dmr.width * dmr.height * 8, true);
+  surface.calibration.forEach((value, i) => record.setFloat64(20 + i * 8, value, true));
+  const heights = new Float64Array(filled.length);
+  for (let i = 0; i < filled.length; i++) heights[i] = filled[i];
+  const parts: BlobPart[] = [
+    ...chunk(1, 1, new Uint8Array(survey.buffer), surveyData),
+    ...chunk(5, 1, new Uint8Array(record.buffer), new Uint8Array(heights.buffer)),
+  ];
+  if (surface.bitmap) {
+    const bitmap = new DataView(new ArrayBuffer(64));
+    bitmap.setUint32(0, 0, true); bitmap.setUint32(4, 0, true); bitmap.setUint32(8, 0, true); bitmap.setUint32(12, surface.bitmap.data.length, true);
+    surface.bitmap.calibration.forEach((value, i) => bitmap.setFloat64(16 + i * 8, value, true));
+    parts.push(...chunk(6, 1, new Uint8Array(bitmap.buffer), surface.bitmap.data));
+  }
+  return new Blob(parts, { type: 'application/octet-stream' });
 }
 
 /**

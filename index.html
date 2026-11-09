@@ -34,7 +34,7 @@
   <div id="menu-panel">
   <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
-    <details class="menu"><summary>File</summary><div class="menu-items"><button id="new" type="button">New</button><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><button id="import-tif" type="button">Import TIF…</button><button id="file-dmr-export" type="button" hidden>Export terrain to Therion</button><hr/><button id="export-open" type="button">Export points…</button><hr/><button id="model-forget" type="button">Forget saved model</button><button id="maps-forget" type="button">Forget saved maps</button></div></details>
+    <details class="menu"><summary>File</summary><div class="menu-items"><button id="new" type="button">New</button><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><button id="import-tif" type="button">Import TIF…</button><button id="file-dmr-export" type="button" hidden>Export terrain to Therion</button><button id="file-dmr-lox" type="button" hidden>Save terrain as LOX…</button><hr/><button id="export-open" type="button">Export points…</button><hr/><button id="model-forget" type="button">Forget saved model</button><button id="maps-forget" type="button">Forget saved maps</button></div></details>
     <details class="menu"><summary>Scene</summary><div class="menu-items">
       <details class="control-group"><summary>Visibility</summary><div class="group-items">
         <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
@@ -71,6 +71,7 @@
         <button type="button" id="surface-dmr-get">Get DMR 5.0 from ZBGIS…</button>
         <button type="button" id="surface-dmr-open">Open terrain (GeoTIFF)…</button><input type="file" id="dmr-file" accept=".tif,.tiff,.zip,image/tiff,application/zip" hidden/>
         <button type="button" id="surface-dmr-export" hidden>Export terrain to Therion</button>
+        <button type="button" id="surface-dmr-lox" hidden>Save terrain as LOX…</button>
         <button type="button" id="surface-dmr-remove" hidden>Remove terrain</button>
         <button type="button" id="underlay-mapy-key">Mapy.com API key…</button>
         <label><input id="surface-transparency" type="checkbox" checked/> Transparency</label>
@@ -180,6 +181,19 @@
 </dialog><dialog id="quality-dialog" aria-labelledby="quality-heading"><form method="dialog"><h2 id="quality-heading">Map quality</h2><p id="quality-text"></p>
   <div class="quality-options"><button value="optimal" class="quality-option"><strong>Optimal</strong><small id="quality-optimal"></small></button><button value="max" class="quality-option"><strong>Max</strong><small id="quality-max"></small></button></div>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="online">Online only</button></div></form>
+</dialog><dialog id="crop-dialog" aria-labelledby="crop-heading"><form method="dialog"><h2 id="crop-heading">Crop terrain</h2>
+  <p class="crop-hint">Drag a rectangle on the map (drag inside it to move it, at a corner to resize it), or type its corners in S-JTSK. Optional: Whole area keeps everything.</p>
+  <div class="crop-view"><canvas id="crop-canvas"></canvas></div>
+  <div class="crop-corners">
+    <label>South-west E <input id="crop-west" type="number" step="1" inputmode="decimal"/></label><label>N <input id="crop-south" type="number" step="1" inputmode="decimal"/></label>
+    <label>North-east E <input id="crop-east" type="number" step="1" inputmode="decimal"/></label><label>N <input id="crop-north" type="number" step="1" inputmode="decimal"/></label>
+  </div>
+  <div class="crop-info"><label><input id="crop-square" type="checkbox"/> Square</label><span id="crop-size"></span></div>
+  <div class="dialog-actions"><button value="cancel">Cancel</button><button value="whole">Whole area</button><button value="crop" class="primary">Crop</button></div></form>
+</dialog><dialog id="lox-dialog" aria-labelledby="lox-heading"><form method="dialog"><h2 id="lox-heading">Save terrain as LOX</h2>
+  <p>A LOX file of the terrain and its relief image (as Therion makes it from the exported surface), to open later here or in Loch.</p>
+  <label class="lox-name">Name <input id="lox-name" type="text" autocomplete="off" spellcheck="false"/></label>
+  <div class="dialog-actions"><button value="cancel">Cancel</button><button value="save" class="primary">Save</button></div></form>
 </dialog><dialog id="dmr-dialog" aria-labelledby="dmr-heading"><form method="dialog"><h2 id="dmr-heading">Terrain grid</h2><p id="dmr-text"></p>
   <div class="quality-options" id="dmr-options"></div>
   <div class="dialog-actions"><button value="cancel">Cancel</button></div></form>
