@@ -13,7 +13,7 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
-import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlace, imagePlan, imageSize, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, type CellWindow, type Dmr } from './dmr';
+import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlace, imagePlan, imageSize, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
 import type { GeoTiff } from './geotiff';
 import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
@@ -802,7 +802,8 @@ async function restoreTerrain() {
   // Kept by an older version without its relief image: shaded from the kept grid now (from the
   // GeoTIFF again for the full detail).
   try {
-    kept.image = await reliefImage(kept, imagePlan(kept, imageDevice()));
+    const plan = imagePlan(kept, imageDevice());
+    kept.image = await reliefImage(kept, { ...plan, upscale: plan.upscale / plan.factor });
     if (terrain !== kept) return;
     showSurfaces(); void saveDmr(key, kept).catch(() => undefined);
     announce('Relief image added from the terrain grid; open the GeoTIFF again for the full detail.');
@@ -1013,26 +1014,84 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
     } else resolve(undefined);
   }, { once: true }));
 }
-/** Grid step: the finest within what this device draws smoothly, coarser ones offered too. */
-function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: number) {
+/** The relief image chosen: cells averaged into a pixel (`factor`, any size) or drawn `upscale` times larger. */
+type ImageChoice = ReturnType<typeof imagePlan>;
+/** An image `width` px wide over the area's cells. */
+function imageChoice(area: CellWindow, width: number): ImageChoice {
+  const device = imageDevice();
+  const choice = width <= area.columns ? { factor: area.columns / width, upscale: 1 } : { factor: 1, upscale: width / area.columns };
+  // Exactly as chosen: no enlarging afterwards (no room given for it).
+  return { ...choice, mostPixels: 0, mostSide: device.maxSide };
+}
+/**
+ * Grid step and relief image size. Steps: the finest this device draws smoothly suggested.
+ * Images: sizes from a quarter of the file's cell to eight cells a pixel, between 1 000 and 15 000 px
+ * a side, with their pixel size and an estimate of the file (larger than 70 MB or than this device
+ * can draw: unavailable); the size suggested for the area first, and any width typed in.
+ */
+function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: number, area: CellWindow) {
   const smooth = isCoarse() ? 1.5e6 : 5e6, most = isCoarse() ? 5e6 : 2e7;
   const suggested = steps.find(step => step.nodes <= smooth) ?? steps[steps.length - 1];
-  const options = document.querySelector('#dmr-options')!;
-  options.replaceChildren(...steps.map(step => {
-    const button = document.createElement('button');
-    button.value = String(step.factor); button.className = 'quality-option';
-    button.classList.toggle('suggested', step === suggested);
-    button.disabled = step.nodes > most;
-    const title = document.createElement('strong'); title.textContent = `${step.step} m`;
-    const text = document.createElement('small');
-    text.textContent = `${step.columns.toLocaleString()} columns × ${step.rows.toLocaleString()} rows${step.nodes > most ? ': too many for this device' : step.nodes > smooth ? ': may be slow here' : ''}.`;
-    button.append(title, text);
-    return button;
-  }));
-  document.querySelector('#dmr-text')!.textContent = `${name}: cells of ${cell} m. Heights are averaged onto a grid of the chosen step; a shaded relief image from the full cells lies over it. Both go to Therion.`;
+  const option = (group: string, value: string, title: string, detail: string, checked: boolean, disabled = false) => {
+    const label = document.createElement('label'), input = document.createElement('input');
+    label.className = 'quality-option';
+    input.type = 'radio'; input.name = group; input.value = value; input.checked = checked; input.disabled = disabled;
+    const strong = document.createElement('strong'); strong.textContent = title;
+    const small = document.createElement('small'); small.textContent = detail;
+    label.append(input, strong, small);
+    return label;
+  };
+  document.querySelector('#dmr-options')!.replaceChildren(...steps.map(step => option('dmr-step', String(step.factor), `${step.step} m${step === suggested ? ' · suggested' : ''}`,
+    `${step.columns.toLocaleString()} columns × ${step.rows.toLocaleString()} rows${step.nodes > most ? ': too many for this device' : step.nodes > smooth ? ': may be slow here' : ''}.`,
+    step === suggested, step.nodes > most)));
+  // Relief image sizes.
+  const device = imageDevice(), { bytesPerPixel, maxBytes, maxSide, minSide } = RELIEF_IMAGE;
+  const describe = (width: number) => {
+    // An image drawn larger than the cells is smoother and packs tighter (about inversely to the enlargement).
+    const height = Math.round(area.rows * width / area.columns), pixels = width * height;
+    const megabytes = pixels * bytesPerPixel / Math.max(1, width / area.columns) / 1e6;
+    const pixel = area.columns * cell / width;
+    const blocked = megabytes > maxBytes / 1e6 ? 'over 70 MB' : pixels > device.maxPixels || Math.max(width, height) > Math.min(maxSide, device.maxSide) ? 'too large for this device' : '';
+    return { height, pixel, megabytes, blocked };
+  };
+  const plan = imagePlan({ width: area.columns, height: area.rows }, device);
+  const planned = Math.round(area.columns * plan.upscale / plan.factor);
+  const widths = new Set<number>([planned]);
+  for (const per of [.25, .5, 1, 1.5, 2, 3, 4, 6, 8]) {
+    const width = Math.round(area.columns / per), longer = Math.max(width, Math.round(area.rows / per));
+    if (longer >= minSide && longer <= maxSide) widths.add(width);
+  }
+  const images = [...widths].sort((a, b) => b - a).map(width => {
+    const { height, pixel, megabytes, blocked } = describe(width);
+    return option('dmr-image', String(width), `${width.toLocaleString()} × ${height.toLocaleString()} px${width === planned ? ' · suggested' : ''}`,
+      `${pixel < 1 ? pixel.toFixed(2) : pixel.toFixed(1)} m a pixel · about ${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB${blocked ? `: ${blocked}` : ''}.`, width === planned, Boolean(blocked));
+  });
+  // Any width typed in (the height follows the area).
+  const custom = option('dmr-image', 'custom', 'Other width', '', false), customInput = document.createElement('input');
+  custom.querySelector('small')!.classList.add('dmr-custom');
+  customInput.type = 'number'; customInput.min = String(minSide); customInput.max = String(maxSide); customInput.step = '1'; customInput.value = String(planned);
+  const customText = document.createElement('span');
+  const updateCustom = () => {
+    const width = Math.round(Number(customInput.value));
+    if (!(width > 0)) { customText.textContent = ''; return; }
+    const { height, pixel, megabytes, blocked } = describe(width);
+    customText.textContent = `px × ${height.toLocaleString()} px · ${pixel < 1 ? pixel.toFixed(2) : pixel.toFixed(1)} m a pixel · about ${megabytes < 10 ? megabytes.toFixed(1) : Math.round(megabytes)} MB${blocked ? `: ${blocked}` : ''}`;
+  };
+  customInput.addEventListener('input', () => { updateCustom(); (custom.querySelector('input[type=radio]') as HTMLInputElement).checked = true; });
+  customInput.addEventListener('keydown', event => { if (event.key === 'Enter') event.preventDefault(); });
+  custom.querySelector('small')!.append(customInput, customText); updateCustom();
+  document.querySelector('#dmr-images')!.replaceChildren(...images, custom);
+  document.querySelector('#dmr-text')!.textContent = `${name}: cells of ${cell} m. Heights are averaged onto a grid of the chosen step; the shaded relief image lies over it. Both go to Therion.`;
   dmrDialog.returnValue = ''; dmrDialog.showModal();
-  return new Promise<number | undefined>(resolve => dmrDialog.addEventListener('close', () => {
-    const factor = Number(dmrDialog.returnValue); resolve(factor > 0 ? factor : undefined);
+  dmrDialog.querySelector<HTMLButtonElement>('button[value="make"]')!.focus();
+  return new Promise<{ factor: number; image: ImageChoice } | undefined>(resolve => dmrDialog.addEventListener('close', () => {
+    if (dmrDialog.returnValue !== 'make') { resolve(undefined); return; }
+    const factor = Number(dmrDialog.querySelector<HTMLInputElement>('input[name="dmr-step"]:checked')?.value);
+    const picked = dmrDialog.querySelector<HTMLInputElement>('input[name="dmr-image"]:checked')?.value;
+    let width = picked === 'custom' ? Math.round(Number(customInput.value)) : Number(picked);
+    if (!(width > 0)) width = planned;
+    width = Math.min(Math.max(width, 100), maxSide);
+    resolve(factor > 0 ? { factor, image: imageChoice(area, Math.round(width)) } : undefined);
   }, { once: true }));
 }
 async function importTerrain(picked: File) {
@@ -1050,22 +1109,45 @@ async function importTerrain(picked: File) {
     const crop = await askCrop(tiff, preview);
     if (!crop || id !== loadId) return;
     const { area } = crop;
-    const factor = await askTerrainStep(name, dmrSteps(tiff, area), tiff.pixelWidth);
-    if (!factor || id !== loadId) { setStatusText(status, ''); return; }
+    // The part of the crop that holds data (from the preview): what the grid and image will cover.
+    const corners = windowCorners(tiff, area), half = preview.step / 2;
+    const data = cropWindow(tiff, Math.max(corners[0], preview.origin[0] - half), Math.max(corners[1], preview.origin[1] - half),
+      Math.min(corners[2], preview.origin[0] - half + preview.width * preview.step), Math.min(corners[3], preview.origin[1] - half + preview.height * preview.step));
+    const held = data.columns && data.rows ? data : area;
+    const chosen = await askTerrainStep(name, dmrSteps(tiff, held), tiff.pixelWidth, held);
+    if (!chosen || id !== loadId) { setStatusText(status, ''); return; }
+    const { factor } = chosen;
     const { jtsk03Shift } = await import('./jtsk03');
     const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {
       setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
     }, jtsk03Shift, area);
     if (id !== loadId) return;
-    // The shaded relief image, from the file's own cells (coarser only on big areas or small devices).
-    const plan = imagePlan({ width: area.columns, height: area.rows }, imageDevice());
-    const fine = await resampleDmr(blob, tiff, epsg, plan.factor, name, (done, total) => {
-      setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-    }, undefined, area);
-    if (id !== loadId) return;
-    setStatusText(status, `${name} · Encoding relief image…`);
-    try { dmr.image = await reliefImage(fine, plan); }
-    catch (error) { announce(`The relief image could not be made here (${error instanceof Error ? error.message : String(error)}); the terrain is shaded instead.`, true); }
+    // The shaded relief image, sized to the area; smaller again if this browser runs out of memory
+    // for it, and the terrain shaded without one if even that fails.
+    let plan = chosen.image;
+    for (let attempt = 0; ; attempt++) {
+      const pixels = area.columns * area.rows / plan.factor ** 2 * plan.upscale ** 2;
+      try {
+        const fine = await resampleDmr(blob, tiff, epsg, plan.factor, name, (done, total) => {
+          setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
+        }, undefined, area);
+        if (id !== loadId) return;
+        setStatusText(status, `${name} · Encoding relief image (${Math.round(pixels / 1e6)} million pixels)…`);
+        dmr.image = await reliefImage(fine, plan);
+        break;
+      } catch (error) {
+        if (id !== loadId) return;
+        if (attempt < 3 && pixels > 8e6) {
+          console.warn('Relief image too large here, trying smaller:', error);
+          // Half the pixels.
+          plan = plan.upscale > 1.42 ? { ...plan, upscale: plan.upscale / Math.SQRT2, mostPixels: 0 } : { ...plan, factor: plan.factor * Math.SQRT2 / plan.upscale, upscale: 1, mostPixels: 0 };
+          announce('The relief image was too large for this browser; making it smaller.', true);
+          continue;
+        }
+        announce(`The relief image could not be made here (${error instanceof Error ? error.message : String(error)}); the terrain is shaded instead.`, true);
+        break;
+      }
+    }
     setStatusProgress(status); setStatusText(status, '');
     void saveDmr(key, dmr).catch(() => announce('The terrain is shown, but there was no room to keep it on this device.', true));
     const moved = epsg === 8353 ? `, moved ${Math.hypot(...dmr.shift).toFixed(2)} m from JTSK03 into JTSK` : '';
@@ -1134,7 +1216,13 @@ for (const button of ['#surface-dmr-lox', '#file-dmr-lox']) document.querySelect
   if (name && terrain) saveBlob(dmrLox(terrain, name), `${name}.lox`);
 });
 /** What this device can draw: phones (Safari above all) keep canvases to about 16 million pixels. */
-const imageDevice = () => isCoarse() ? { maxPixels: 16e6, maxSide: 8192 } : { maxPixels: Infinity, maxSide: Infinity };
+const imageDevice = () => {
+  if (isCoarse()) return { maxPixels: 16e6, maxSide: 8192 };
+  // A computer: about 22 million pixels a gigabyte of memory (sums, counts and the canvas take
+  // some 9 bytes a pixel), as far as the browser tells it (8 GB or more: the 70 MB limit decides).
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+  return { maxPixels: memory * 22e6, maxSide: Infinity };
+};
 /**
  * The shaded relief of a grid as JPEG: drawn in strips (no full copy of the pixels besides the
  * canvas), enlarged smoothly when `upscale` > 1, and encoded again at lower quality if it would
@@ -2266,6 +2354,22 @@ async function loadSample() {
   catch (e) { if (loadId === 0) reportLoadError(e, { phase, source }); }
 }
 // The last opened model, if one is kept on the device; otherwise the sample cave.
+// A new version installs itself in the background, but the open page runs the old one until it
+// is reloaded: say so when it is ready, and look for one every hour and on coming back to the app.
+if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+  // A button that stays until used (a toast is easily missed), next to the menu.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const button = document.querySelector<HTMLButtonElement>('#update-ready')!;
+    button.hidden = false;
+    announce('A new version of loch.js is ready: Reload to use it.', true);
+  });
+  document.querySelector<HTMLButtonElement>('#update-ready')!.addEventListener('click', () => location.reload());
+  void navigator.serviceWorker.ready.then(registration => {
+    const check = () => void registration.update().catch(() => undefined);
+    setInterval(check, 3600e3);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+  });
+}
 const startEmpty = (() => { try { return localStorage.getItem(START_EMPTY) === '1'; } catch { return false; } })();
 void loadLastModel().then(file => {
   if (file && loadId === 0) void loadFile(file);

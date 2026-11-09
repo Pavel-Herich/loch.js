@@ -76,7 +76,8 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
   if (!width || !height) throw new Error('The area is too small for this grid step.');
   // Single precision and (up to 15 × 15 cells a node) byte counts keep a large pass (for the
   // relief image) at 5 bytes a node; rows are kept from the south, as the result needs them.
-  const sum = new Float32Array(width * height), count = factor <= 15 ? new Uint8Array(width * height) : new Uint16Array(width * height);
+  // The factor need not be whole (the relief image): each cell goes to the node it falls in.
+  const sum = new Float32Array(width * height), count = Math.ceil(factor) <= 15 ? new Uint8Array(width * height) : new Uint16Array(width * height);
   const across = Math.ceil(tiff.width / tiff.blockWidth), blocks = tiff.offsets.length;
   const needed: number[] = [];
   for (let index = 0; index < blocks; index++) {
@@ -175,11 +176,11 @@ export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step
 
 /**
  * The relief image: JPEG at quality 0.98 (about 0.39 bytes a pixel for this shading), its longer
- * side 1 000–15 000 px and its size about 3–50 MB (7.7–128 million pixels), within what the
+ * side 1 000–15 000 px and its size about 3–70 MB (7.7–179 million pixels), within what the
  * device can draw. Within those limits it has the file's own cells; a larger area averages
- * `factor` × `factor` cells into a pixel, a smaller one is drawn `upscale` times larger, smoothly.
+ * `factor` × `factor` cells (any factor) into a pixel, a smaller one is drawn `upscale` times larger, smoothly.
  */
-export const RELIEF_IMAGE = { quality: .98, bytesPerPixel: .39, maxBytes: 50e6, minBytes: 3e6, maxSide: 15000, minSide: 1000 };
+export const RELIEF_IMAGE = { quality: .98, bytesPerPixel: .39, maxBytes: 70e6, minBytes: 3e6, maxSide: 15000, minSide: 1000 };
 export function imagePlan(area: { width: number; height: number }, device: { maxPixels: number; maxSide: number }) {
   const { bytesPerPixel, maxBytes, minBytes, maxSide, minSide } = RELIEF_IMAGE;
   const cells = area.width * area.height, longer = Math.max(area.width, area.height);
@@ -187,12 +188,9 @@ export function imagePlan(area: { width: number; height: number }, device: { max
   const most = Math.min(Math.sqrt(mostPixels / cells), mostSide / longer);
   const least = Math.max(Math.sqrt(Math.min(minBytes / bytesPerPixel, mostPixels) / cells), minSide / longer);
   const scale = Math.min(most, Math.max(1, least));
-  // Averaged by whole cells (memory); drawn larger only when that falls below the smallest size
-  // (a large area stays as averaged: a second, larger canvas would need about a gigabyte).
-  const factor = scale < 1 ? Math.ceil(1 / scale - 1e-9) : 1;
-  const averaged = cells / (factor * factor), smallest = Math.min(minBytes / bytesPerPixel, mostPixels);
-  const upscale = factor > 1 && averaged >= smallest && longer / factor >= minSide ? 1 : scale * factor;
-  return { factor, upscale, mostPixels, mostSide };
+  // A larger area: `factor` cells (not necessarily whole) averaged into each pixel, straight to the
+  // size; a smaller one: drawn `upscale` times larger.
+  return scale < 1 ? { factor: 1 / scale, upscale: 1, mostPixels, mostSide } : { factor: 1, upscale: scale, mostPixels, mostSide };
 }
 /** The image's size in pixels for a grid drawn `upscale` times larger. */
 export function imageSize(grid: { width: number; height: number }, upscale: number) {

@@ -116,16 +116,23 @@ describe('terrain relief image', () => {
   it('puts the image over the grid cells and into Therion as a bitmap', async () => {
     const { dmrTherion, imagePlace, imagePlan, imageSize, RELIEF_IMAGE } = await import('../src/dmr');
     const pc = { maxPixels: Infinity, maxSide: Infinity }, phone = { maxPixels: 16e6, maxSide: 8192 };
-    // Within 7.7–128 million pixels and 1 000–15 000 px a side: the file's own 1 m cells.
+    // Within 7.7–179 million pixels and 1 000–15 000 px a side: the file's own 1 m cells.
     expect(imagePlan({ width: 7335, height: 2717 }, pc)).toMatchObject({ factor: 1, upscale: 1 });
-    // A phone: 2 m cells averaged, then drawn to its 16 million pixels.
-    const onPhone = imagePlan({ width: 7335, height: 2717 }, phone), phoneSize = imageSize({ width: 7335 / 2, height: 2717 / 2 }, onPhone.upscale);
-    expect(onPhone.factor).toBe(2); expect(phoneSize.width * phoneSize.height).toBeCloseTo(16e6, -5);
-    // 20 × 20 km (MAPKA's largest export): 2 m cells averaged, 10 000 px a side (about 39 MB).
-    expect(imagePlan({ width: 20000, height: 20000 }, pc)).toMatchObject({ factor: 2, upscale: 1 });
+    // A phone: cells averaged straight to its 16 million pixels (1.115 cells a pixel).
+    const onPhone = imagePlan({ width: 7335, height: 2717 }, phone);
+    expect(onPhone.upscale).toBe(1); expect(7335 * 2717 / onPhone.factor ** 2).toBeCloseTo(16e6, -5);
+    // 21.2 × 15.4 km at 1 m (Demänovské vrchy): 15 000 px wide, 1.41 m a pixel, about 64 MB.
+    const wide = imagePlan({ width: 21160, height: 15396 }, pc);
+    expect(wide.upscale).toBe(1); expect(Math.floor(21160 / wide.factor)).toBe(15000); expect(wide.factor).toBeCloseTo(1.41, 2);
+    // 20 × 20 km (MAPKA's largest export): 179 million pixels, about 70 MB (13 400 px a side).
+    const square = imagePlan({ width: 20000, height: 20000 }, pc);
+    expect((20000 / square.factor) ** 2 * RELIEF_IMAGE.bytesPerPixel).toBeCloseTo(70e6, -6);
     // 30 × 2 km: the 15 000 px side decides.
     const long = imagePlan({ width: 30000, height: 2000 }, pc);
     expect(long).toMatchObject({ factor: 2, upscale: 1 }); // 15 000 × 1 000 px
+    // A computer that says it has 4 GB: 88 million pixels at most.
+    const four = imagePlan({ width: 21160, height: 15396 }, { maxPixels: 88e6, maxSide: Infinity });
+    expect(21160 * 15396 / four.factor ** 2).toBeCloseTo(88e6, -6);
     // 1 × 1 km: drawn larger to about 3 MB (2 774 px a side).
     const small = imagePlan({ width: 1000, height: 1000 }, pc);
     expect(small.factor).toBe(1); expect(imageSize({ width: 1000, height: 1000 }, small.upscale)).toEqual({ width: 2774, height: 2774 });

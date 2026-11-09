@@ -32,7 +32,7 @@
   </div>
   <header id="toolbar">
   <div id="menu-panel">
-  <h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
+  <button id="update-ready" type="button" hidden title="A new version is installed; reload the page to use it">New version · Reload</button><h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
     <details class="menu"><summary>File</summary><div class="menu-items"><button id="new" type="button">New</button><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><button id="import-tif" type="button">Import TIF…</button><button id="file-dmr-export" type="button" hidden>Export terrain to Therion</button><button id="file-dmr-lox" type="button" hidden>Save terrain as LOX…</button><hr/><button id="export-open" type="button">Export points…</button><hr/><button id="model-forget" type="button">Forget saved model</button><button id="maps-forget" type="button">Forget saved maps</button></div></details>
     <details class="menu"><summary>Scene</summary><div class="menu-items">
@@ -194,9 +194,10 @@
   <p>A LOX file of the terrain and its relief image (as Therion makes it from the exported surface), to open later here or in Loch.</p>
   <label class="lox-name">Name <input id="lox-name" type="text" autocomplete="off" spellcheck="false"/></label>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="save" class="primary">Save</button></div></form>
-</dialog><dialog id="dmr-dialog" aria-labelledby="dmr-heading"><form method="dialog"><h2 id="dmr-heading">Terrain grid</h2><p id="dmr-text"></p>
-  <div class="quality-options" id="dmr-options"></div>
-  <div class="dialog-actions"><button value="cancel">Cancel</button></div></form>
+</dialog><dialog id="dmr-dialog" aria-labelledby="dmr-heading"><form method="dialog"><h2 id="dmr-heading">Terrain grid and relief image</h2><p id="dmr-text"></p>
+  <h3 class="dmr-section">Grid step</h3><div class="quality-options" id="dmr-options" role="radiogroup" aria-label="Grid step"></div>
+  <h3 class="dmr-section">Relief image</h3><div class="quality-options" id="dmr-images" role="radiogroup" aria-label="Relief image size"></div>
+  <div class="dialog-actions"><button value="cancel">Cancel</button><button value="make" class="primary">Make terrain</button></div></form>
 </dialog><dialog id="download-dialog" aria-labelledby="download-heading"><form method="dialog"><h2 id="download-heading">Download maps?</h2><p id="download-text"></p>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="download" class="primary">Download</button></div></form>
 </dialog><dialog id="mapy-key-dialog" aria-labelledby="mapy-key-heading"><form method="dialog"><h2 id="mapy-key-heading">Mapy.com API key</h2>
