@@ -159,6 +159,9 @@ describe('terrain crop, thconfig and LOX', () => {
     const { dmrLox, dmrThconfig } = await import('../src/dmr');
     const { parseLox } = await import('../src/lox');
     expect(dmrThconfig('cave-terrain')).toBe('encoding utf-8\nsource cave-terrain.th\n\ncs ijtsk\n\nexport model -output cave-terrain.lox\n');
+    // Names with spaces in quotes, as Therion reads them.
+    expect(dmrThconfig('Baranec juh')).toContain('source "Baranec juh.th"');
+    expect(dmrThconfig('Baranec juh')).toContain('export model -output "Baranec juh.lox"');
     const file = fixture('dmr-lzw.tif'), { tiff, epsg } = await inspectDmr(file);
     const dmr = await resampleDmr(file, tiff, epsg, 2, 'dmr.tif', undefined, jtsk03Shift);
     dmr.image = { west: -359129, south: -1176365, pixel: 1, width: 260, height: 130, data: new Uint8Array([0xff, 0xd8, 1, 2, 0xff, 0xd9]) };
@@ -174,20 +177,3 @@ describe('terrain crop, thconfig and LOX', () => {
   });
 });
 
-describe('terrain circle crop', () => {
-  it('leaves nodes outside the circle empty and lists columns and rows per step', async () => {
-    const file = fixture('dmr-lzw.tif'), { tiff, epsg } = await inspectDmr(file);
-    // A circle of 40 m round a point 100 m east and 60 m north of the file's south-west corner.
-    const [east, north] = [-359129 + 100, -1176365 + 60];
-    const window = (await import('../src/dmr')).cropWindow(tiff, east - 40, north - 40, east + 40, north + 40);
-    expect(dmrSteps(tiff, window)[1]).toMatchObject({ step: 2, columns: 40, rows: 40, nodes: 1600 });
-    const dmr = await resampleDmr(file, tiff, epsg, 1, 'dmr.tif', undefined, undefined, window, [east, north, 40]);
-    expect([dmr.width, dmr.height]).toEqual([80, 80]);
-    const at = (c: number, r: number) => dmr.heights[r * dmr.width + c];
-    expect(Number.isNaN(at(0, 0))).toBe(true); // corner of the square: outside
-    expect(Number.isFinite(at(40, 40))).toBe(true); // centre
-    expect(Number.isFinite(at(0, 40))).toBe(true); // west edge, middle: inside
-    const inside = dmr.heights.reduce((n, h) => h === h ? n + 1 : n, 0);
-    expect(inside / (80 * 80)).toBeCloseTo(Math.PI / 4, 1);
-  });
-});

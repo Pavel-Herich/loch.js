@@ -861,10 +861,7 @@ const cropDialog = document.querySelector<HTMLDialogElement>('#crop-dialog')!;
 function askCrop(tiff: GeoTiff, preview: Dmr) {
   const canvas = document.querySelector<HTMLCanvasElement>('#crop-canvas')!, context = canvas.getContext('2d')!;
   const inputs = (['west', 'south', 'east', 'north'] as const).map(side => document.querySelector<HTMLInputElement>(`#crop-${side}`)!);
-  const shapes = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="crop-shape"]')), size = document.querySelector('#crop-size')!;
-  const shape = () => shapes.find(input => input.checked)?.value ?? 'rectangle';
-  // Square and circle (inside its square) keep equal sides.
-  const square = { get checked() { return shape() !== 'rectangle'; } };
+  const square = document.querySelector<HTMLInputElement>('#crop-square')!, size = document.querySelector('#crop-size')!;
   // The preview: north up, one pixel per preview node, cells without data dark.
   const rgba = hillshade(preview);
   for (let r = 0; r < preview.height; r++) for (let c = 0; c < preview.width; c++) {
@@ -890,17 +887,10 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
   const draw = () => {
     context.putImageData(image, 0, 0);
     const [x0, y0] = toCanvas(rect[0], rect[3]), [x1, y1] = toCanvas(rect[2], rect[1]);
-    const circle = shape() === 'circle', cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, radius = (x1 - x0) / 2;
     context.fillStyle = 'rgba(9, 19, 24, .55)';
-    context.beginPath(); context.rect(0, 0, canvas.width, canvas.height);
-    if (circle) context.ellipse(cx, cy, radius, (y1 - y0) / 2, 0, 0, Math.PI * 2); else context.rect(x0, y0, x1 - x0, y1 - y0);
-    context.fill('evenodd');
+    context.beginPath(); context.rect(0, 0, canvas.width, canvas.height); context.rect(x0, y0, x1 - x0, y1 - y0); context.fill('evenodd');
     const scale = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
-    context.strokeStyle = '#8ed9ff'; context.lineWidth = 2 * scale;
-    if (circle) {
-      context.beginPath(); context.ellipse(cx, cy, radius, (y1 - y0) / 2, 0, 0, Math.PI * 2); context.stroke();
-      context.setLineDash([4 * scale, 4 * scale]); context.lineWidth = scale; context.strokeRect(x0, y0, x1 - x0, y1 - y0); context.setLineDash([]);
-    } else context.strokeRect(x0, y0, x1 - x0, y1 - y0);
+    context.strokeStyle = '#8ed9ff'; context.lineWidth = 2 * scale; context.strokeRect(x0, y0, x1 - x0, y1 - y0);
     context.fillStyle = '#8ed9ff';
     for (const [x, y] of [[x0, y0], [x1, y0], [x0, y1], [x1, y1]]) context.fillRect(x - 4 * scale, y - 4 * scale, 8 * scale, 8 * scale);
     // Grips in the middle of the sides: each side drags on its own.
@@ -908,8 +898,7 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
     for (const [x, y, w, h] of [[mx, y0, 18, 6], [mx, y1, 18, 6], [x0, my, 6, 18], [x1, my, 6, 18]]) context.fillRect(x - w / 2 * scale, y - h / 2 * scale, w * scale, h * scale);
     if (!typing) rect.forEach((value, i) => { inputs[i].value = String(snap(value)); });
     const w = rect[2] - rect[0], h = rect[3] - rect[1];
-    size.textContent = shape() === 'circle' ? `radius ${(w / 2000).toFixed(2)} km · ${(Math.PI * w * w / 4e6).toFixed(2)} km²`
-      : `${(w / 1000).toFixed(2)} × ${(h / 1000).toFixed(2)} km · ${(w * h / 1e6).toFixed(2)} km²`;
+    size.textContent = `${(w / 1000).toFixed(2)} × ${(h / 1000).toFixed(2)} km · ${(w * h / 1e6).toFixed(2)} km²`;
   };
   const normalise = () => {
     rect = [Math.min(rect[0], rect[2]), Math.min(rect[1], rect[3]), Math.max(rect[0], rect[2]), Math.max(rect[1], rect[3])];
@@ -995,22 +984,21 @@ function askCrop(tiff: GeoTiff, preview: Dmr) {
   canvas.addEventListener('pointerdown', down); canvas.addEventListener('pointermove', move);
   canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
   for (const input of inputs) input.addEventListener('change', typed);
-  for (const input of shapes) input.addEventListener('change', squared);
+  square.addEventListener('change', squared);
   addEventListener('resize', fit);
   cropDialog.returnValue = ''; cropDialog.showModal(); fit(); draw();
   cropDialog.querySelector<HTMLButtonElement>('button[value="crop"]')!.focus();
-  return new Promise<{ area: CellWindow; circle?: [number, number, number] } | undefined>(resolve => cropDialog.addEventListener('close', () => {
+  return new Promise<{ area: CellWindow } | undefined>(resolve => cropDialog.addEventListener('close', () => {
     canvas.removeEventListener('pointerdown', down); canvas.removeEventListener('pointermove', move);
     canvas.removeEventListener('pointerup', up); canvas.removeEventListener('pointercancel', up);
     for (const input of inputs) input.removeEventListener('change', typed);
-    for (const input of shapes) input.removeEventListener('change', squared);
+    square.removeEventListener('change', squared);
     removeEventListener('resize', fit);
     const value = cropDialog.returnValue;
     if (value === 'whole') resolve({ area: wholeFile(tiff) });
     else if (value === 'crop') {
       const area = cropWindow(tiff, snap(rect[0]), snap(rect[1]), snap(rect[2]), snap(rect[3]));
-      const circle: [number, number, number] | undefined = shape() === 'circle' ? [(rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2, (rect[2] - rect[0]) / 2] : undefined;
-      resolve(area.columns && area.rows ? { area, circle } : { area: wholeFile(tiff) });
+      resolve(area.columns && area.rows ? { area } : { area: wholeFile(tiff) });
     } else resolve(undefined);
   }, { once: true }));
 }
@@ -1050,19 +1038,19 @@ async function importTerrain(picked: File) {
     if (id !== loadId) return;
     const crop = await askCrop(tiff, preview);
     if (!crop || id !== loadId) return;
-    const { area, circle } = crop;
+    const { area } = crop;
     const factor = await askTerrainStep(name, dmrSteps(tiff, area), tiff.pixelWidth);
     if (!factor || id !== loadId) { setStatusText(status, ''); return; }
     const { jtsk03Shift } = await import('./jtsk03');
     const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {
       setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-    }, jtsk03Shift, area, circle);
+    }, jtsk03Shift, area);
     if (id !== loadId) return;
     // The shaded relief image, from the file's own cells (coarser only on big areas or small devices).
     const imageAt = imageFactor({ width: area.columns, height: area.rows }, isCoarse() ? 12e6 : 30e6, isCoarse() ? 8192 : 16384);
     const fine = await resampleDmr(blob, tiff, epsg, imageAt, name, (done, total) => {
       setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-    }, undefined, area, circle);
+    }, undefined, area);
     if (id !== loadId) return;
     try { dmr.image = { ...imagePlace(fine), data: await jpegBytes(hillshade(fine), fine.width, fine.height) }; }
     catch (error) { announce(`The relief image could not be made here (${error instanceof Error ? error.message : String(error)}); the terrain is shaded instead.`, true); }
@@ -1085,44 +1073,46 @@ async function importTerrain(picked: File) {
     announce(error instanceof Error ? error.message : String(error), true);
   }
 }
-for (const button of ['#surface-dmr-export', '#file-dmr-export']) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', () => {
-  if (!terrain) return;
-  const base = (modelKey.split('|')[0] || 'model').replace(/\.[^.]+$/, '');
-  if (!terrain.image) {
-    const zip = createZip([
-      { name: `${base}-terrain.th`, data: new TextEncoder().encode(dmrTherion(terrain)) },
-      { name: 'thconfig', data: new TextEncoder().encode(dmrThconfig(`${base}-terrain`)) },
-    ]);
-    saveBlob(zip, `${base}-terrain.zip`); return;
-  }
-  // The surface with its relief image beside it, as Therion reads a bitmap.
-  // With a thconfig: `therion` in the unpacked folder makes <model>-terrain.lox.
-  const zip = createZip([
-    { name: `${base}-terrain.th`, data: new TextEncoder().encode(dmrTherion(terrain, `${base}-terrain.jpg`)) },
-    { name: `${base}-terrain.jpg`, data: terrain.image.data },
-    { name: 'thconfig', data: new TextEncoder().encode(dmrThconfig(`${base}-terrain`)) },
-  ]);
-  saveBlob(zip, `${base}-terrain.zip`);
-});
 function saveBlob(blob: Blob, name: string) {
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob); link.download = name;
   document.body.append(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(link.href), 60_000);
 }
-// The terrain as a LOX file under a chosen name (to open later here or in Loch).
-const loxDialog = document.querySelector<HTMLDialogElement>('#lox-dialog')!, loxName = document.querySelector<HTMLInputElement>('#lox-name')!;
-for (const button of ['#surface-dmr-lox', '#file-dmr-lox']) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', () => {
+/**
+ * A name for what is saved from the terrain (the Therion export or the LOX): no diacritics or
+ * characters files cannot have; the suggestion comes from the model or the GeoTIFF.
+ */
+const nameDialog = document.querySelector<HTMLDialogElement>('#lox-dialog')!, nameInput = document.querySelector<HTMLInputElement>('#lox-name')!;
+function askTerrainName(heading: string, text: string) {
+  nameDialog.querySelector('h2')!.textContent = heading;
+  nameDialog.querySelector('p')!.textContent = text;
+  nameInput.value = (modelKey.split('|')[0] || terrain?.name || 'terrain').replace(/\.[^.]+$/, '') + (terrainOnly ? '' : '-terrain');
+  nameDialog.returnValue = ''; nameDialog.showModal(); nameInput.select();
+  return new Promise<string | undefined>(resolve => nameDialog.addEventListener('close', () => {
+    if (nameDialog.returnValue !== 'save') { resolve(undefined); return; }
+    const name = nameInput.value.trim().replace(/\.(lox|th|zip)$/i, '') || 'terrain';
+    resolve(name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\\/:*?"<>|]+/g, '_'));
+  }, { once: true }));
+}
+// For Therion: a folder <name> with <name>.th, <name>.jpg and a thconfig that makes <name>.lox, zipped.
+for (const button of ['#surface-dmr-export', '#file-dmr-export']) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', async () => {
   if (!terrain) return;
-  loxName.value = (modelKey.split('|')[0] || terrain.name).replace(/\.[^.]+$/, '') + (terrainOnly ? '' : '-terrain');
-  loxDialog.returnValue = ''; loxDialog.showModal(); loxName.select();
+  const name = await askTerrainName('Export terrain to Therion', 'A ZIP with a folder of this name: the surface (.th), its relief image (.jpg) and a thconfig; run therion in the folder to make the LOX.');
+  if (!name || !terrain) return;
+  const encode = (text: string) => new TextEncoder().encode(text);
+  const files = [
+    { name: `${name}/${name}.th`, data: encode(dmrTherion(terrain, terrain.image ? `${name}.jpg` : undefined)) },
+    ...(terrain.image ? [{ name: `${name}/${name}.jpg`, data: terrain.image.data }] : []),
+    { name: `${name}/thconfig`, data: encode(dmrThconfig(name)) },
+  ];
+  saveBlob(createZip(files), `${name}.zip`);
 });
-loxDialog.addEventListener('close', () => {
-  if (loxDialog.returnValue !== 'save' || !terrain) return;
-  const name = loxName.value.trim().replace(/\.lox$/i, '') || 'terrain';
-  // No diacritics in the file name or the title.
-  const plainName = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\\/:*?"<>|]+/g, '_');
-  saveBlob(dmrLox(terrain, plainName), `${plainName}.lox`);
+// The terrain as a LOX file under a chosen name (to open later here or in Loch).
+for (const button of ['#surface-dmr-lox', '#file-dmr-lox']) document.querySelector<HTMLButtonElement>(button)!.addEventListener('click', async () => {
+  if (!terrain) return;
+  const name = await askTerrainName('Save terrain as LOX', 'A LOX file of the terrain and its relief image (as Therion makes it from the exported surface), to open later here or in Loch. The name is also its title.');
+  if (name && terrain) saveBlob(dmrLox(terrain, name), `${name}.lox`);
 });
 /** Grey RGBA rows (north first) as JPEG, drawn in strips so a large image needs no second full copy. */
 async function jpegBytes(rgba: Uint8ClampedArray<ArrayBuffer>, width: number, height: number) {

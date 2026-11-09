@@ -384,4 +384,3 @@ body:not(.computer) #map-progress{bottom:calc(78px + env(safe-area-inset-bottom,
 .lox-name{display:flex;align-items:center;gap:8px;margin:0 16px}
 .lox-name input{flex:1;padding:.4rem .5rem;border:1px solid #678599;border-radius:6px;background:#091318;color:#eaf3ff;font:inherit}
 @media (max-width:560px){.crop-corners{grid-template-columns:1fr 1fr;gap:6px}.crop-corners label{flex-direction:column;align-items:stretch;gap:2px}.crop-corners input{width:100%;box-sizing:border-box}}
-.crop-shape{display:flex;flex-wrap:wrap;gap:4px 12px}.crop-shape label{display:flex;align-items:center;gap:4px}

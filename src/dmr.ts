@@ -70,7 +70,7 @@ export function dmrSteps(tiff: GeoTiff, window: CellWindow = wholeFile(tiff)) {
  */
 export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, factor: number, name: string,
   progress?: (done: number, total: number) => void, shift: (east: number, north: number) => [number, number] = () => [0, 0],
-  window: CellWindow = wholeFile(tiff), circle?: [number, number, number]): Promise<Dmr> {
+  window: CellWindow = wholeFile(tiff)): Promise<Dmr> {
   const width = Math.floor(window.columns / factor), height = Math.floor(window.rows / factor);
   if (!width || !height) throw new Error('The area is too small for this grid step.');
   // Single precision keeps a full-resolution pass (for the relief image) at 6 bytes a cell.
@@ -103,13 +103,6 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
       }
     }
     progress?.(n + 1, needed.length);
-  }
-  // Cropped to a circle (east, north, radius): nodes whose centre lies outside it stay empty.
-  const half0 = (factor - 1) / 2 + (tiff.pixelIsPoint ? 0 : .5);
-  if (circle) for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) {
-    const east = tiff.left + (window.column + c * factor + half0) * tiff.pixelWidth;
-    const north = tiff.top - (window.row + r * factor + half0) * tiff.pixelHeight;
-    if (Math.hypot(east - circle[0], north - circle[1]) > circle[2]) count[r * width + c] = 0;
   }
   // Rows and columns that hold data (rows counted from the top of the file).
   let top = height, bottom = -1, left = width, right = -1;
@@ -246,7 +239,7 @@ export function dmrTherion(dmr: Dmr, imageName?: string) {
   lines.push(`  grid ${(dmr.origin[0] + dx).toFixed(2)} ${(dmr.origin[1] + dy).toFixed(2)} ${dmr.step} ${dmr.step} ${dmr.width} ${dmr.height}`);
   // Image pixels count from the bottom-left corner, as in Therion.
   const image = dmr.image;
-  if (image && imageName) lines.push(`  bitmap ${imageName} [0 0 ${(image.west + dx).toFixed(2)} ${(image.south + dy).toFixed(2)} ${image.width} ${image.height} ${(image.west + dx + image.width * image.pixel).toFixed(2)} ${(image.south + dy + image.height * image.pixel).toFixed(2)}]`);
+  if (image && imageName) lines.push(`  bitmap ${therionName(imageName)} [0 0 ${(image.west + dx).toFixed(2)} ${(image.south + dy).toFixed(2)} ${image.width} ${image.height} ${(image.west + dx + image.width * image.pixel).toFixed(2)} ${(image.south + dy + image.height * image.pixel).toFixed(2)}]`);
   const PER_LINE = 20;
   for (let r = dmr.height - 1; r >= 0; r--) {
     for (let c = 0; c < dmr.width; c += PER_LINE) {
@@ -261,8 +254,10 @@ export function dmrTherion(dmr: Dmr, imageName?: string) {
 
 /** A thconfig that makes a LOX of the exported surface. */
 export function dmrThconfig(base: string) {
-  return ['encoding utf-8', `source ${base}.th`, '', 'cs ijtsk', '', `export model -output ${base}.lox`, ''].join('\n');
+  return ['encoding utf-8', `source ${therionName(`${base}.th`)}`, '', 'cs ijtsk', '', `export model -output ${therionName(`${base}.lox`)}`, ''].join('\n');
 }
+/** A file name as Therion reads it: in quotes when it has spaces. */
+const therionName = (name: string) => /\s/.test(name) ? `"${name}"` : name;
 
 /**
  * The terrain as a LOX file, as Therion writes it from the exported surface: an empty root
