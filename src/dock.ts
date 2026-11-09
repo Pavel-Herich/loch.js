@@ -88,6 +88,7 @@ function bindLabels(button: HTMLButtonElement, select: HTMLSelectElement, parent
 
 export function initializeDock() {
   bindToggle(query('#surface-toggle'), query('#surface'), pressed => pressed ? 'Hide surface' : 'Show surface');
+  bindToggle(query('#walls-toggle'), query('#walls'), pressed => pressed ? 'Hide cave walls' : 'Show cave walls');
   bindToggle(query('#entrance-toggle'), query('#station-entrance'),
     pressed => pressed ? 'Hide cave entrances' : 'Show cave entrances');
   bindLabels(query('#entrance-label-toggle'), query('#entrance-label'), query('#station-entrance'), ENTRANCE_LABELS, 'Entrance');

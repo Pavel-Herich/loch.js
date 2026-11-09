@@ -42,7 +42,6 @@ import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
 import { formatDistance, navigate } from './navigation';
-import { drawTracks, parseGpxTracks, TrackStore, trackGpx, trackLength, trackTherion, type Track } from './track';
 import { forgetLastModel, loadLastModel, saveLastModel } from './model-store';
 import { viewOrientation } from './indicators';
 import { resetSymbolSpace, symbolHidden } from './declutter';
@@ -453,103 +452,6 @@ function updateNavigation() {
   navText.replaceChildren(title, `${formatDistance(way.horizontal)} · ${height === 0 ? 'same height' : `${height > 0 ? '↑' : '↓'} ${Math.abs(height)} m`} · ${Math.round(way.trueBearing) % 360}°${way.turn === undefined ? ' (no compass: arrow on the map)' : ''}`);
 }
 
-// Recording: GPS tracks kept on the device; started and stopped in the Recording window
-// (REC in the top bar, or View → Recording…), each shown, renamed, exported or deleted there.
-const tracks = new TrackStore();
-// A phone stops the page's GPS when the screen goes off: the track goes on as a new segment.
-document.addEventListener('visibilitychange', () => { if (document.hidden) tracks.interrupt(); });
-const trackCanvas = document.querySelector<HTMLCanvasElement>('#track-overlay')!;
-const trackToggle = document.querySelector<HTMLButtonElement>('#track-toggle')!;
-const tracksDialog = document.querySelector<HTMLDialogElement>('#tracks-dialog')!;
-const tracksList = document.querySelector<HTMLElement>('#tracks-list')!;
-const tracksRecord = document.querySelector<HTMLButtonElement>('#tracks-record')!;
-const tracksStatus = document.querySelector<HTMLElement>('#tracks-status')!;
-void tracks.load().then(() => { renderTracks(); invalidateView(); });
-function trackSummary(track: Track) {
-  const date = new Date(track.created);
-  return `${track.points.length} ${track.points.length === 1 ? 'point' : 'points'} · ${formatDistance(trackLength(track))} · ${date.getDate()}.${date.getMonth() + 1}.${date.getFullYear()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-}
-function syncRecording() {
-  const recording = tracks.recording;
-  trackToggle.setAttribute('aria-pressed', String(Boolean(recording)));
-  trackToggle.title = recording ? `Recording: ${trackSummary(recording)}` : 'Recording: GPS tracks';
-  tracksRecord.textContent = recording ? 'Stop recording' : 'Start recording';
-  tracksRecord.classList.toggle('recording', Boolean(recording));
-  tracksStatus.textContent = recording ? `● ${recording.points.length} ${recording.points.length === 1 ? 'point' : 'points'} · ${formatDistance(trackLength(recording))}` : '';
-}
-function renderTracks() {
-  syncRecording();
-  tracksList.replaceChildren(...[...tracks.tracks].reverse().map(track => {
-    const row = document.createElement('li'); row.style.setProperty('--track', track.color);
-    const shown = document.createElement('input'); shown.type = 'checkbox'; shown.checked = track.visible; shown.setAttribute('aria-label', `Show ${track.name}`);
-    shown.addEventListener('change', () => { tracks.setVisible(track.id, shown.checked); invalidateView(); });
-    const name = document.createElement('button'); name.type = 'button'; name.className = 'track-name'; name.textContent = track.name; name.style.color = track.color;
-    name.addEventListener('click', () => {
-      // Rename in place (no browser prompt, which installed apps may block).
-      const input = document.createElement('input'); input.className = 'track-name-input'; input.value = track.name; input.setAttribute('aria-label', 'Track name');
-      let finished = false;
-      const done = () => { if (finished) return; finished = true; tracks.rename(track.id, input.value); renderTracks(); };
-      input.addEventListener('keydown', event => { if (event.key === 'Enter') done(); if (event.key === 'Escape') { event.stopPropagation(); finished = true; renderTracks(); } });
-      input.addEventListener('blur', done);
-      name.replaceWith(input); input.focus(); input.select();
-    });
-    const meta = document.createElement('div'); meta.className = 'track-meta'; meta.classList.toggle('recording', tracks.recording?.id === track.id);
-    meta.textContent = `${tracks.recording?.id === track.id ? '● recording · ' : ''}${trackSummary(track)}`;
-    const actions = document.createElement('div'); actions.className = 'track-actions';
-    const button = (label: string, run: () => void) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.addEventListener('click', run); actions.append(b); return b; };
-    const file = track.name.replace(/[^\w.-]+/g, '_');
-    button('Show', () => {
-      if (!track.points.length || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y)) return;
-      const east = track.points.reduce((sum, p) => sum + p.east, 0) / track.points.length, north = track.points.reduce((sum, p) => sum + p.north, 0) / track.points.length;
-      if (!track.visible) { tracks.setVisible(track.id, true); }
-      tracksDialog.close(); focusOn(new THREE.Vector3(east - worldOrigin.x, north - worldOrigin.y, (surfaceScene.heightAt(east, north) ?? worldOrigin.z) - worldOrigin.z));
-    }).disabled = !track.points.length;
-    button('GPX', () => download(`${file}.gpx`, trackGpx(track.points, track.name), 'application/gpx+xml')).disabled = !track.points.length;
-    button('Therion', () => download(`${file}.th`, trackTherion(track.points, track.name), 'text/plain')).disabled = !track.points.length;
-    const remove = button('Delete', () => {
-      if (remove.dataset.armed !== 'true') { remove.dataset.armed = 'true'; remove.textContent = 'Delete?'; return; }
-      tracks.remove(track.id); renderTracks(); invalidateView();
-    });
-    row.append(shown, name, meta, actions);
-    return row;
-  }));
-}
-function openTracks() {
-  document.querySelectorAll<HTMLDetailsElement>('#menus details').forEach(group => { group.open = false; });
-  renderTracks(); tracksDialog.showModal(); document.querySelector<HTMLButtonElement>('#tracks-close')!.focus();
-}
-trackToggle.addEventListener('click', openTracks);
-document.querySelector<HTMLButtonElement>('#tracks-open')!.addEventListener('click', openTracks);
-document.querySelector<HTMLButtonElement>('#tracks-close')!.addEventListener('click', () => tracksDialog.close());
-// GPX tracks recorded by another app (which can record with the screen off) join the list.
-const tracksFile = document.querySelector<HTMLInputElement>('#tracks-file')!;
-// iOS greys out .gpx files for an accept list it cannot map; any file is offered there.
-if (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) tracksFile.removeAttribute('accept');
-document.querySelector<HTMLButtonElement>('#tracks-import')!.addEventListener('click', () => tracksFile.click());
-tracksFile.addEventListener('change', async () => {
-  const files = Array.from(tracksFile.files ?? []); tracksFile.value = '';
-  let count = 0, points = 0;
-  for (const file of files) {
-    try {
-      for (const imported of parseGpxTracks(await file.text(), file.name.replace(/\.[^.]*$/, ''))) {
-        tracks.importTrack(imported.name, imported.points); count++; points += imported.points.length;
-      }
-    } catch (error) { announce(`${file.name}: ${exceptionMessage(error)}`, true); }
-  }
-  renderTracks(); invalidateView();
-  if (files.length) announce(count ? `Imported ${count} ${count === 1 ? 'track' : 'tracks'} (${points} points).` : 'No track or route points in the file.', !count);
-});
-tracksRecord.addEventListener('click', () => {
-  if (tracks.recording) tracks.stop();
-  else { tracks.start(); if (!deviceLocation.active) toggleLocation(); }
-  renderTracks(); showLocationState(deviceLocation.state); invalidateView();
-});
-function recordFix(fix: LocationFix) {
-  if (tracks.add({ time: new Date().toISOString(), latitude: fix.latitude, longitude: fix.longitude, east: fix.east, north: fix.north,
-    height: fix.heightSource === 'model' ? null : Math.round(fix.height * 10) / 10, accuracy: fix.accuracy })) {
-    syncRecording(); if (tracksDialog.open) renderTracks(); invalidateView();
-  }
-}
 function download(name: string, text: string, type: string) {
   const link = document.createElement('a');
   link.href = URL.createObjectURL(new Blob([text], { type })); link.download = name;
@@ -560,7 +462,15 @@ document.querySelector<HTMLButtonElement>('#maps-forget')!.addEventListener('cli
   void forgetStoredUnderlays().then(() => announce('Saved map underlays are forgotten; they download again when chosen.')).catch(() => undefined);
 });
 document.querySelector<HTMLButtonElement>('#model-forget')!.addEventListener('click', () => {
+  try { localStorage.removeItem(START_EMPTY); } catch { /* Nothing kept. */ }
   void forgetLastModel().then(() => announce('The saved model is forgotten; the sample cave opens next time.')).catch(() => undefined);
+});
+/** After File → New the app starts empty (not with the sample) until a model is opened. */
+const START_EMPTY = 'loch.js-start-empty';
+document.querySelector<HTMLButtonElement>('#new')!.addEventListener('click', () => {
+  newScene();
+  try { localStorage.setItem(START_EMPTY, '1'); } catch { /* The sample may open next time. */ }
+  void forgetLastModel().catch(() => undefined);
 });
 
 // Vertical section: tap two points; only a slab around the vertical plane through them stays,
@@ -661,7 +571,7 @@ sectionExportMenu.addEventListener('click', event => {
     const context = image.getContext('2d')!;
     context.fillStyle = '#09131c'; context.fillRect(0, 0, image.width, image.height);
     context.drawImage(canvas, 0, 0);
-    for (const overlay of Array.from(document.querySelectorAll<HTMLCanvasElement>('#station-labels, #layer-points, #track-overlay, #measure-overlay'))) {
+    for (const overlay of Array.from(document.querySelectorAll<HTMLCanvasElement>('#station-labels, #layer-points, #measure-overlay'))) {
       if (!overlay.hidden && overlay.width) context.drawImage(overlay, 0, 0, image.width, image.height);
     }
     image.toBlob(blob => {
@@ -905,11 +815,15 @@ document.querySelector<HTMLButtonElement>('#surface-dmr-get')!.addEventListener(
   window.open(`https://zbgis.skgeodesy.sk/mapka/sk/teren/export?c=${longitude.toFixed(5)},${latitude.toFixed(5)}&z=14`, '_blank', 'noopener');
   announce('In MAPKA, choose the area round the cave and export DMR 5.0 as GeoTIFF; then open the downloaded ZIP or .tif with “Open terrain (GeoTIFF)…”.');
 });
-document.querySelector<HTMLButtonElement>('#surface-dmr-open')!.addEventListener('click', () => {
-  if (!hasModel) { announce('Open a cave model first; the terrain becomes its surface.', true); return; }
-  if (!looksLikeSJTSK(...modelCentre())) { announce('This model is not in S-JTSK, so a terrain model cannot be placed under it.', true); return; }
-  dmrInput.click();
-});
+/** Whether a terrain can go under the model now (it says why not). */
+function terrainAllowed() {
+  if (!hasModel) { announce('Open a cave model first; the terrain becomes its surface.', true); return false; }
+  if (!looksLikeSJTSK(...modelCentre())) { announce('This model is not in S-JTSK, so a terrain model cannot be placed under it.', true); return false; }
+  return true;
+}
+document.querySelector<HTMLButtonElement>('#surface-dmr-open')!.addEventListener('click', () => { if (terrainAllowed()) dmrInput.click(); });
+/** A GeoTIFF or ZIP dropped on the app or picked with Open…. */
+function openTerrain(file: File) { if (terrainAllowed()) void importTerrain(file); }
 dmrInput.addEventListener('change', () => { const file = dmrInput.files?.[0]; dmrInput.value = ''; if (file) void importTerrain(file); });
 /** Grid step: the finest within what this device draws smoothly, coarser ones offered too. */
 function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: number) {
@@ -1523,7 +1437,7 @@ const locationDot = document.querySelector<HTMLElement>('#location-dot')!;
 const locationInfo = document.querySelector<HTMLElement>('#location-info')!;
 let locationInfoTimer = 0;
 function showLocationState(state: LocationState) {
-  if (state.kind === 'fix') { updateMeasuredLocation(state.fix); recordFix(state.fix); }
+  if (state.kind === 'fix') { updateMeasuredLocation(state.fix); }
   const active = state.kind === 'waiting' || state.kind === 'fix';
   locateButton.setAttribute('aria-pressed', String(active));
   locateButton.title = active ? 'Stop showing my location' : 'Show my location (GPS)';
@@ -1542,7 +1456,6 @@ function showLocationState(state: LocationState) {
     const accuracy = document.createElement('strong'); accuracy.textContent = text.accuracy;
     first.append(accuracy, ` · ${text.height}`);
     const second = document.createElement('div'); second.textContent = text.outside || text.coordinates;
-    if (tracks.recording) second.textContent += ` · REC ${tracks.recording.points.length} pts, ${formatDistance(trackLength(tracks.recording))}`;
     locationInfo.append(first, second); locationInfo.hidden = false;
   }
   invalidateView();
@@ -1673,6 +1586,7 @@ function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
   const low = altitudeColor(model.minZ, model).getStyle(), high = altitudeColor(model.maxZ, model).getStyle();
   legend.innerHTML = `<div class="ramp" style="--low:${low};--high:${high}"></div><span class="legend-max">${model.maxZ.toFixed(0)} m</span><span class="legend-min">${model.minZ.toFixed(0)} m</span>`;
   legend.title = `Altitude colours: ${model.minZ.toFixed(1)} m to ${model.maxZ.toFixed(1)} m`;
+  legend.style.visibility = '';
 }
 function updateProjectTitle(title: string | undefined, filename: string) {
   projectTitle.textContent = displayProjectTitle(title, filename); projectTitle.hidden = false;
@@ -1837,11 +1751,15 @@ if (iOS) chooser.accept = 'application/octet-stream';
 chooser.addEventListener('change', () => { openFiles(Array.from(chooser.files ?? [])); });
 /** A model opens as before; files with a .shp are imported as a point layer instead. */
 function openFiles(files: File[]) {
+  // An elevation GeoTIFF (or the ZIP with it from ZBGIS) becomes the model's terrain.
+  const tiff = files.find(file => /\.(tiff?|zip)$/i.test(file.name));
+  if (tiff && !files.some(file => modelFileFormat(file.name))) { openTerrain(tiff); return; }
   // Shapefiles and GPX, KML/KMZ, GeoJSON or CSV become point layers.
   if (files.some(file => file.name.toLowerCase().endsWith('.shp') || POINT_FORMATS.some(extension => file.name.toLowerCase().endsWith(extension)))) { void importLayer(files); return; }
   const model = files.find(file => modelFileFormat(file.name));
   if (!model) return;
   void loadFile(model);
+  try { localStorage.removeItem(START_EMPTY); } catch { /* Nothing kept. */ }
   // Reopened on the next start, also without a signal.
   void saveLastModel(model).catch(() => { /* No room or no storage: the sample opens next time. */ });
 }
@@ -1982,8 +1900,6 @@ function frame(time = performance.now()) {
     updateLocationDot();
     updateSelectionRing();
     updateNavigation();
-    trackCanvas.hidden = !hasModel || !tracks.tracks.some(t => t.visible && t.points.length) || !looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
-    if (!trackCanvas.hidden) drawTracks(trackCanvas, tracks.tracks, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin, (east, north) => surfaceScene.heightAt(east, north));
     // Overlapping small symbols hide behind earlier ones: entrances first, then field objects, then SHP points.
     resetSymbolSpace();
     centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
@@ -2039,6 +1955,21 @@ function frame(time = performance.now()) {
   }
 }
 frame();
+/** An empty scene: no model, sample, section, terrain or map layers. */
+function newScene() {
+  ++loadId; modelKey = '';
+  applySection(undefined);
+  for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
+  syncUnderlayMenu(); syncAttribution();
+  largeWorker?.terminate(); largeWorker = undefined;
+  loadingLargeWalls = false; loadingError = false; preparationPending = false;
+  progressiveView?.dispose(); progressiveView = undefined;
+  terrain = undefined; syncTerrainMenu();
+  draw({ scraps: [], stations: new Map(), stationDetails: [], shots: [], minZ: 0, maxZ: 0, surfaces: [] }, 'New');
+  projectTitle.hidden = true; setStatusProgress(status); setStatusText(status, '');
+  legend.style.visibility = 'hidden'; // no altitudes to colour
+  menus.collapse();
+}
 async function loadSample() {
   modelKey = '';
   const source = `${import.meta.env.BASE_URL}sample/demo.lox`;
@@ -2058,4 +1989,8 @@ async function loadSample() {
   catch (e) { if (loadId === 0) reportLoadError(e, { phase, source }); }
 }
 // The last opened model, if one is kept on the device; otherwise the sample cave.
-void loadLastModel().then(file => { if (file && loadId === 0) void loadFile(file); else void loadSample(); }).catch(() => void loadSample());
+const startEmpty = (() => { try { return localStorage.getItem(START_EMPTY) === '1'; } catch { return false; } })();
+void loadLastModel().then(file => {
+  if (file && loadId === 0) void loadFile(file);
+  else if (loadId === 0) { if (startEmpty) newScene(); else void loadSample(); }
+}).catch(() => { if (startEmpty) newScene(); else void loadSample(); });
