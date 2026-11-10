@@ -128,8 +128,8 @@ body:not(.menu-open) #project-title{display:none}
 /* Hollow diamond: black edge outside, orange band, empty middle. */
 .object-marker::before{content:"";box-sizing:border-box;position:absolute;left:-4.5px;top:-4.5px;width:9px;height:9px;background:transparent;border:2px solid #ff9f1a;box-shadow:0 0 0 1.2px #09131c;transform:rotate(45deg) scale(var(--s,1))}
 .object-marker span{position:absolute;left:calc(3px + 7px * var(--s,1));top:-9px;white-space:nowrap;font-size:12px;color:#ffd9a3;text-shadow:0 0 3px #09131c,0 0 3px #09131c}
-#object-dialog,#objects-dialog,#layers-dialog,#search-dialog,#export-dialog,#crop-dialog,#lox-dialog,#dmr-dialog,#quality-dialog,#download-dialog,#mapy-key-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
-#object-dialog::backdrop,#objects-dialog::backdrop,#layers-dialog::backdrop,#search-dialog::backdrop,#export-dialog::backdrop,#crop-dialog::backdrop,#lox-dialog::backdrop,#dmr-dialog::backdrop,#quality-dialog::backdrop,#download-dialog::backdrop,#mapy-key-dialog::backdrop{background:#0009}
+#object-dialog,#objects-dialog,#layers-dialog,#search-dialog,#export-dialog,#style-dialog,#crop-dialog,#lox-dialog,#dmr-dialog,#quality-dialog,#download-dialog,#mapy-key-dialog{width:min(560px,calc(100% - 24px));max-height:calc(100dvh - 24px);padding:0;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
+#object-dialog::backdrop,#objects-dialog::backdrop,#layers-dialog::backdrop,#search-dialog::backdrop,#export-dialog::backdrop,#style-dialog::backdrop,#crop-dialog::backdrop,#lox-dialog::backdrop,#dmr-dialog::backdrop,#quality-dialog::backdrop,#download-dialog::backdrop,#mapy-key-dialog::backdrop{background:#0009}
 #object-form{display:flex;flex-direction:column}
 .object-head{display:flex;flex-direction:column;gap:6px;padding:16px 16px 12px;border-bottom:1px solid #3c5668}
 .object-head label{font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;color:#b8ccd9}
@@ -150,9 +150,9 @@ body:not(.menu-open) #project-title{display:none}
 .photo-add:focus-within{outline:2px solid #8ed9ff;outline-offset:2px}
 .object-error{margin:0 16px;color:#ffb36b;font-size:.85rem}
 .object-error:empty{display:none}
-#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions,#search-dialog .dialog-actions,#export-dialog .dialog-actions,#crop-dialog .dialog-actions,#lox-dialog .dialog-actions,#dmr-dialog .dialog-actions,#quality-dialog .dialog-actions,#download-dialog .dialog-actions,#mapy-key-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
+#object-form .dialog-actions,#objects-dialog .dialog-actions,#layers-dialog .dialog-actions,#search-dialog .dialog-actions,#export-dialog .dialog-actions,#style-dialog .dialog-actions,#crop-dialog .dialog-actions,#lox-dialog .dialog-actions,#dmr-dialog .dialog-actions,#quality-dialog .dialog-actions,#download-dialog .dialog-actions,#mapy-key-dialog .dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px 16px}
 button.primary{background:#215a75;border-color:#8ed9ff}
-#objects-dialog h2,#layers-dialog h2,#search-dialog h2,#export-dialog h2,#crop-dialog h2,#lox-dialog h2,#dmr-dialog h2,#quality-dialog h2,#download-dialog h2,#mapy-key-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
+#objects-dialog h2,#layers-dialog h2,#search-dialog h2,#export-dialog h2,#style-dialog h2,#crop-dialog h2,#lox-dialog h2,#dmr-dialog h2,#quality-dialog h2,#download-dialog h2,#mapy-key-dialog h2{margin:0;padding:16px 16px 4px;font-size:1.1rem}
 .objects-hint{margin:0;padding:0 16px 8px;font-size:.8rem;color:#b8ccd9}
 .objects-list{list-style:none;margin:0;padding:0 16px;max-height:calc(100dvh - 230px);overflow:auto}
 .objects-list li{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-top:1px solid #253b4b}
@@ -330,7 +330,7 @@ body.computer #section-panel{background:#162531}
 @media(hover:hover){.underlay-menu button:hover{background:#294251}}
 .section-export-menu{top:auto;bottom:calc(100% + 6px);left:auto;right:0}
 #lox-dialog,#dmr-dialog,#quality-dialog,#download-dialog,#mapy-key-dialog{max-width:min(420px,calc(100vw - 32px))}
-#crop-dialog p,#lox-dialog p,#dmr-dialog p,#quality-dialog p,#download-dialog p,#mapy-key-dialog p{margin:0 16px 12px;line-height:1.4;color:#d5e3ee}
+#style-dialog p,#crop-dialog p,#lox-dialog p,#dmr-dialog p,#quality-dialog p,#download-dialog p,#mapy-key-dialog p{margin:0 16px 12px;line-height:1.4;color:#d5e3ee}
 .underlay-menu .menu-caption{padding:.45rem .7rem .2rem;font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;color:#9fb6c6}
 .underlay-menu .menu-caption:not(:first-child){margin-top:4px;border-top:1px solid #3c5668;padding-top:.55rem}
 .underlay-menu .menu-range{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;padding:.35rem .7rem .55rem;font-size:.85rem}
@@ -402,3 +402,9 @@ label.quality-option:has(>input:disabled){opacity:.45;cursor:default}
 #dmr-dialog .quality-options{grid-template-columns:1fr;gap:6px}
 #dmr-dialog .quality-option{padding:7px 10px}
 @media (max-width:620px){.dmr-columns{grid-template-columns:1fr}}
+/* Relief image style: three previews side by side (one under another on a phone). */
+#style-dialog{width:min(820px,calc(100vw - 24px));max-width:none}
+.style-options{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 16px}
+.style-options .quality-option{padding:8px}
+.style-options canvas{display:block;width:100%;height:auto;border-radius:5px;margin-bottom:4px;background:#13202b}
+@media (max-width:620px){.style-options{grid-template-columns:1fr}}

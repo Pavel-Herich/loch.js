@@ -270,7 +270,7 @@ const tileCache = new Map<string, Promise<ImageBitmap | undefined>>();
 /** Where tiles come from: the service by default, or the device's saved copies first. */
 export type TileSource = (url: string, zoom: number, x: number, y: number, signal?: AbortSignal) => Promise<ImageBitmap>;
 export async function fetchXyz(service: XyzService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey = '', zoomAsked?: number,
-  tileSource: TileSource = url => loadImage(url, signal)) {
+  tileSource: TileSource = url => loadImage(url, signal), backdrop?: CanvasImageSource) {
   const [minX, minY, maxX, maxY] = extent;
   const [centreLat] = sjtskToWgs84((minX + maxX) / 2, (minY + maxY) / 2);
   const template = tileTemplate(service);
@@ -288,7 +288,10 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   const t = template.size, tx0 = Math.floor(left / t), ty0 = Math.floor(top / t), tx1 = Math.floor(right / t), ty1 = Math.floor(bottom / t);
   const mosaic = document.createElement('canvas'); mosaic.width = (tx1 - tx0 + 1) * t; mosaic.height = (ty1 - ty0 + 1) * t;
   const context = mosaic.getContext('2d', { willReadFrequently: true })!;
-  if (!service.transparent) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, mosaic.width, mosaic.height); }
+  // Tiles that do not come leave the mosaic clear: there the map shown so far (a coarser zoom of
+  // the same piece) shows through, or white when there is none.
+  const keepShown = Boolean(backdrop) && !service.transparent;
+  if (!service.transparent && !keepShown) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, mosaic.width, mosaic.height); }
   const jobs: Promise<void>[] = [];
   let failed = 0, total = 0;
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
@@ -307,7 +310,14 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   if (failed === total && !service.local) throw new Error(await whyTileFailed(tileUrl(service, zoom, tx0, ty0, apiKey)));
   const source = context.getImageData(0, 0, mosaic.width, mosaic.height).data, sourceWidth = mosaic.width, sourceHeight = mosaic.height;
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
-  const output = canvas.getContext('2d')!, image = output.createImageData(width, height), data = image.data;
+  const output = canvas.getContext('2d', { willReadFrequently: keepShown })!;
+  let under: Uint8ClampedArray | undefined;
+  if (keepShown) {
+    output.fillStyle = '#ffffff'; output.fillRect(0, 0, width, height);
+    output.imageSmoothingEnabled = true; output.drawImage(backdrop!, 0, 0, width, height);
+    under = output.getImageData(0, 0, width, height).data;
+  }
+  const image = output.createImageData(width, height), data = image.data;
   const ox = tx0 * t, oy = ty0 * t;
   for (let y = 0; y < height; y++) {
     const r = Math.min(Math.floor(y / STEP), rows - 2), v = (y + .5 - r * STEP) / Math.min(STEP, height - r * STEP);
@@ -318,6 +328,7 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
       const sy = (grid[i00 + 1] * (1 - u) + grid[i10 + 1] * u) * (1 - v) + (grid[i01 + 1] * (1 - u) + grid[i11 + 1] * u) * v - oy;
       const ix = Math.min(sourceWidth - 1, Math.max(0, Math.floor(sx))), iy = Math.min(sourceHeight - 1, Math.max(0, Math.floor(sy)));
       const from = (iy * sourceWidth + ix) * 4, to = (y * width + x) * 4;
+      if (under && source[from + 3] < 128) { data[to] = under[to]; data[to + 1] = under[to + 1]; data[to + 2] = under[to + 2]; data[to + 3] = 255; continue; }
       data[to] = source[from]; data[to + 1] = source[from + 1]; data[to + 2] = source[from + 2]; data[to + 3] = service.transparent ? source[from + 3] : 255;
     }
   }
@@ -325,8 +336,8 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   return canvas;
 }
 
-export function fetchMap(service: UnderlayService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey?: string, zoom?: number, source?: TileSource) {
-  return service.kind === 'wms' ? fetchWms(service, extent, width, height, signal) : fetchXyz(service, extent, width, height, signal, apiKey, zoom, source);
+export function fetchMap(service: UnderlayService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey?: string, zoom?: number, source?: TileSource, backdrop?: CanvasImageSource) {
+  return service.kind === 'wms' ? fetchWms(service, extent, width, height, signal) : fetchXyz(service, extent, width, height, signal, apiKey, zoom, source, backdrop);
 }
 
 /** Tells a service that refuses other sites (no CORS) from one that does not answer, or refuses the key. */

@@ -13,6 +13,8 @@ export type Dmr = {
   origin: [number, number]; shift: [number, number]; epsg: number;
   /** Rows from south to north, west to east. */
   heights: Float32Array;
+  /** How its relief image was drawn. */
+  style?: ReliefStyle;
   /** Hillshade of the terrain (JPEG), finer than the grid, over its cells; south-west corner in the file's system. */
   image?: DmrImage;
 };
@@ -88,11 +90,14 @@ export function cellShares(cells: number, nodes: number, factor: number) {
  * only the reduced image's sums stay in memory (6 bytes a pixel). Cells without data are left
  * out; pixels with none at all come out white.
  */
-export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWindow, factor: number, progress?: (done: number, total: number) => void) {
+export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWindow, factor: number, progress?: (done: number, total: number) => void,
+  style: ReliefStyle = 'multidirectional', range: [number, number] = [0, 1]) {
   const width = Math.max(1, Math.floor(window.columns / factor + 1e-9)), height = Math.max(1, Math.floor(window.rows / factor + 1e-9));
   const columns = cellShares(window.columns, width, factor), rows = cellShares(window.rows, height, factor);
   const parts = Math.floor(65000 / Math.ceil(factor) ** 2);
   const sums = new Float32Array(width * height), weights = new Uint16Array(width * height);
+  // Altitude colours: the mean height of each pixel too (coloured when the image is drawn).
+  const heightSums = style === 'altitude' ? new Float32Array(width * height) : undefined;
   const across = Math.ceil(tiff.width / tiff.blockWidth);
   const blockRows = tiff.tiled ? Math.ceil(tiff.height / tiff.blockHeight) : tiff.offsets.length;
   const firstBlock = Math.floor(window.row / tiff.blockHeight), lastBlock = Math.min(blockRows - 1, Math.floor((window.row + window.rows - 1) / tiff.blockHeight));
@@ -128,7 +133,7 @@ export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWind
     if (previous) put(previous.heights, previous.rows - 1, 0);
     for (let r = 0; r < current.rows; r++) put(current.heights, r, r + above);
     if (next) put(next.heights, 0, count - 1);
-    const shade = hillshade({ width: window.columns, height: count, heights: grid, step: tiff.pixelWidth }, 45, 1, above, current.rows);
+    const shade = hillshade({ width: window.columns, height: count, heights: grid, step: tiff.pixelWidth }, 45, 1, above, current.rows, style === 'classic' ? 'classic' : 'multidirectional');
     for (let r = 0; r < current.rows; r++) {
       const row = current.top + r, target = rows.first[row];
       if (target < 0) continue;
@@ -138,10 +143,10 @@ export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWind
         for (let c = 0; c < window.columns; c++) {
           const pixel = columns.first[c];
           if (pixel < 0 || current.heights[r * window.columns + c] !== current.heights[r * window.columns + c]) continue;
-          const grey = shade[(r * window.columns + c) * 4];
+          const grey = shade[(r * window.columns + c) * 4], here = current.heights[r * window.columns + c];
           const q0 = Math.round(rowPart * columns.part[c] * parts), q1 = Math.round(rowPart * columns.second[c] * parts);
-          if (q0) { sums[base + pixel] += grey * q0; weights[base + pixel] += q0; }
-          if (q1) { sums[base + pixel + 1] += grey * q1; weights[base + pixel + 1] += q1; }
+          if (q0) { sums[base + pixel] += grey * q0; weights[base + pixel] += q0; if (heightSums) heightSums[base + pixel] += here * q0; }
+          if (q1) { sums[base + pixel + 1] += grey * q1; weights[base + pixel + 1] += q1; if (heightSums) heightSums[base + pixel + 1] += here * q1; }
         }
       }
     }
@@ -156,7 +161,11 @@ export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWind
       const rgba = new Uint8ClampedArray(width * count * 4);
       for (let i = 0; i < width * count; i++) {
         const at = first * width + i, weight = weights[at];
-        rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = weight ? sums[at] / weight : 255; rgba[i * 4 + 3] = 255;
+        if (heightSums && weight) {
+          const [r, g, b] = reliefColour(sums[at] / weight, 'altitude', heightSums[at] / weight, range);
+          rgba[i * 4] = r; rgba[i * 4 + 1] = g; rgba[i * 4 + 2] = b;
+        } else rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = weight ? sums[at] / weight : 255;
+        rgba[i * 4 + 3] = 255;
       }
       return rgba;
     },
@@ -264,7 +273,30 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
  * aspect, so every slope is lit across rather than along. RGBA rows from north to south; cells
  * without data white. Horn's gradient; a missing neighbour counts as the cell itself.
  */
-export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, altitude = 45, exaggeration = 1, firstRow = 0, rowCount = grid.height - firstRow) {
+/** How the relief image is drawn: shaded from four directions, from the north-west only, or coloured by altitude over the shading. */
+export type ReliefStyle = 'multidirectional' | 'classic' | 'altitude';
+/** Colours from low to high ground (a hypsometric tint), at fractions of the height range. */
+const TINT: [number, number, number, number][] = [
+  [0, 95, 143, 78], [.22, 160, 196, 118], [.42, 232, 226, 160], [.62, 217, 178, 122], [.82, 179, 137, 106], [1, 244, 241, 236],
+];
+/** The tint (0–255 each) at a fraction of the height range. */
+export function altitudeTint(fraction: number): [number, number, number] {
+  const t = Math.min(1, Math.max(0, fraction));
+  let i = 1;
+  while (i < TINT.length - 1 && TINT[i][0] < t) i++;
+  const [a, ar, ag, ab] = TINT[i - 1], [b, br, bg, bb] = TINT[i], u = (t - a) / (b - a);
+  return [ar + (br - ar) * u, ag + (bg - ag) * u, ab + (bb - ab) * u];
+}
+/** A pixel's colour from its shading tone (0–255, flat ground about 217) and, for altitude colours, its height. */
+export function reliefColour(tone: number, style: ReliefStyle, height = 0, range: [number, number] = [0, 1]): [number, number, number] {
+  if (style !== 'altitude' || height !== height) return [tone, tone, tone];
+  const [r, g, b] = altitudeTint((height - range[0]) / Math.max(1e-9, range[1] - range[0]));
+  // Flat ground keeps the tint; slopes away from the light darken it.
+  const light = .35 + .75 * tone / 255;
+  return [Math.min(255, r * light), Math.min(255, g * light), Math.min(255, b * light)];
+}
+export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, altitude = 45, exaggeration = 1, firstRow = 0, rowCount = grid.height - firstRow,
+  style: ReliefStyle = 'multidirectional', range?: [number, number]) {
   // Image rows run north first; a strip of them (firstRow, rowCount) keeps a large image's memory low.
   const { width, height, heights, step } = grid, rgba = new Uint8ClampedArray(width * rowCount * 4);
   const alt = altitude * Math.PI / 180, sinAlt = Math.sin(alt), cosAlt = Math.cos(alt);
@@ -292,7 +324,10 @@ export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step
         const slope2 = dzdx * dzdx + dzdy * dzdy;
         let shade: number;
         if (slope2 === 0) shade = sinAlt;
-        else {
+        else if (style === 'classic') {
+          // One light from the north-west.
+          shade = Math.max(0, (-dzdx * l2x * cosAlt - dzdy * l2y * cosAlt + sinAlt) / Math.sqrt(1 + slope2));
+        } else {
           // Downhill direction, and the light from each azimuth on the surface normal (-dzdx, -dzdy, 1),
           // weighted by how much it falls across the slope.
           const norm = Math.sqrt(1 + slope2), length = Math.sqrt(slope2), ax = -dzdx / length, ay = -dzdy / length;
@@ -306,6 +341,11 @@ export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step
         }
         // Bright paper-like tone: flat ground light grey, shadows kept readable.
         value = 255 * Math.min(1, .18 + .95 * shade);
+        if (style === 'altitude' && range) {
+          const [red, green, blue] = reliefColour(value, style, here, range);
+          rgba[out] = red; rgba[out + 1] = green; rgba[out + 2] = blue; rgba[out + 3] = 255;
+          continue;
+        }
       }
       rgba[out] = rgba[out + 1] = rgba[out + 2] = value; rgba[out + 3] = 255;
     }

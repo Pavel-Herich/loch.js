@@ -245,3 +245,32 @@ describe('relief image resampling', () => {
     expect(rgba[(2 * relief.width + 50) * 4]).toBe(255);
   });
 });
+
+describe('relief image styles', () => {
+  it('shades classic from the north-west only, and colours by altitude over the shading', async () => {
+    const { hillshade, altitudeTint, reliefColour } = await import('../src/dmr');
+    const plane = (dx: number, dy: number) => ({ width: 5, height: 5, step: 1, heights: Float32Array.from({ length: 25 }, (_, i) => 1000 + dx * (i % 5) + dy * Math.floor(i / 5)) });
+    const centre = (rgba: Uint8ClampedArray) => Array.from(rgba.slice((2 * 5 + 2) * 4, (2 * 5 + 2) * 4 + 3));
+    // A slope facing north-east, across the classic light: lit from the west and north in the multidirectional style.
+    const ne = plane(-.8, -.8);
+    expect(centre(hillshade(ne, 45, 1, 0, 5, 'classic'))[0]).toBeLessThan(centre(hillshade(ne, 45, 1, 0, 5, 'multidirectional'))[0] + 1);
+    // Facing the north-west light, classic is brighter than flat ground.
+    const nw = plane(.5, -.5), flat = plane(0, 0);
+    expect(centre(hillshade(nw, 45, 1, 0, 5, 'classic'))[0]).toBeGreaterThan(centre(hillshade(flat, 45, 1, 0, 5, 'classic'))[0]);
+    // Altitude: green low, white high, the same tone on flat ground keeping the tint.
+    expect(altitudeTint(0)).toEqual([95, 143, 78]); expect(altitudeTint(1)).toEqual([244, 241, 236]);
+    const low = centre(hillshade(flat, 45, 1, 0, 5, 'altitude', [1000, 2000])), high = centre(hillshade({ ...flat, heights: flat.heights.map(h => h + 1000) }, 45, 1, 0, 5, 'altitude', [1000, 2000]));
+    expect(low[1]).toBeGreaterThan(low[0]); // greenish
+    expect(Math.min(...high)).toBeGreaterThan(200); // near white
+    expect(reliefColour(100, 'multidirectional', 1500, [1000, 2000])).toEqual([100, 100, 100]);
+  });
+
+  it('makes the coloured relief from the file, a mean height a pixel', async () => {
+    const { reliefFromFile, wholeFile } = await import('../src/dmr');
+    const file = fixture('dmr-lzw.tif'), { tiff } = await inspectDmr(file);
+    const relief = await reliefFromFile(file, tiff, wholeFile(tiff), 2, undefined, 'altitude', [1200, 1400]);
+    const rgba = relief.rows(70, 1), [r, g, b] = rgba.slice(40 * 4, 40 * 4 + 3);
+    expect(r === g && g === b).toBe(false); // coloured
+    expect(Array.from(relief.rows(2, 1).slice(0, 3))).toEqual([255, 255, 255]); // no data: white
+  });
+});

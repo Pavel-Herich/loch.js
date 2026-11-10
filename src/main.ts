@@ -13,7 +13,7 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
-import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlan, imageSize, reliefFromFile, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
+import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlan, imageSize, reliefFromFile, type ReliefStyle, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
 import type { GeoTiff } from './geotiff';
 import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
@@ -656,7 +656,7 @@ type MapLayerState = {
   /** Offline layers: zooms kept on the device (lowest, and the highest for each piece). */
   low?: number; highest?: Map<string, number>;
   /** On-demand layers: the zoom each piece shows or is loading, and its request. */
-  shown?: Map<string, { zoom: number; pixels: number; loading?: AbortController }>;
+  shown?: Map<string, { zoom: number; pixels: number; loading?: AbortController; canvas?: HTMLCanvasElement }>;
   /** Map files: where their tiles come from. */
   source?: TileSource;
 };
@@ -1094,6 +1094,47 @@ function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: 
     resolve(factor > 0 ? { factor, image: imageChoice(area, Math.round(width)) } : undefined);
   }, { once: true }));
 }
+/**
+ * The relief image's style (the step after its size): previews of this terrain shaded from four
+ * directions (chosen beforehand), from the north-west only, and coloured by altitude.
+ */
+const styleDialog = document.querySelector<HTMLDialogElement>('#style-dialog')!;
+function askReliefStyle(preview: Dmr, range: [number, number]) {
+  const styles: [ReliefStyle, string, string][] = [
+    ['multidirectional', 'Multidirectional', 'Light from four directions (as gdaldem -multidirectional): every slope readable.'],
+    ['classic', 'Classic hillshade', 'One light from the north-west, 45° high.'],
+    ['altitude', 'Altitude colours', 'Low ground green, through yellow and brown, to white heights, over the shading.'],
+  ];
+  // Previews about 320 px wide, from the preview grid.
+  const shrink = Math.max(1, Math.ceil(preview.width / 320));
+  const small = shrink > 1 ? { ...preview, width: Math.floor(preview.width / shrink), height: Math.floor(preview.height / shrink), step: preview.step * shrink,
+    heights: Float32Array.from({ length: Math.floor(preview.width / shrink) * Math.floor(preview.height / shrink) }, (_, i) => {
+      const w = Math.floor(preview.width / shrink), c = i % w, r = (i - c) / w;
+      return preview.heights[r * shrink * preview.width + c * shrink];
+    }) } : preview;
+  document.querySelector('#style-options')!.replaceChildren(...styles.map(([style, title, text], index) => {
+    const label = document.createElement('label'), input = document.createElement('input');
+    label.className = 'quality-option';
+    input.type = 'radio'; input.name = 'relief-style'; input.value = style; input.checked = index === 0;
+    const canvas = document.createElement('canvas'); canvas.width = small.width; canvas.height = small.height;
+    canvas.getContext('2d')!.putImageData(new ImageData(hillshade(small, 45, 1, 0, small.height, style, range) as Uint8ClampedArray<ArrayBuffer>, small.width, small.height), 0, 0);
+    const strong = document.createElement('strong'); strong.textContent = title + (index === 0 ? ' · default' : '');
+    const detail = document.createElement('small'); detail.textContent = text;
+    label.append(input, canvas, strong, detail);
+    return label;
+  }));
+  styleDialog.returnValue = ''; styleDialog.showModal();
+  styleDialog.querySelector<HTMLButtonElement>('button[value="make"]')!.focus();
+  return new Promise<ReliefStyle | undefined>(resolve => styleDialog.addEventListener('close', () => {
+    resolve(styleDialog.returnValue === 'make' ? (styleDialog.querySelector<HTMLInputElement>('input[name="relief-style"]:checked')?.value as ReliefStyle ?? 'multidirectional') : undefined);
+  }, { once: true }));
+}
+/** Lowest and highest height of a grid. */
+function heightRange(grid: Pick<Dmr, 'heights'>): [number, number] {
+  let low = Infinity, high = -Infinity;
+  for (const h of grid.heights) if (h === h) { if (h < low) low = h; if (h > high) high = h; }
+  return low <= high ? [low, high] : [0, 1];
+}
 async function importTerrain(picked: File) {
   const id = loadId, alone = !underModel(), key = alone ? `${picked.name}|${picked.size}|terrain` : modelKey;
   try {
@@ -1117,6 +1158,8 @@ async function importTerrain(picked: File) {
     const chosen = await askTerrainStep(name, dmrSteps(tiff, held), tiff.pixelWidth, held);
     if (!chosen || id !== loadId) { setStatusText(status, ''); return; }
     const { factor } = chosen;
+    const range = heightRange(preview), style = await askReliefStyle(preview, range);
+    if (!style || id !== loadId) { setStatusText(status, ''); return; }
     const { jtsk03Shift } = await import('./jtsk03');
     const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {
       setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
@@ -1131,10 +1174,10 @@ async function importTerrain(picked: File) {
         // Shaded from the file's own cells, then reduced to the chosen size (no pattern from averaging).
         const relief = await reliefFromFile(blob, tiff, held, plan.factor, (done, total) => {
           setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-        });
+        }, style, range);
         if (id !== loadId) return;
         setStatusText(status, `${name} · Encoding relief image (${Math.round(pixels / 1e6)} million pixels)…`);
-        dmr.image = await encodeRelief(relief, plan);
+        dmr.image = await encodeRelief(relief, plan); dmr.style = style;
         break;
       } catch (error) {
         if (id !== loadId) return;
@@ -1232,9 +1275,10 @@ const imageDevice = () => {
 /** Shaded relief pixels to encode: their size, rows (north first) as RGBA, outer south-west corner and pixel size. */
 type ReliefSource = { width: number; height: number; rows(first: number, count: number): Uint8ClampedArray; west: number; south: number; pixel: number };
 /** The relief of a grid (a terrain kept without its image). */
-function reliefImage(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height' | 'heights'>, plan: ReturnType<typeof imagePlan>) {
+function reliefImage(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height' | 'heights' | 'style'>, plan: ReturnType<typeof imagePlan>) {
+  const range = heightRange(grid);
   return encodeRelief({
-    width: grid.width, height: grid.height, rows: (first, count) => hillshade(grid, 45, 1, first, count),
+    width: grid.width, height: grid.height, rows: (first, count) => hillshade(grid, 45, 1, first, count, grid.style ?? 'multidirectional', range),
     west: grid.origin[0] - grid.step / 2, south: grid.origin[1] - grid.step / 2, pixel: grid.step,
   }, plan);
 }
@@ -1570,6 +1614,8 @@ addEventListener('resize', fitCredits);
  * appears on screen, nearest pieces first, once the view rests; nothing is loaded for pieces out
  * of view and nothing is stored beyond the browser's HTTP cache, as the service asks.
  */
+/** A piece of an on-demand layer: its zoom, texture size, the load under way, and the map it shows. */
+type ShownPiece = { zoom: number; pixels: number; loading?: AbortController; canvas?: HTMLCanvasElement };
 function refreshOnDemand(id: string) {
   const state = mapLayers.get(id)!, service = UNDERLAY_SERVICES.find(item => item.id === id)!;
   const shown = state.shown, request = state.request;
@@ -1620,13 +1666,24 @@ function refreshOnDemand(id: string) {
     current?.loading?.abort();
     const loading = new AbortController(), { width, height: rows } = size(piece, piece.zoom);
     request.signal.addEventListener('abort', () => loading.abort());
-    const entry: { zoom: number; pixels: number; loading?: AbortController } = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading };
+    const entry: ShownPiece = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading, canvas: current?.canvas };
     shown.set(piece.key, entry); started++;
     viewLoading++; showMapProgress();
-    void fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom, service.offline ? savedTiles(id) : state.source).then(canvas => {
-      if (entry.loading !== loading || !state.on) return;
-      entry.loading = undefined; entry.pixels = width * rows; state.failures = 0;
+    const source = service.offline ? savedTiles(id) : state.source;
+    const show = (canvas: HTMLCanvasElement) => {
+      entry.canvas = canvas; entry.pixels = canvas.width * canvas.height;
       surfaceScene.setLayerPiece(id, piece.key, mapTexture(canvas), piece.extent);
+    };
+    // A piece with no map yet first gets a quick coarse one (few tiles), so it is never empty while
+    // the sharp one loads; tiles the sharp one lacks keep what was shown (no white squares).
+    const quick = Math.max(minZoom, piece.zoom - 3);
+    const first = entry.canvas || quick >= piece.zoom || service.kind !== 'xyz' ? Promise.resolve()
+      : fetchMap(service, piece.extent, size(piece, quick).width, size(piece, quick).height, loading.signal, state.apiKey ?? '', quick, source)
+        .then(canvas => { if (entry.loading === loading && state.on) show(canvas); }).catch(error => { if ((error as Error).name === 'AbortError') throw error; });
+    void first.then(() => fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom, source, entry.canvas)).then(canvas => {
+      if (entry.loading !== loading || !state.on) return;
+      entry.loading = undefined; state.failures = 0;
+      show(canvas);
     }).catch(error => {
       if ((error as Error).name === 'AbortError' || entry.loading !== loading) return;
       shown.delete(piece.key);
