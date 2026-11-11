@@ -409,3 +409,33 @@ label.quality-option:has(>input:disabled){opacity:.45;cursor:default}
 .style-options canvas{display:block;width:100%;height:auto;border-radius:5px;margin-bottom:4px;background:#13202b}
 @media (max-width:900px){.style-options{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:520px){.style-options{grid-template-columns:1fr}}
+
+/* Save image / Save animation, the animation editor (from Stacho Mudrák's loch.js). */
+#image-size-dialog{width:min(380px,calc(100% - 32px));padding:24px;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
+#image-size-dialog::backdrop{background:#0009}
+#image-size-dialog h2{margin:0 0 20px;font-size:1.25rem}
+#image-size-dialog label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0}
+#image-size-dialog input[type=number]{width:120px;padding:6px;border:1px solid #678599;border-radius:4px;background:#09131c;color:inherit;font:inherit}
+#image-size-dialog label:has(input[type=checkbox]){justify-content:flex-start}
+.image-save-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+#animation-description{font-size:.85rem;color:#b8ccd9;line-height:1.5}
+#animation-export-progress progress{display:block;width:100%;margin-bottom:8px;accent-color:#8ed9ff}
+#animation-progress-text{font-size:.85rem}
+#animation-quality,#image-format{width:120px;padding:6px;border:1px solid #678599;border-radius:4px;background:#09131c;color:inherit;font:inherit}
+#presentation-panel{position:fixed;inset:auto 16px 16px auto;margin:0;width:min(500px,calc(100% - 32px));max-height:calc(100% - 100px);overflow:auto;z-index:30;padding:16px;border:1px solid #678599;border-radius:10px;background:#162531;color:#eaf3ff;box-shadow:0 8px 24px #0006}
+#presentation-panel header{display:flex;align-items:center;padding:0;justify-content:space-between;gap:12px}#presentation-panel h2{margin:0;font-size:1.15rem}
+#presentation-summary{font-size:.85rem;color:#b8ccd9}#presentation-views{width:100%;min-height:160px;background:#09131c;color:inherit;border:1px solid #678599;font:inherit;padding:6px}
+.presentation-actions{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}#presentation-panel>label{display:block;margin:8px 0}
+#presentation-edit-dialog{width:min(520px,calc(100% - 32px));padding:24px;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
+#presentation-edit-dialog::backdrop{background:#0009}#presentation-edit-dialog h2{margin-top:0;font-size:1.2rem}
+#presentation-edit-dialog label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0}
+#presentation-edit-dialog input:not([type=checkbox]){width:170px;max-width:50%;padding:6px;background:#09131c;color:inherit;border:1px solid #678599;border-radius:4px;font:inherit}
+#presentation-edit-dialog label:has(input[type=checkbox]){justify-content:flex-start}
+#animation-toggle[aria-pressed="true"]{background:#215a75;border-color:#8ed9ff;color:#8ed9ff}
+/* Only while an image is exported on a white background: dark indicators without panels. */
+.image-white-background #compass-indicator,.image-white-background #tilt-indicator,.image-white-background #legend,.image-white-background #scale-indicator,.image-white-background #object-markers,.image-white-background #map-attribution{color:#162531;background:transparent}
+.image-white-background .compass-north,.image-white-background .compass-needle-north{fill:#c02e2e!important}
+.image-white-background .compass-needle-south{fill:#52697c}
+.image-white-background .tilt-direction{stroke:#255a73}
+.image-white-background .tilt-tip{fill:#255a73}
+.image-white-background .scale-ruler{border-color:#162531;background:linear-gradient(to right,#162531 25%,#fff 25% 50%,#162531 50% 75%,#fff 75%)}

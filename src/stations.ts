@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { StationLabels, type StationMarker } from './station-labels';
+import { StationLabels, type StationMarker, type PositionLabel } from './station-labels';
 import { STATION_SURFACE, STATION_ENTRANCE, STATION_FIXED, STATION_CONTINUATION, temporaryStation, type Station, type StationLabel } from './lox-stations';
 
 export type StationOptions = { stations: boolean; entrance: boolean; fixed: boolean; continuation: boolean; label: StationLabel; entranceLabel: StationLabel; surface: boolean; underground: boolean; splay: boolean };
@@ -62,10 +62,13 @@ export class StationScene {
     this.labels.setVisible(this.group.visible && overlayVisible(options));
   }
 
-  updateLabels(camera: THREE.Camera, width: number, height: number) {
+  /** Also draws extra named points (animation cameras) when given, and at an export's pixel ratio and background. */
+  updateLabels(camera: THREE.Camera, width: number, height: number, pixelRatio?: number, whiteBackground = false, additional: readonly PositionLabel[] = []) {
     const visible = this.group.visible && overlayVisible(this.options);
-    this.labels.setVisible(visible);
-    if (visible) this.labels.draw(camera, width, height, this.origin, station => stationLabelMode(station, this.options), station => stationVisible(station, this.options), (this.options.entrance || this.options.fixed || this.options.continuation) ? station => stationMarker(station, this.options) : undefined);
+    this.labels.setVisible(visible || additional.length > 0);
+    if (visible || additional.length) this.labels.draw(camera, width, height, this.origin, visible ? station => stationLabelMode(station, this.options) : 'none',
+      station => visible && stationVisible(station, this.options), visible && (this.options.entrance || this.options.fixed || this.options.continuation) ? station => stationMarker(station, this.options) : undefined,
+      pixelRatio, whiteBackground, additional);
   }
 
   clear() {

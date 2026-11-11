@@ -1,7 +1,7 @@
 {
   "name": "loch.js",
   "private": true,
-  "version": "1.0.19",
+  "version": "1.0.20",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,15 +11,17 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "mediabunny": "^1.65.2",
     "three": "^0.180.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.0",
+    "@types/node": "^22.15.0",
     "@types/three": "^0.180.0",
+    "@xmldom/xmldom": "^0.9.12",
     "typescript": "^5.9.3",
     "vite": "^7.1.0",
     "vite-plugin-pwa": "^1.0.3",
-    "vitest": "^3.2.4",
-    "@types/node": "^22.15.0"
+    "vitest": "^3.2.4"
   }
 }

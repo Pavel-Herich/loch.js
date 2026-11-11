@@ -54,10 +54,11 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
   const scaleValue = document.querySelector<HTMLElement>('#scale-value')!;
   let previous = '';
   visible.checked = true;
-  function update() {
+  /** Height: the view's (CSS px), or an image export's overlay height. */
+  function update(height = canvas.clientHeight) {
     if (!visible.checked) return;
     const camera = getCamera(), orientation = viewOrientation(camera);
-    const size = viewScale(camera, getTarget(), canvas.clientHeight);
+    const size = viewScale(camera, getTarget(), height);
     scale.hidden = !size;
     const bearing = Math.round(orientation.bearing) % 360, angle = Math.round(orientation.tilt);
     const state = `${camera.type}:${orientation.bearing.toFixed(2)}:${orientation.tilt.toFixed(2)}:${size?.distance}:${size?.pixels.toFixed(2)}`;

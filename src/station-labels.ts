@@ -1,12 +1,15 @@
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { stationLabel, type Station, type StationLabel } from './lox-stations';
 import { claimSymbol, symbolHidden } from './declutter';
+import { overlayRatio } from './overlay-ratio';
 
 const CELL = 4;
 const HEIGHT = 20;
 const MAX_TEXT_WIDTH = 360;
 
 export type StationMarker = 'entrance' | 'fixed' | 'continuation';
+/** A named point drawn with the station labels (animation camera names). */
+export type PositionLabel = { name: string; position: [number, number, number] };
 const markerScale = (marker: StationMarker) => marker === 'fixed' ? 1 / 3 : .7;
 
 /** Smallest symbol size (entrances, field objects, SHP points), as a fraction of full size. */
@@ -51,7 +54,7 @@ const OMEGA_SCALE = .18;
 
 
 /** Symbols drawn directly on the shared overlay, centred on the station; `size` scales them (1 = full). */
-export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number, size = 1) {
+export function drawStationMarker(context: CanvasRenderingContext2D, marker: StationMarker, x: number, y: number, size = 1, whiteBackground = false) {
   context.save(); context.translate(x, y);
   const scale = markerScale(marker) * size; context.scale(scale, scale);
   context.lineWidth = 1.5; context.strokeStyle = '#09131c';
@@ -72,7 +75,8 @@ export function drawStationMarker(context: CanvasRenderingContext2D, marker: Sta
     context.fillStyle = '#ff3030'; context.fill(); context.stroke();
   } else {
     context.font = 'bold 20px system-ui, sans-serif'; context.textAlign = 'center'; context.textBaseline = 'middle';
-    context.lineWidth = 3; context.fillStyle = '#ffffff';
+    context.lineWidth = 3; context.strokeStyle = whiteBackground ? '#ffffff' : '#09131c';
+    context.fillStyle = whiteBackground ? '#162531' : '#ffffff';
     context.strokeText('?', 0, 0); context.fillText('?', 0, 0);
   }
   context.restore();
@@ -116,10 +120,11 @@ export class StationLabels {
   }
   setVisible(visible: boolean) { if (this.canvas) this.canvas.hidden = !visible; }
 
-  draw(camera: Camera, width: number, height: number, origin: Vector3, mode: StationLabel | ((station: Station) => StationLabel), visible: (station: Station) => boolean, marker?: (station: Station) => StationMarker | undefined) {
+  draw(camera: Camera, width: number, height: number, origin: Vector3, mode: StationLabel | ((station: Station) => StationLabel), visible: (station: Station) => boolean, marker?: (station: Station) => StationMarker | undefined,
+    pixelRatio?: number, whiteBackground = false, additional: readonly PositionLabel[] = []) {
     const canvas = this.canvas;
     if (!canvas || canvas.hidden || width <= 0 || height <= 0) return;
-    const ratio = Math.min(globalThis.devicePixelRatio || 1, 2, Math.sqrt(8_388_608 / (width * height)));
+    const ratio = pixelRatio ?? overlayRatio(Math.min(globalThis.devicePixelRatio || 1, 2, Math.sqrt(8_388_608 / (width * height))));
     if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
       canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
     }
@@ -127,13 +132,13 @@ export class StationLabels {
     if (!context) return;
     context.setTransform(ratio, 0, 0, ratio, 0, 0); context.clearRect(0, 0, width, height);
     context.font = '12px system-ui, sans-serif'; context.textBaseline = 'middle';
-    context.lineWidth = 3; context.strokeStyle = '#09131c'; context.lineJoin = 'round';
+    context.lineWidth = 3; context.strokeStyle = whiteBackground ? '#ffffff' : '#09131c'; context.lineJoin = 'round';
     this.occupancy.reset(width, height);
     camera.updateMatrixWorld();
     const m = this.matrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
     let screenX = 0, screenY = 0, screenDepth = 1;
-    const project = (station: Station) => {
-      if (symbolFilter && !symbolFilter(station.position[0], station.position[1])) return false;
+    const project = (station: Station | PositionLabel) => {
+      if ('flags' in station && symbolFilter && !symbolFilter(station.position[0], station.position[1])) return false;
       const x = station.position[0] - origin.x, y = station.position[1] - origin.y, z = station.position[2] - origin.z;
       const w = m[3] * x + m[7] * y + m[11] * z + m[15];
       if (w <= 0) return false;
@@ -151,7 +156,7 @@ export class StationLabels {
         const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
         // Small entrances that would touch one already drawn hide behind it.
         if (symbol === 'entrance' && !claimSymbol(station, screenX, screenY, 7 * size, size)) return;
-        drawStationMarker(context, symbol, screenX, screenY, size);
+        drawStationMarker(context, symbol, screenX, screenY, size, whiteBackground);
         const radius = 10 * markerScale(symbol) * size;
         const x = Math.max(0, screenX - radius), y = Math.max(0, screenY - radius);
         this.occupancy.reserve(x, y, Math.min(width, screenX + radius) - x, Math.min(height, screenY + radius) - y);
@@ -159,17 +164,17 @@ export class StationLabels {
       for (const station of this.commented) mark(station);
       for (const station of this.ordinary) mark(station);
     }
-    if (mode === 'none') return;
     const modeFor = typeof mode === 'function' ? mode : () => mode;
-    const draw = (station: Station) => {
-      const labelMode = modeFor(station);
-      if (labelMode === 'none' || symbolHidden(station) || !visible(station) || !project(station)) return;
-      const symbol = marker?.(station);
+    const draw = (point: Station | PositionLabel) => {
+      const station = 'flags' in point ? point : undefined;
+      const labelMode = station ? modeFor(station) : 'none';
+      if (station ? labelMode === 'none' || symbolHidden(station) || !visible(station) || !project(station) : !project(point)) return;
+      const symbol = station ? marker?.(station) : undefined;
       const size = symbol === 'entrance' ? symbolSizeAt(screenDepth) : 1;
       const left = screenX + (symbol ? 10 * markerScale(symbol) * size + 4 : 3), top = screenY - HEIGHT / 2;
       if (left < 0 || top < 0 || left + 10 > width || top + HEIGHT > height
         || this.occupancy.overlaps(left, top, 10, HEIGHT)) return;
-      let text = stationLabel(station, labelMode);
+      let text = station ? stationLabel(station, labelMode) : point.name;
       if (!text) return;
       // Bound measurement work for long survey paths and comments.
       if (text.length > 256) text = text.slice(0, 255).replace(/[\uD800-\uDBFF]$/, '') + '…';
@@ -187,10 +192,12 @@ export class StationLabels {
       const labelWidth = Math.max(10, textWidth + 5);
       if (left + labelWidth > width || this.occupancy.overlaps(left, top, labelWidth, HEIGHT)) return;
       this.occupancy.reserve(left, top, labelWidth, HEIGHT);
-      context.fillStyle = '#ffffff';
+      context.fillStyle = whiteBackground ? '#162531' : '#ffffff';
       const textX = left + (symbol ? 0 : 2);
       context.strokeText(text, textX, top + HEIGHT / 2); context.fillText(text, textX, top + HEIGHT / 2);
     };
+    for (const label of additional) draw(label);
+    if (mode === 'none') return;
     for (const station of this.commented) draw(station);
     // Ordinary stations have no comment text, so a fixed comments mode can skip them.
     if (mode !== 'comments') for (const station of this.ordinary) draw(station);

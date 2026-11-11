@@ -50,6 +50,17 @@ import { initializeLayout } from './layout';
 import { degrees, metres, segment, signedMetres, type MeasurePoint, type Segment } from './measure';
 import { drawMeasure } from './measure-draw';
 import { modelFileFormat, parseModelFile } from './model-file';
+import { canvasJpeg, canvasPng, composeImage, initializeSaveFile, type ImageOverlay } from './save-image';
+import { initializeImageSizeDialog } from './image-size';
+import { imageCamera, renderImage } from './render-image';
+import { applyImageBackground } from './image-print-theme';
+import { initializePresentation } from './presentation-ui';
+import { capturePresentationCamera, presentationCamera, type PresentationPose } from './presentation-timeline';
+import { applySceneSettings, snapshotPresentationControls } from './presentation-scene';
+import { PresentationGuides } from './presentation-guides';
+import { readPresentationXml } from './presentation-file';
+import { AnimationWakeLock } from './screen-wake-lock';
+import { setOverlayRatio } from './overlay-ratio';
 import './style.css';
 
 initializeAbout();
@@ -71,6 +82,8 @@ const light = new THREE.DirectionalLight(0xffffff, 2); scene.add(light, light.ta
 const headlight = createHeadlight(); scene.add(headlight, headlight.target);
 const walls = new THREE.Group(), lines = new THREE.Group(); scene.add(walls, lines);
 const surfaceGroup = new THREE.Group(); scene.add(surfaceGroup);
+// Animation cameras and their path, shown while an animation is stopped.
+const presentationGuides = new PresentationGuides(); scene.add(presentationGuides.group);
 const boundingBox = new THREE.Box3Helper(new THREE.Box3(), 0xff0000);
 boundingBox.visible = false;
 scene.add(boundingBox);
@@ -2204,6 +2217,9 @@ if (iOS) chooser.accept = 'application/octet-stream';
 chooser.addEventListener('change', () => { openFiles(Array.from(chooser.files ?? [])); });
 /** A model opens as before; files with a .shp are imported as a point layer instead. */
 function openFiles(files: File[]) {
+  // A Loch animation (.lxa, LochPresentation XML) goes to the animation editor.
+  const animation = files.find(file => /\.(lxa|xml)$/i.test(file.name));
+  if (animation) { void openAnimation(animation); return; }
   // An elevation GeoTIFF (or the ZIP with it from ZBGIS) becomes the model's terrain.
   const tiff = files.find(file => /\.(tiff?|zip)$/i.test(file.name));
   if (tiff && !files.some(file => modelFileFormat(file.name))) { openTerrain(tiff); return; }
@@ -2324,6 +2340,28 @@ new LayerBrowser({
     select({ name: point.label, east: point.east, north: point.north, z: point.z ?? surfaceScene.heightAt(point.east, point.north) ?? worldOrigin.z });
   },
 });
+/**
+ * Indicators, symbols, labels, field objects, SHP points and measuring over the view, for the
+ * view's size (CSS px); also for an image export, whose overlays are drawn at its pixel ratio
+ * (white background: dark labels).
+ */
+function drawOverlays(pixelRatio?: number, white = false) {
+  const width = canvas.clientWidth, height = canvas.clientHeight;
+  // Symbol size: zoom relative to the model (whole model → 25 %, 100 m scale → 100 %),
+  // then nearer than the rotation centre larger, farther smaller.
+  if (height > 0 && !activeBox.isEmpty()) {
+    const perDepth = camera instanceof THREE.PerspectiveCamera ? 2 * Math.tan(THREE.MathUtils.degToRad(camera.getEffectiveFOV()) / 2) / height : undefined;
+    setSymbolView(activeBox.getSize(new THREE.Vector3()).length() / height, metresPerPixel(camera, controls.target, height), perDepth);
+  }
+  indicators.update(height);
+  // Overlapping small symbols hide behind earlier ones: entrances first, then field objects, then SHP points.
+  resetSymbolSpace();
+  centreline.updateLabels(camera, width, height, pixelRatio, white, presentationGuides.group.visible ? presentationGuides.labels : []);
+  fieldObjects.updateMarkers(camera, width, height);
+  updateLayers();
+  measureCanvas.hidden = !measuring || (!measured.length && !surfaceLink);
+  if (!measureCanvas.hidden) drawMeasure(measureCanvas, measured, surfaceLink, camera, width, height, worldOrigin);
+}
 function updateLayers() {
   const georeferenced = hasModel && looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
   const symbols = symbolOptions();
@@ -2335,31 +2373,167 @@ document.querySelector<HTMLInputElement>('#lines')!.addEventListener('change', e
 document.querySelector<HTMLInputElement>('#bounding-box')!.addEventListener('change', flashBoundingBox);
 window.addEventListener('dragover', e => e.preventDefault());
 window.addEventListener('drop', e => { e.preventDefault(); openFiles(Array.from(e.dataTransfer?.files ?? [])); });
+/*
+ * Animations (Loch-compatible .lxa): views marked in the editor, played back here and exported
+ * as MP4; and the view saved as a PNG or JPG at any size (both from Stacho Mudrák's loch.js).
+ */
+let exportRendering = false;
+const presentation = initializePresentation({
+  capture: () => capturePresentationCamera(camera, controls.target, worldOrigin), walker: () => walker.enabled,
+  canPlay: () => !activeBox.isEmpty() && !largeWorker && !loadingLargeWalls && !preparationPending && !exportRendering,
+  apply(pose: PresentationPose) {
+    camera = presentationCamera(pose, worldOrigin, canvas.clientWidth / canvas.clientHeight, camera);
+    controls.object = camera; controls.target.set(...pose.center).sub(worldOrigin);
+    if (walker.enabled !== pose.walker) setWalker(pose.walker);
+    perspective.checked = camera instanceof THREE.PerspectiveCamera; syncProjection();
+    if (!presentation.player.playing) {
+      controls.minPolarAngle = 0; controls.maxPolarAngle = Math.PI; controls.update(); setTiltLocked(controls, lockTilt.checked);
+    }
+    invalidateView();
+  },
+  playing(active) {
+    if (active) {
+      const checkbox = document.querySelector<HTMLInputElement>('#autorotate')!;
+      if (checkbox.checked) { checkbox.checked = false; checkbox.dispatchEvent(new Event('change')); }
+      controls.minPolarAngle = 0; controls.maxPolarAngle = Math.PI;
+    } else { controls.minPolarAngle = 0; controls.maxPolarAngle = Math.PI; controls.update(); setTiltLocked(controls, lockTilt.checked); }
+    autorotate.resetTime();
+  },
+  error(error, file) { menus.expand(); showLoadError(status, error, { phase: 'Reading animation', ...(file ? { file } : { source: 'Animation' }) }); },
+});
+// Any drag, wheel, menu change or view button stops a playing animation.
+controls.addEventListener('start', () => presentation.player.stop());
+canvas.addEventListener('wheel', () => presentation.player.stop(), { passive: true });
+document.querySelector('#menus')!.addEventListener('change', event => {
+  if (event.isTrusted && (event.target as HTMLElement).id !== 'play-presentation') presentation.player.stop();
+});
+document.querySelector('#menus')!.addEventListener('click', event => {
+  if ((event.target as HTMLElement).closest('[data-view]')) presentation.player.stop();
+});
+async function openAnimation(file: File) {
+  try {
+    const xml = await readPresentationXml(file);
+    if (xml === undefined) throw new Error('This is not a Loch animation (LochPresentation XML).');
+    await presentation.loadFile(file, xml);
+  } catch (error) { menus.expand(); showLoadError(status, error, { phase: 'Reading animation', file }); }
+}
+const saveImageButton = document.querySelector<HTMLButtonElement>('#save-image')!;
+const saveAnimationButton = document.querySelector<HTMLButtonElement>('#save-animation')!;
+for (const button of [saveImageButton, saveAnimationButton]) button.addEventListener('click', () => { menus.close(); resize(); });
+const gl = renderer.getContext();
+const imageDialog = initializeImageSizeDialog(saveImageButton, () => ({ width: canvas.width, height: canvas.height }),
+  Math.min(16384, renderer.capabilities.maxTextureSize, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)), saveAnimationButton, () => false,
+  () => ({ views: presentation.timeline().views.length, duration: presentation.timeline().duration }));
+const stationLabelCanvas = document.querySelector<HTMLCanvasElement>('#station-labels')!;
+const escapeHtml = (text: string) => text.replace(/[&<>"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]!);
+/**
+ * What an exported image shows over the model besides the canvases: compass, tilt and legend in a
+ * panel at the top left, the scale at the top, field objects, map credits at the bottom right and
+ * the model's title at the bottom (as on screen; dark on a white background).
+ */
+function exportOverlays(size: { width: number; height: number }, white: boolean): ImageOverlay[] {
+  const overlays: ImageOverlay[] = [];
+  const shown = (element: HTMLElement | null): element is HTMLElement => Boolean(element && !element.hidden && element.getClientRects().length);
+  if (document.querySelector<HTMLInputElement>('#indicators')!.checked) {
+    const items = ['#compass-indicator', '#tilt-indicator', '#legend'].map(query => document.querySelector<HTMLElement>(query)).filter(shown);
+    const rects = items.map(item => item.getBoundingClientRect()), gap = 8, pad = 8;
+    const rowHeight = Math.max(0, ...rects.map(rect => rect.height)), rowWidth = rects.reduce((sum, rect) => sum + rect.width, 0) + gap * Math.max(0, items.length - 1);
+    if (items.length && !white) overlays.push({ html: `<div style="position:absolute;left:12px;top:12px;width:${rowWidth + 2 * pad}px;height:${rowHeight + 2 * pad}px;box-sizing:border-box;background:#162531e6;border:1px solid #3c5668;border-radius:10px"></div>` });
+    let left = 12 + pad;
+    items.forEach((item, index) => { overlays.push({ element: item, left, top: 12 + pad + (rowHeight - rects[index].height) / 2 }); left += rects[index].width + gap; });
+    const scale = document.querySelector<HTMLElement>('#scale-indicator');
+    if (shown(scale)) { const rect = scale.getBoundingClientRect(); overlays.push({ element: scale, left: (size.width - rect.width) / 2, top: 10 }); }
+  }
+  const markers = document.querySelector<HTMLElement>('#object-markers');
+  if (shown(markers)) overlays.push(markers);
+  const credits = document.querySelector<HTMLElement>('#map-attribution');
+  if (shown(credits)) { const rect = credits.getBoundingClientRect(); overlays.push({ element: credits, left: size.width - rect.width - 4, top: size.height - rect.height - 4 }); }
+  const title = projectTitle.textContent?.trim();
+  if (title) overlays.push({ html: `<div style="position:absolute;left:0;right:0;bottom:14px;text-align:center"><span style="display:inline-block;max-width:90%;padding:6px 14px;border-radius:8px;background:${white ? 'transparent' : '#162531e6'};color:${white ? '#162531' : '#eaf3ff'};font:600 16px system-ui,sans-serif">${escapeHtml(title)}</span></div>` });
+  return overlays;
+}
+const imageExport = initializeSaveFile(imageDialog.save, async () => {
+  const size = imageDialog.size(), originalCamera = camera, white = imageDialog.whiteBackground(), signal = imageDialog.signal();
+  // Indicators and labels keep their proportion to the image height (100 %), or larger.
+  const scale = imageDialog.overlayScale() * size.height / canvas.clientHeight;
+  const overlaySize = { width: size.width / scale, height: size.height / scale };
+  exportRendering = true; autorotate.resetTime(); presentation.player.resetTime();
+  // The animation's cameras and path are for editing: never in an image or a film.
+  const guidesVisible = presentationGuides.group.visible; presentationGuides.group.visible = false;
+  const originalTarget = controls.target.clone(), timeline = presentation.timeline();
+  const restoreScene = snapshotPresentationControls();
+  let exportScene = -1, restoreBackground: (() => void) | undefined;
+  const wakeLock = new AnimationWakeLock(); wakeLock.enabled = imageDialog.animation();
+  const main = canvas.parentElement!, previousStyle = main.getAttribute('style');
+  const restoreLayout = () => {
+    if (previousStyle === null) main.removeAttribute('style'); else main.setAttribute('style', previousStyle);
+    document.body.classList.remove('image-white-background'); setOverlayRatio(undefined);
+    camera = originalCamera; controls.target.copy(originalTarget);
+    drawOverlays();
+  };
+  const frame = async (view: ViewCamera, target = originalTarget, sceneIndex = -1) => {
+    signal.throwIfAborted();
+    if (timeline.sceneChanges && sceneIndex >= 0 && sceneIndex !== exportScene) { applySceneSettings(timeline.views[sceneIndex].scene); exportScene = sceneIndex; }
+    camera = view; controls.target.copy(target);
+    lighting.updateCamera(); surfaceScene.updateCamera(camera.position);
+    const rendered = await renderImage(renderer, scene, camera, size, walls.visible && largeScene ? largeScene : undefined, surfaceGroup, signal);
+    try {
+      // The overlays are drawn for a view of the image's proportions, at its resolution.
+      main.style.cssText += `;position:absolute;left:0;top:0;width:${overlaySize.width}px;height:${overlaySize.height}px;flex:none;`;
+      document.body.classList.toggle('image-white-background', white);
+      setOverlayRatio(scale); drawOverlays(scale, white);
+      const composite = composeImage(rendered, [layerCanvas, stationLabelCanvas, measureCanvas], exportOverlays(overlaySize, white), overlaySize);
+      restoreLayout();
+      return await composite;
+    } finally { rendered.width = 0; rendered.height = 0; restoreLayout(); }
+  };
+  try {
+    restoreBackground = applyImageBackground(scene, lines, centreline.options.color === 'default', white);
+    if (imageDialog.animation()) {
+      const { animationCamera, encodeAnimation } = await import('./save-animation');
+      const target = controls.target.clone(), direction = autorotate.direction, settings = imageDialog.animationSettings();
+      if (timeline.views.length) {
+        const schedule = timeline.frames(settings.fps);
+        return await encodeAnimation(size, index => {
+          const pose = timeline.sample(schedule.time(index));
+          return frame(presentationCamera(pose, worldOrigin, size.width / size.height, originalCamera), new THREE.Vector3(...pose.center).sub(worldOrigin), pose.sceneIndex);
+        }, signal, imageDialog.progress, settings, schedule.count);
+      }
+      // No views: one turn round the rotation centre in the autorotation's direction.
+      return await encodeAnimation(size, index => frame(animationCamera(originalCamera, target, size, index, direction, settings.fps)), signal, imageDialog.progress, settings);
+    }
+    const image = await frame(imageCamera(originalCamera, size));
+    try { return await (imageDialog.format() === 'jpg' ? canvasJpeg(image) : canvasPng(image)); } finally { image.width = 0; image.height = 0; }
+  } finally {
+    presentationGuides.group.visible = guidesVisible;
+    restoreScene(); restoreBackground?.(); restoreLayout(); wakeLock.dispose(); presentation.resetScene();
+    camera = originalCamera; lighting.updateCamera(); exportRendering = false; autorotate.resetTime(); presentation.player.resetTime(); invalidateView();
+  }
+}, () => (projectTitle.textContent?.trim() || modelKey.split('|')[0] || 'loch').normalize('NFD').replace(/[̀-ͯ]/g, ''), error => {
+  menus.expand();
+  showLoadError(status, error, { phase: imageDialog.animation() ? 'Saving animation' : 'Saving image', source: 'Rendered view' });
+}, imageDialog.finish, () => imageDialog.animation() ? 'mp4' : imageDialog.format());
 const resize = () => { const w = canvas.clientWidth, h = canvas.clientHeight; if (!w || !h) return; renderer.setSize(w, h, false); resizeCamera(camera, w / h); invalidateView(); };
 new ResizeObserver(resize).observe(canvas); resize();
 function frame(time = performance.now()) {
   requestAnimationFrame(frame);
-  autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
+  saveImageButton.disabled = imageExport.busy || activeBox.isEmpty() || Boolean(largeWorker)
+    || loadingLargeWalls || preparationPending || surfaceScene.loading;
+  saveAnimationButton.disabled = saveImageButton.disabled;
+  presentation.refresh();
+  // While an image or animation is rendered, its frames own the camera.
+  if (exportRendering) return;
+  const suspended = Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden
+    || imageDialog.dialog.open || document.querySelector<HTMLDialogElement>('#presentation-edit-dialog')!.open);
+  if (presentation.player.playing) presentation.player.update(time, suspended);
+  else autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
+  if (presentationGuides.update(presentation.timeline(), worldOrigin, !presentation.player.playing && !largeWorker && !loadingLargeWalls && !activeBox.isEmpty())) invalidateView();
   if (sceneDirty) {
-    // Symbol size: zoom relative to the model (whole model → 25 %, 100 m scale → 100 %),
-    // then nearer than the rotation centre larger, farther smaller.
-    const height = canvas.clientHeight;
-    if (height > 0 && !activeBox.isEmpty()) {
-      const perDepth = camera instanceof THREE.PerspectiveCamera ? 2 * Math.tan(THREE.MathUtils.degToRad(camera.getEffectiveFOV()) / 2) / height : undefined;
-      setSymbolView(activeBox.getSize(new THREE.Vector3()).length() / height, metresPerPixel(camera, controls.target, height), perDepth);
-    }
     surfaceScene.updateCamera(camera.position);
-    indicators.update();
     updateLocationDot();
     updateSelectionRing();
     updateNavigation();
-    // Overlapping small symbols hide behind earlier ones: entrances first, then field objects, then SHP points.
-    resetSymbolSpace();
-    centreline.updateLabels(camera, canvas.clientWidth, canvas.clientHeight);
-    fieldObjects.updateMarkers(camera, canvas.clientWidth, canvas.clientHeight);
-    updateLayers();
-    measureCanvas.hidden = !measuring || (!measured.length && !surfaceLink);
-    if (!measureCanvas.hidden) drawMeasure(measureCanvas, measured, surfaceLink, camera, canvas.clientWidth, canvas.clientHeight, worldOrigin);
+    drawOverlays();
   }
   if (preparationPending && !largeWorker && largeScene && largeModel && walls.visible && !loadingError) {
     try {

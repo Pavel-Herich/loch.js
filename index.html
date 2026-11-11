@@ -34,7 +34,7 @@
   <div id="menu-panel">
   <button id="update-ready" type="button" hidden title="A new version is installed; reload the page to use it">New version · Reload</button><h1><button id="about-button" type="button" aria-label="About loch.js" aria-haspopup="dialog" aria-controls="about-dialog">loch.js</button></h1>
   <nav id="menus" aria-label="Main menu">
-    <details class="menu"><summary>File</summary><div class="menu-items"><button id="new" type="button">New</button><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><button id="import-tif" type="button">Import TIF…</button><button id="file-dmr-export" type="button" hidden>Export terrain to Therion</button><button id="file-dmr-lox" type="button" hidden>Save terrain as LOX…</button><hr/><button id="export-open" type="button">Export points…</button><hr/><button id="model-forget" type="button">Forget saved model</button><button id="maps-forget" type="button">Forget saved maps</button></div></details>
+    <details class="menu"><summary>File</summary><div class="menu-items"><button id="new" type="button">New</button><button id="open" type="button">Open…</button><button id="objects-open" type="button">Field objects…</button><button id="layers-open" type="button">SHP files…</button><button id="import-tif" type="button">Import TIF…</button><button id="file-dmr-export" type="button" hidden>Export terrain to Therion</button><button id="file-dmr-lox" type="button" hidden>Save terrain as LOX…</button><hr/><button id="save-image" type="button" disabled>Save image…</button><button id="save-animation" type="button" disabled>Save animation…</button><hr/><button id="export-open" type="button">Export points…</button><hr/><button id="model-forget" type="button">Forget saved model</button><button id="maps-forget" type="button">Forget saved maps</button></div></details>
     <details class="menu"><summary>Scene</summary><div class="menu-items">
       <details class="control-group"><summary>Visibility</summary><div class="group-items">
         <label><input id="bounding-box" type="checkbox" checked/> Bounding box</label>
@@ -82,6 +82,8 @@
     <details class="menu"><summary>View</summary><div class="menu-items">
       <label><input id="walker" type="checkbox"/> Walker</label>
       <label><input id="autorotate" type="checkbox"/> Autorotate</label>
+      <label><input id="play-presentation" type="checkbox"/> Play animation</label>
+      <button id="animation-editor" type="button">Animation…</button>
       <label><input id="perspective" type="checkbox" checked/> Perspective</label>
       <label><input id="lock-tilt" type="checkbox"/> Lock tilt</label>
       <button id="pivot-menu" type="button">Set rotation centre</button>
@@ -105,7 +107,7 @@
     </div></details>
   </nav>
   </div>
-  <input id="file" type="file" accept=".lox,.3d,.plt,.tif,.tiff,.shp,.dbf,.prj,.cpg,.gpx,.kml,.kmz,.geojson,.json,.csv,.txt" multiple aria-label="Open cave model, terrain or SHP layer" hidden/>
+  <input id="file" type="file" accept=".lox,.3d,.plt,.tif,.tiff,.shp,.dbf,.prj,.cpg,.gpx,.kml,.kmz,.geojson,.json,.csv,.txt,.lxa,.xml" multiple aria-label="Open cave model, terrain, SHP layer or animation" hidden/>
   </header>
 </div>
 <div id="dock" role="toolbar" aria-label="Quick tools">
@@ -135,6 +137,7 @@
   </svg></button>
   <button id="entrance-label-toggle" class="label-toggle" type="button" aria-label="Entrance labels: off" title="Entrance labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 19.5h4.4c0-2-3-3-3-6.4 0-4 3.2-6.6 6.6-6.6 3.6 0 5.7 2.8 5.4 6.2-.3 3-1.9 4.8-3.5 6.3v.5h4.6" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
   <button id="station-label-toggle" class="label-toggle" type="button" aria-label="Station labels: off" title="Station labels: off"><svg class="label-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="currentColor"/></svg><span class="label-index" aria-hidden="true">1</span><span class="label-badge" aria-hidden="true"></span></button>
+  <button id="animation-toggle" type="button" aria-label="Show animation" aria-controls="presentation-panel" aria-expanded="false" aria-pressed="false" title="Show animation" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10h18v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zm0 0L2 5l18-3 1 5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m6 4 3 4m3-5 3 4m3-5 2 4" stroke="currentColor" stroke-width="2"/></svg></button>
 </div>
 </main></div><dialog id="object-dialog" aria-labelledby="object-title-label"><form id="object-form" novalidate>
   <header class="object-head"><label id="object-title-label" for="object-title">Na⁠me</label><input id="object-title" name="loch-object-label" type="text" autocomplete="off" autocorrect="off" spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore enterkeyhint="done" placeholder="e.g. Sinkhole below the ridge"/></header>
@@ -178,7 +181,34 @@
     <p id="export-count" class="objects-hint"></p>
   </div>
   <div class="dialog-actions"><button type="button" id="export-go" class="primary">Export</button><button type="button" id="export-close">Close</button></div>
-</dialog><dialog id="quality-dialog" aria-labelledby="quality-heading"><form method="dialog"><h2 id="quality-heading">Map quality</h2><p id="quality-text"></p>
+</dialog><dialog id="image-size-dialog" aria-labelledby="image-size-title"><h2 id="image-size-title">Save image</h2><form>
+  <label for="image-width">Width (pixels) <input id="image-width" type="number" min="1" step="1" required/></label>
+  <label for="image-height">Height (pixels) <input id="image-height" type="number" min="1" step="1" required/></label>
+  <label for="image-overlay-scale">Indicators and labels (%) <input id="image-overlay-scale" title="100% preserves on-screen proportions, scaling with image height" type="number" min="10" max="1000" step="1" value="100" required/></label>
+  <label for="image-format">Format <select id="image-format"><option value="png" selected>PNG</option><option value="jpg">JPG</option></select></label>
+  <label><input id="image-aspect" type="checkbox" checked/> Keep aspect ratio</label>
+  <label><input id="image-white-background" type="checkbox"/> White background</label>
+  <div id="animation-options" hidden>
+    <label for="animation-fps">FPS <input id="animation-fps" type="number" min="1" max="120" step="1" value="30" required/></label>
+    <label for="animation-quality">Quality <select id="animation-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high" selected>High</option></select></label>
+  </div>
+  <p id="animation-description" hidden>360° rotation · 15 seconds · 30 fps</p>
+  <div id="animation-export-progress" hidden><progress id="animation-progress" value="0" max="450"></progress><span id="animation-progress-text" role="status"></span></div>
+  <div class="image-save-actions"><button id="image-save-cancel" type="button">Cancel</button><button id="image-save-confirm" type="button">Save…</button></div>
+</form></dialog><dialog id="presentation-panel" aria-labelledby="presentation-title"><header><h2 id="presentation-title">Animation</h2><button id="presentation-close" type="button" aria-label="Close animation editor">×</button></header>
+  <p id="presentation-summary"></p><select id="presentation-views" size="8" aria-label="Animation views"></select>
+  <div class="presentation-actions"><button id="presentation-play" type="button">Play</button><button id="presentation-mark" type="button">Mark</button><button id="presentation-update" type="button">Update</button><button id="presentation-edit" type="button">Edit…</button><button id="presentation-up" type="button">Move up</button><button id="presentation-down" type="button">Move down</button><button id="presentation-delete" type="button">Delete</button></div>
+  <div class="presentation-actions"><button id="presentation-new" type="button">New</button><button id="presentation-load" type="button">Load .lxa…</button><button id="presentation-save" type="button">Save .lxa…</button></div>
+  <label><input id="presentation-loop" type="checkbox" checked/> Loop animation</label><label><input id="presentation-scene-changes" type="checkbox"/> Scene changes</label>
+  <input id="presentation-file" type="file" accept=".lxa,.xml" hidden/>
+</dialog><dialog id="presentation-edit-dialog" aria-labelledby="presentation-edit-title"><h2 id="presentation-edit-title">Edit animation view</h2><form>
+  <label>Name <input id="presentation-name" type="text"/></label>
+  <label>Transition duration (s) <input id="presentation-duration" type="number" min="0.001" step="any" required/></label>
+  <label>Rotations <input id="presentation-rotations" type="number" step="1" required/></label>
+  <label>Rotation duration (s) <input id="presentation-rotation-duration" type="number" min="0.001" step="any" required/></label>
+  <label><input id="presentation-walker" type="checkbox"/> Walker mode</label><label><input id="presentation-transition" type="checkbox"/> Transition view (pass through without stopping)</label>
+  <div class="image-save-actions"><button id="presentation-edit-cancel" type="button">Cancel</button><button type="submit">Apply</button></div>
+</form></dialog><dialog id="quality-dialog" aria-labelledby="quality-heading"><form method="dialog"><h2 id="quality-heading">Map quality</h2><p id="quality-text"></p>
   <div class="quality-options"><button value="optimal" class="quality-option"><strong>Optimal</strong><small id="quality-optimal"></small></button><button value="max" class="quality-option"><strong>Max</strong><small id="quality-max"></small></button></div>
   <div class="dialog-actions"><button value="cancel">Cancel</button><button value="online">Online only</button></div></form>
 </dialog><dialog id="crop-dialog" aria-labelledby="crop-heading"><form method="dialog"><h2 id="crop-heading">Crop terrain</h2>

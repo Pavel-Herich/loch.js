@@ -1,3 +1,4 @@
+import { overlayRatio } from './overlay-ratio';
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { guessCoordinates, layerPoints, nameField, parseDbf, parseShp, type CoordinateGuess, type LayerPoint } from './shapefile';
 import { LabelOccupancy, symbolShown, symbolSizeAt } from './station-labels';
@@ -87,7 +88,7 @@ const occupancy = new LabelOccupancy();
 /** Labels follow the entrance label button: names, altitudes (terrain height) or none. */
 export function drawLayers(canvas: HTMLCanvasElement, layers: PointLayer[], camera: Camera, width: number, height: number,
   origin: Vector3, heightAt: (east: number, north: number) => number | undefined, label: string = 'none') {
-  const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
+  const ratio = overlayRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
     canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
   }

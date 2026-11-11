@@ -1,3 +1,4 @@
+import { overlayRatio } from './overlay-ratio';
 import { Matrix4, type Camera, type Vector3 } from 'three';
 import { metres, segment, type MeasurePoint } from './measure';
 
@@ -6,7 +7,7 @@ const LINE = '#ffd84d', LINK = '#7fe3ff', SIDEWAYS = '#9cff5a', OUTLINE = '#0913
 /** Measured points joined by a line with each length, plus the dashed link to the nearest surface point. */
 export function drawMeasure(canvas: HTMLCanvasElement, points: MeasurePoint[], link: { from: MeasurePoint; to: MeasurePoint; sideways?: MeasurePoint } | undefined,
   camera: Camera, width: number, height: number, origin: Vector3) {
-  const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
+  const ratio = overlayRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
   if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
     canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
   }
