@@ -13,7 +13,7 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
-import { cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlan, imageSize, reliefFromFile, type ReliefStyle, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
+import { cropGrid, cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlan, imageSize, reliefFromFile, type ReliefStyle, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
 import type { GeoTiff } from './geotiff';
 import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
@@ -1103,7 +1103,7 @@ function askReliefStyle(preview: Dmr, range: [number, number]) {
   const styles: [ReliefStyle, string, string][] = [
     ['multidirectional', 'Multidirectional', 'Light from four directions (as gdaldem -multidirectional): every slope readable.'],
     ['classic', 'Classic hillshade', 'One light from the north-west, 45° high.'],
-    ['altitude', 'Altitude colours', 'Low ground green, through yellow and brown, to white heights, over the shading.'],
+    ['altitude', 'Altitude colours', 'Low ground blue, through green, yellow and brown, to white heights, over the shading.'],
   ];
   // Previews about 320 px wide, from the preview grid.
   const shrink = Math.max(1, Math.ceil(preview.width / 320));
@@ -1158,7 +1158,14 @@ async function importTerrain(picked: File) {
     const chosen = await askTerrainStep(name, dmrSteps(tiff, held), tiff.pixelWidth, held);
     if (!chosen || id !== loadId) { setStatusText(status, ''); return; }
     const { factor } = chosen;
-    const range = heightRange(preview), style = await askReliefStyle(preview, range);
+    // Previews and the altitude colours of the cropped part only, read again from the file at
+    // about 320 px when the crop is much finer than the whole-file preview.
+    const fine = Math.max(1, Math.ceil(Math.max(held.columns, held.rows) / 320));
+    const cropped = fine < Math.max(1, Math.ceil(Math.max(tiff.width, tiff.height) / 900)) / 1.5
+      ? await resampleDmr(blob, tiff, epsg, fine, name, undefined, undefined, held)
+      : cropGrid(preview, windowCorners(tiff, held));
+    if (id !== loadId) return;
+    const range = heightRange(cropped), style = await askReliefStyle(cropped, range);
     if (!style || id !== loadId) { setStatusText(status, ''); return; }
     const { jtsk03Shift } = await import('./jtsk03');
     const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {

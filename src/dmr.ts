@@ -52,6 +52,19 @@ export function cropWindow(tiff: GeoTiff, west: number, south: number, east: num
   return { column: c0, row: r0, columns: Math.max(0, c1 - c0), rows: Math.max(0, r1 - r0) };
 }
 /** Corners of a window: west, south, east, north (outer cell edges). */
+/**
+ * The part of a grid within S-JTSK corners (west, south, east, north): the nodes inside, so a
+ * preview of the whole file shows only what was cropped. The whole grid when nothing lies inside.
+ */
+export function cropGrid<T extends Pick<Dmr, 'width' | 'height' | 'step' | 'origin' | 'heights'>>(grid: T, [west, south, east, north]: [number, number, number, number]): T {
+  const at = (value: number, origin: number) => (value - origin) / grid.step;
+  const c0 = Math.max(0, Math.ceil(at(west, grid.origin[0]) - 1e-9)), c1 = Math.min(grid.width - 1, Math.floor(at(east, grid.origin[0]) + 1e-9));
+  const r0 = Math.max(0, Math.ceil(at(south, grid.origin[1]) - 1e-9)), r1 = Math.min(grid.height - 1, Math.floor(at(north, grid.origin[1]) + 1e-9));
+  if (c1 < c0 || r1 < r0 || (c0 === 0 && r0 === 0 && c1 === grid.width - 1 && r1 === grid.height - 1)) return grid;
+  const width = c1 - c0 + 1, height = r1 - r0 + 1, heights = new Float32Array(width * height);
+  for (let r = 0; r < height; r++) heights.set(grid.heights.subarray((r0 + r) * grid.width + c0, (r0 + r) * grid.width + c1 + 1), r * width);
+  return { ...grid, width, height, heights, origin: [grid.origin[0] + c0 * grid.step, grid.origin[1] + r0 * grid.step] };
+}
 export function windowCorners(tiff: GeoTiff, window: CellWindow): [number, number, number, number] {
   return [tiff.left + window.column * tiff.pixelWidth, tiff.top - (window.row + window.rows) * tiff.pixelHeight,
     tiff.left + (window.column + window.columns) * tiff.pixelWidth, tiff.top - window.row * tiff.pixelHeight];
@@ -275,9 +288,12 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
  */
 /** How the relief image is drawn: shaded from four directions, from the north-west only, or coloured by altitude over the shading. */
 export type ReliefStyle = 'multidirectional' | 'classic' | 'altitude';
-/** Colours from low to high ground (a hypsometric tint), at fractions of the height range. */
+/**
+ * Colours from low to high ground (a hypsometric tint), at fractions of the height range: deep
+ * blue, through cyan, green, yellow and brown, to white.
+ */
 const TINT: [number, number, number, number][] = [
-  [0, 95, 143, 78], [.22, 160, 196, 118], [.42, 232, 226, 160], [.62, 217, 178, 122], [.82, 179, 137, 106], [1, 244, 241, 236],
+  [0, 18, 52, 140], [.15, 28, 110, 190], [.3, 70, 170, 200], [.45, 110, 185, 110], [.6, 225, 215, 110], [.75, 205, 140, 70], [.88, 150, 95, 70], [1, 255, 255, 255],
 ];
 /** The tint (0–255 each) at a fraction of the height range. */
 export function altitudeTint(fraction: number): [number, number, number] {

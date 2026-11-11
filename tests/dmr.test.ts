@@ -257,12 +257,22 @@ describe('relief image styles', () => {
     // Facing the north-west light, classic is brighter than flat ground.
     const nw = plane(.5, -.5), flat = plane(0, 0);
     expect(centre(hillshade(nw, 45, 1, 0, 5, 'classic'))[0]).toBeGreaterThan(centre(hillshade(flat, 45, 1, 0, 5, 'classic'))[0]);
-    // Altitude: green low, white high, the same tone on flat ground keeping the tint.
-    expect(altitudeTint(0)).toEqual([95, 143, 78]); expect(altitudeTint(1)).toEqual([244, 241, 236]);
+    // Altitude: blue low, white high, the same tone on flat ground keeping the tint.
+    expect(altitudeTint(0)).toEqual([18, 52, 140]); expect(altitudeTint(1)).toEqual([255, 255, 255]);
     const low = centre(hillshade(flat, 45, 1, 0, 5, 'altitude', [1000, 2000])), high = centre(hillshade({ ...flat, heights: flat.heights.map(h => h + 1000) }, 45, 1, 0, 5, 'altitude', [1000, 2000]));
-    expect(low[1]).toBeGreaterThan(low[0]); // greenish
+    expect(low[2]).toBeGreaterThan(low[0]); expect(low[2]).toBeGreaterThan(low[1]); // blue
     expect(Math.min(...high)).toBeGreaterThan(200); // near white
     expect(reliefColour(100, 'multidirectional', 1500, [1000, 2000])).toEqual([100, 100, 100]);
+  });
+
+  it('crops a preview grid to the chosen corners', async () => {
+    const { cropGrid } = await import('../src/dmr');
+    const grid = { width: 4, height: 3, step: 2, origin: [100, 200] as [number, number], heights: Float32Array.from({ length: 12 }, (_, i) => i) };
+    const part = cropGrid(grid, [101, 201, 105, 205]); // nodes at x 102, 104 and y 202, 204
+    expect([part.width, part.height, ...part.origin]).toEqual([2, 2, 102, 202]);
+    expect(Array.from(part.heights)).toEqual([5, 6, 9, 10]);
+    expect(cropGrid(grid, [0, 0, 1000, 1000])).toBe(grid);
+    expect(cropGrid(grid, [500, 500, 600, 600])).toBe(grid);
   });
 
   it('makes the coloured relief from the file, a mean height a pixel', async () => {
