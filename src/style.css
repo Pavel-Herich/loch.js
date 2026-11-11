@@ -421,7 +421,7 @@ label.quality-option:has(>input:disabled){opacity:.45;cursor:default}
 #animation-description{font-size:.85rem;color:#b8ccd9;line-height:1.5}
 #animation-export-progress progress{display:block;width:100%;margin-bottom:8px;accent-color:#8ed9ff}
 #animation-progress-text{font-size:.85rem}
-#animation-quality,#image-format{width:120px;padding:6px;border:1px solid #678599;border-radius:4px;background:#09131c;color:inherit;font:inherit}
+#animation-quality,#animation-detail,#image-format{width:120px;padding:6px;border:1px solid #678599;border-radius:4px;background:#09131c;color:inherit;font:inherit}
 #presentation-panel{position:fixed;inset:auto 16px 16px auto;margin:0;width:min(500px,calc(100% - 32px));max-height:calc(100% - 100px);overflow:auto;z-index:30;padding:16px;border:1px solid #678599;border-radius:10px;background:#162531;color:#eaf3ff;box-shadow:0 8px 24px #0006}
 #presentation-panel header{display:flex;align-items:center;padding:0;justify-content:space-between;gap:12px}#presentation-panel h2{margin:0;font-size:1.15rem}
 #presentation-summary{font-size:.85rem;color:#b8ccd9}#presentation-views{width:100%;min-height:160px;background:#09131c;color:inherit;border:1px solid #678599;font:inherit;padding:6px}

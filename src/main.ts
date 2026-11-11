@@ -2496,8 +2496,12 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
     if (timeline.sceneChanges && sceneIndex >= 0 && sceneIndex !== exportScene) { applySceneSettings(timeline.views[sceneIndex].scene); exportScene = sceneIndex; }
     camera = view; controls.target.copy(target);
     lighting.updateCamera(); surfaceScene.updateCamera(camera.position);
-    // A film keeps the walls' geometry on the graphics card between its frames (freed at the end; not on phones).
-    const rendered = await renderImage(renderer, scene, camera, size, walls.visible && largeScene ? largeScene : undefined, surfaceGroup, signal, imageDialog.animation() && !isCoarse());
+    // As on screen: the walls the view would draw for this camera (its Detail setting), in one pass.
+    // Otherwise every batch at full detail, one after another; a film keeps their geometry on the
+    // graphics card between its frames (freed at the end; not on phones).
+    const onScreen = imageDialog.asOnScreen() && Boolean(largeScene);
+    if (onScreen) largeScene!.update(camera, detail.value === 'full');
+    const rendered = await renderImage(renderer, scene, camera, size, walls.visible && largeScene && !onScreen ? largeScene : undefined, surfaceGroup, signal, imageDialog.animation() && !isCoarse());
     try {
       // The overlays are drawn for a view of the image's proportions, at its resolution.
       main.style.cssText += `;position:absolute;left:0;top:0;width:${overlaySize.width}px;height:${overlaySize.height}px;flex:none;`;

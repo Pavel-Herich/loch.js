@@ -18,6 +18,8 @@ export function initializeImageSizeDialog(button: HTMLButtonElement, currentSize
   const white = document.querySelector<HTMLInputElement>('#image-white-background')!;
   // PNG or JPG for images (absent in older pages: PNG).
   const format = document.querySelector<HTMLSelectElement>('#image-format');
+  // Films: drawn as the view draws them (fast) or every wall batch at full detail (absent: full).
+  const detail = document.querySelector<HTMLSelectElement>('#animation-detail');
   const save = document.querySelector<HTMLButtonElement>('#image-save-confirm')!;
   const cancel = document.querySelector<HTMLButtonElement>('#image-save-cancel')!;
   const description = document.querySelector<HTMLElement>('#animation-description')!;
@@ -69,6 +71,7 @@ export function initializeImageSizeDialog(button: HTMLButtonElement, currentSize
     busy = true; save.textContent = 'Saving…'; cancel.disabled = !animation;
     width.disabled = height.disabled = aspect.disabled = scale.disabled = white.disabled = fps.disabled = quality.disabled = true;
     if (format) format.disabled = true;
+    if (detail) detail.disabled = true;
     if (animation) { progressPanel.hidden = false; progressText.textContent = 'Preparing MP4 encoder…'; }
   });
   form.addEventListener('submit', event => { event.preventDefault(); if (!busy) save.click(); });
@@ -81,6 +84,8 @@ export function initializeImageSizeDialog(button: HTMLButtonElement, currentSize
   return { dialog, save, size, animation: () => animation, signal: () => abort.signal,
     /** The image file's format (animations are MP4). */
     format: (): 'png' | 'jpg' => format?.value === 'jpg' ? 'jpg' : 'png',
+    /** Films drawn as on screen (one pass a frame) rather than batch by batch at full detail. */
+    asOnScreen: () => animation && detail?.value === 'screen',
     overlayScale: () => scale.valueAsNumber / 100, whiteBackground: () => animation ? screenWhiteBackground() : white.checked,
     animationSettings: (): AnimationSettings => ({ fps: fps.valueAsNumber, quality: quality.value as AnimationQuality }),
     progress(completed: number, total: number) {
@@ -96,5 +101,6 @@ export function initializeImageSizeDialog(button: HTMLButtonElement, currentSize
       busy = false; save.textContent = 'Save…'; cancel.disabled = false;
       width.disabled = height.disabled = aspect.disabled = scale.disabled = white.disabled = fps.disabled = quality.disabled = false; save.disabled = false; dialog.close();
       if (format) format.disabled = false;
+      if (detail) detail.disabled = false;
     } };
 }
