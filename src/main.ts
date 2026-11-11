@@ -2448,6 +2448,8 @@ const escapeHtml = (text: string) => text.replace(/[&<>"]/g, character => ({ '&'
  * panel at the top left, the scale at the top, field objects, map credits at the bottom right and
  * the model's title at the bottom (as on screen; dark on a white background).
  */
+/** The model's name without a file extension (a terrain opened on its own is named after its GeoTIFF). */
+const plainTitle = () => (projectTitle.textContent?.trim() ?? '').replace(/\.(tiff?|zip|lox|3d|plt)$/i, '');
 function exportOverlays(size: { width: number; height: number }, white: boolean): ImageOverlay[] {
   const overlays: ImageOverlay[] = [];
   const shown = (element: HTMLElement | null): element is HTMLElement => Boolean(element && !element.hidden && element.getClientRects().length);
@@ -2465,7 +2467,8 @@ function exportOverlays(size: { width: number; height: number }, white: boolean)
   if (shown(markers)) overlays.push(markers);
   const credits = document.querySelector<HTMLElement>('#map-attribution');
   if (shown(credits)) { const rect = credits.getBoundingClientRect(); overlays.push({ element: credits, left: size.width - rect.width - 4, top: size.height - rect.height - 4 }); }
-  const title = projectTitle.textContent?.trim();
+  // A film shows the animation's caption, when it has one, instead of the model's name.
+  const title = (imageDialog.animation() && presentation.caption()) || plainTitle();
   if (title) overlays.push({ html: `<div style="position:absolute;left:0;right:0;bottom:14px;text-align:center"><span style="display:inline-block;max-width:90%;padding:6px 14px;border-radius:8px;background:${white ? 'transparent' : '#162531e6'};color:${white ? '#162531' : '#eaf3ff'};font:600 16px system-ui,sans-serif">${escapeHtml(title)}</span></div>` });
   return overlays;
 }
@@ -2527,7 +2530,7 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
     restoreScene(); restoreBackground?.(); restoreLayout(); wakeLock.dispose(); presentation.resetScene();
     camera = originalCamera; lighting.updateCamera(); exportRendering = false; autorotate.resetTime(); presentation.player.resetTime(); invalidateView();
   }
-}, () => (projectTitle.textContent?.trim() || modelKey.split('|')[0] || 'loch').normalize('NFD').replace(/[̀-ͯ]/g, ''), error => {
+}, () => plainFileName((imageDialog.animation() && presentation.caption()) || plainTitle() || modelKey.split('|')[0] || 'loch'), error => {
   menus.expand();
   showLoadError(status, error, { phase: imageDialog.animation() ? 'Saving animation' : 'Saving image', source: 'Rendered view' });
 }, imageDialog.finish, () => imageDialog.animation() ? 'mp4' : imageDialog.format());

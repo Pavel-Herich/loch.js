@@ -1,5 +1,5 @@
 export function imageFilename(name: string) {
-  const stem = name.replace(/\.(lox|3d|plt|lxa)$/i, '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().replace(/[. ]+$/, '');
+  const stem = name.replace(/\.(lox|3d|plt|lxa|tiff?|zip|th|txt)$/i, '').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').trim().replace(/[. ]+$/, '');
   return `${stem || 'loch'}.png`;
 }
 

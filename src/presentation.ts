@@ -27,6 +27,9 @@ export class Presentation {
   set loop(value: boolean) { this.root.setAttribute('loop-animation', String(value)); }
   get sceneChanges() { return truth(this.root.getAttribute('scene-changes')); }
   set sceneChanges(value: boolean) { this.root.setAttribute('scene-changes', String(value)); }
+  /** Text shown at the bottom of the film instead of the model's name (an attribute Loch leaves alone). */
+  get caption() { return this.root.getAttribute('caption') ?? ''; }
+  set caption(value: string) { if (value.trim()) this.root.setAttribute('caption', value); else this.root.removeAttribute('caption'); }
   views(): LxaView[] {
     let fallback = this.defaults;
     return this.elements.map((element, index) => {

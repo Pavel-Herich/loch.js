@@ -16,6 +16,7 @@ export function initializePresentation(host: Host) {
   const list = globalThis.document.querySelector<HTMLSelectElement>('#presentation-views')!;
   const loop = globalThis.document.querySelector<HTMLInputElement>('#presentation-loop')!;
   const sceneChanges = globalThis.document.querySelector<HTMLInputElement>('#presentation-scene-changes')!;
+  const caption = globalThis.document.querySelector<HTMLInputElement>('#presentation-caption');
   const title = globalThis.document.querySelector<HTMLElement>('#presentation-title')!;
   const summary = globalThis.document.querySelector<HTMLElement>('#presentation-summary')!;
   const checkbox = globalThis.document.querySelector<HTMLInputElement>('#play-presentation')!;
@@ -54,6 +55,7 @@ export function initializePresentation(host: Host) {
     });
     list.selectedIndex = Math.max(-1, Math.min(selected, timeline.views.length - 1));
     loop.checked = document.loop; sceneChanges.checked = document.sceneChanges;
+    if (caption && globalThis.document.activeElement !== caption) caption.value = document.caption;
     title.textContent = `Animation${dirty ? ' *' : ''}`;
     summary.textContent = `${timeline.views.length} views · ${timeline.duration.toFixed(2).replace(/\.00$/, '')} seconds${document.loop ? ' · loop' : ''}${speed === 1 ? '' : ` · speed ${speed}×`}`;
     refresh();
@@ -82,6 +84,8 @@ export function initializePresentation(host: Host) {
   for (const [id, delta] of [['up', -1], ['down', 1]] as const) globalThis.document.querySelector(`#presentation-${id}`)!.addEventListener('click', () => mutate(() => document.move(list.selectedIndex, delta)));
   globalThis.document.querySelector('#presentation-new')!.addEventListener('click', () => mutate(() => { document = Presentation.create(); filename = 'presentation.lxa'; return -1; }));
   for (const control of [loop, sceneChanges]) control.addEventListener('change', () => mutate(() => { document.loop = loop.checked; document.sceneChanges = sceneChanges.checked; }));
+  caption?.addEventListener('input', () => { document.caption = caption.value; dirty = true; title.textContent = 'Animation *'; });
+  caption?.addEventListener('keydown', event => event.stopPropagation());
   globalThis.document.querySelector('#presentation-edit')!.addEventListener('click', () => {
     player.stop(); const view = timeline.views[list.selectedIndex]; if (!view) return;
     fields.name.value = view.name; fields.duration.value = String(view.duration); fields.rotations.value = String(view.rotations);
@@ -119,5 +123,7 @@ export function initializePresentation(host: Host) {
   rebuild();
   return { player, loadFile, refresh, toggle, timeline: () => timeline, resetScene() { appliedScene = -1; },
     /** Rebuild the timeline (after a speed change), keeping the selected view. */
-    rebuild() { player.stop(); rebuild(); } };
+    rebuild() { player.stop(); rebuild(); },
+    /** The film's caption (empty: the model's name). */
+    caption: () => document.caption.trim() };
 }
