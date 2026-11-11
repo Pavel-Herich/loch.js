@@ -403,8 +403,9 @@ label.quality-option:has(>input:disabled){opacity:.45;cursor:default}
 #dmr-dialog .quality-option{padding:7px 10px}
 @media (max-width:620px){.dmr-columns{grid-template-columns:1fr}}
 /* Relief image style: three previews side by side (one under another on a phone). */
-#style-dialog{width:min(820px,calc(100vw - 24px));max-width:none}
-.style-options{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0 16px}
+#style-dialog{width:min(1000px,calc(100vw - 24px));max-width:none}
+.style-options{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0 16px;max-height:calc(100dvh - 190px);overflow-y:auto}
 .style-options .quality-option{padding:8px}
 .style-options canvas{display:block;width:100%;height:auto;border-radius:5px;margin-bottom:4px;background:#13202b}
-@media (max-width:620px){.style-options{grid-template-columns:1fr}}
+@media (max-width:900px){.style-options{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:520px){.style-options{grid-template-columns:1fr}}

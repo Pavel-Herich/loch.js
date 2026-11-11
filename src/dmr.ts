@@ -104,13 +104,13 @@ export function cellShares(cells: number, nodes: number, factor: number) {
  * out; pixels with none at all come out white.
  */
 export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWindow, factor: number, progress?: (done: number, total: number) => void,
-  style: ReliefStyle = 'multidirectional', range: [number, number] = [0, 1]) {
+  style: ReliefStyle = 'multidirectional', range: [number, number] = [0, 1], strip = 256) {
   const width = Math.max(1, Math.floor(window.columns / factor + 1e-9)), height = Math.max(1, Math.floor(window.rows / factor + 1e-9));
   const columns = cellShares(window.columns, width, factor), rows = cellShares(window.rows, height, factor);
   const parts = Math.floor(65000 / Math.ceil(factor) ** 2);
   const sums = new Float32Array(width * height), weights = new Uint16Array(width * height);
-  // Altitude colours: the mean height of each pixel too (coloured when the image is drawn).
-  const heightSums = style === 'altitude' ? new Float32Array(width * height) : undefined;
+  // Coloured styles and contours: the mean height of each pixel too (used when the image is drawn).
+  const heightSums = reliefUsesHeight(style) ? new Float32Array(width * height) : undefined;
   const across = Math.ceil(tiff.width / tiff.blockWidth);
   const blockRows = tiff.tiled ? Math.ceil(tiff.height / tiff.blockHeight) : tiff.offsets.length;
   const firstBlock = Math.floor(window.row / tiff.blockHeight), lastBlock = Math.min(blockRows - 1, Math.floor((window.row + window.rows - 1) / tiff.blockHeight));
@@ -135,36 +135,42 @@ export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWind
     }
     return { top: top - window.row, rows: bottom - top, heights };
   };
-  let previous: Awaited<ReturnType<typeof band>> | undefined, current = await band(firstBlock);
-  const total = lastBlock - firstBlock + 1;
-  for (let blockRow = firstBlock; blockRow <= lastBlock; blockRow++) {
-    const next = blockRow < lastBlock ? await band(blockRow + 1) : undefined;
-    // The band with a row of its neighbours above and below, rows from the south for the shading.
-    const above = previous ? 1 : 0, below = next ? 1 : 0, count = current.rows + above + below;
-    const grid = new Float32Array(count * window.columns);
-    const put = (source: Float32Array, sourceRow: number, row: number) => grid.set(source.subarray(sourceRow * window.columns, (sourceRow + 1) * window.columns), (count - 1 - row) * window.columns);
-    if (previous) put(previous.heights, previous.rows - 1, 0);
-    for (let r = 0; r < current.rows; r++) put(current.heights, r, r + above);
-    if (next) put(next.heights, 0, count - 1);
-    const shade = hillshade({ width: window.columns, height: count, heights: grid, step: tiff.pixelWidth }, 45, 1, above, current.rows, style === 'classic' ? 'classic' : 'multidirectional');
-    for (let r = 0; r < current.rows; r++) {
-      const row = current.top + r, target = rows.first[row];
+  // Strips of rows, each shaded with the neighbouring rows the style looks at (one for shading,
+  // 15 m for the sky-view factor); the file's bands are read once and dropped when passed.
+  const reach = reliefReach(style, tiff.pixelWidth), bands = new Map<number, Promise<Awaited<ReturnType<typeof band>>>>();
+  const bandOf = (row: number) => Math.floor((window.row + row) / tiff.blockHeight);
+  const STRIP = Math.max(strip, Math.min(tiff.blockHeight, 2048));
+  for (let start = 0; start < window.rows; start += STRIP) {
+    const end = Math.min(window.rows, start + STRIP), from = Math.max(0, start - reach), to = Math.min(window.rows, end + reach), count = to - from;
+    // Rows from the south for the shading.
+    const grid = new Float32Array(count * window.columns).fill(NaN);
+    for (let b = Math.max(firstBlock, bandOf(from)); b <= Math.min(lastBlock, bandOf(to - 1)); b++) {
+      if (!bands.has(b)) bands.set(b, band(b));
+      const piece = await bands.get(b)!;
+      for (let row = Math.max(from, piece.top); row < Math.min(to, piece.top + piece.rows); row++)
+        grid.set(piece.heights.subarray((row - piece.top) * window.columns, (row - piece.top + 1) * window.columns), (count - 1 - (row - from)) * window.columns);
+    }
+    const keep = bandOf(Math.max(0, end - reach));
+    for (const b of [...bands.keys()]) if (b < keep) bands.delete(b);
+    const tones = reliefTones({ width: window.columns, height: count, heights: grid, step: tiff.pixelWidth }, start - from, end - start, style);
+    for (let row = start; row < end; row++) {
+      const target = rows.first[row];
       if (target < 0) continue;
+      const cells = (count - 1 - (row - from)) * window.columns, shades = (row - start) * window.columns;
       for (const [pixelRow, rowPart] of [[target, rows.part[row]], [target + 1, rows.second[row]]]) {
         if (!rowPart) continue;
         const base = pixelRow * width;
         for (let c = 0; c < window.columns; c++) {
-          const pixel = columns.first[c];
-          if (pixel < 0 || current.heights[r * window.columns + c] !== current.heights[r * window.columns + c]) continue;
-          const grey = shade[(r * window.columns + c) * 4], here = current.heights[r * window.columns + c];
+          const pixel = columns.first[c], here = grid[cells + c];
+          if (pixel < 0 || here !== here) continue;
+          const grey = tones[shades + c];
           const q0 = Math.round(rowPart * columns.part[c] * parts), q1 = Math.round(rowPart * columns.second[c] * parts);
           if (q0) { sums[base + pixel] += grey * q0; weights[base + pixel] += q0; if (heightSums) heightSums[base + pixel] += here * q0; }
           if (q1) { sums[base + pixel + 1] += grey * q1; weights[base + pixel + 1] += q1; if (heightSums) heightSums[base + pixel + 1] += here * q1; }
         }
       }
     }
-    previous = current; current = next!;
-    progress?.(blockRow - firstBlock + 1, total);
+    progress?.(end, window.rows);
   }
   const pixel = factor * tiff.pixelWidth;
   return {
@@ -172,14 +178,19 @@ export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWind
     /** Pixel rows (north first) as RGBA, a strip at a time. */
     rows(first: number, count: number) {
       const rgba = new Uint8ClampedArray(width * count * 4);
+      const coloured = heightSums && (style === 'altitude' || style === 'swiss');
       for (let i = 0; i < width * count; i++) {
         const at = first * width + i, weight = weights[at];
-        if (heightSums && weight) {
-          const [r, g, b] = reliefColour(sums[at] / weight, 'altitude', heightSums[at] / weight, range);
+        if (coloured && weight) {
+          const [r, g, b] = reliefColour(sums[at] / weight, style, heightSums[at] / weight, range);
           rgba[i * 4] = r; rgba[i * 4 + 1] = g; rgba[i * 4 + 2] = b;
         } else rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = weight ? sums[at] / weight : 255;
         rgba[i * 4 + 3] = 255;
       }
+      if (style === 'contours' && heightSums) drawContours(rgba, width, height, first, count, pixel, (row, column) => {
+        const at = row * width + column;
+        return weights[at] ? heightSums[at] / weights[at] : NaN;
+      });
       return rgba;
     },
     west: tiff.left + window.column * tiff.pixelWidth, south: tiff.top - (window.row + height * factor) * tiff.pixelHeight, pixel,
@@ -281,13 +292,34 @@ export async function resampleDmr(file: Blob, tiff: GeoTiff, epsg: number, facto
 }
 
 /**
- * Multidirectional hillshade (as gdaldem -multidirectional, after Mark 1992): light from 225°,
- * 270°, 315° and 360° at the given altitude, each weighted by sin² of its angle to the slope's
- * aspect, so every slope is lit across rather than along. RGBA rows from north to south; cells
- * without data white. Horn's gradient; a missing neighbour counts as the cell itself.
+ * How the relief image is drawn: shaded from four directions (as gdaldem -multidirectional), from
+ * the north-west only, coloured by altitude, by slope, by the sky seen (sky-view factor), with
+ * contours, in the Swiss manner, or as a composite of sky, slope and shading.
  */
-/** How the relief image is drawn: shaded from four directions, from the north-west only, or coloured by altitude over the shading. */
-export type ReliefStyle = 'multidirectional' | 'classic' | 'altitude';
+export type ReliefStyle = 'multidirectional' | 'classic' | 'altitude' | 'slope' | 'sky' | 'contours' | 'swiss' | 'composite';
+/** Styles whose pixels also need their mean height (colours by altitude, contours). */
+export const reliefUsesHeight = (style: ReliefStyle) => style === 'altitude' || style === 'swiss' || style === 'contours';
+/** The sky-view factor looks this far (m), along 16 directions, at these distances. */
+const SKY_DISTANCES = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15];
+/** Rows of neighbours (above and below) a style needs beyond each cell, at a cell size. */
+export function reliefReach(style: ReliefStyle, step: number) {
+  return style === 'sky' || style === 'composite' ? Math.max(1, Math.ceil(SKY_DISTANCES[SKY_DISTANCES.length - 1] / step)) : 1;
+}
+/** Per direction: column and row offsets with 1 / distance, each offset once. */
+function skyRays(step: number) {
+  const rays: number[][] = [];
+  for (let k = 0; k < 16; k++) {
+    const angle = k * Math.PI / 8, ray: number[] = [], seen = new Set<string>();
+    for (const distance of SKY_DISTANCES) {
+      const cells = distance / step, dx = Math.round(Math.cos(angle) * cells), dy = Math.round(Math.sin(angle) * cells);
+      if ((!dx && !dy) || seen.has(`${dx},${dy}`)) continue;
+      seen.add(`${dx},${dy}`); ray.push(dx, dy, 1 / (Math.hypot(dx, dy) * step));
+    }
+    if (!ray.length) ray.push(Math.round(Math.cos(angle)) || 0, Math.round(Math.sin(angle)) || 0, 1 / (Math.hypot(Math.round(Math.cos(angle)), Math.round(Math.sin(angle))) * step));
+    rays.push(ray);
+  }
+  return rays;
+}
 /**
  * Colours from low to high ground (a hypsometric tint), at fractions of the height range: deep
  * blue, through cyan, green, yellow and brown, to white.
@@ -303,69 +335,195 @@ export function altitudeTint(fraction: number): [number, number, number] {
   const [a, ar, ag, ab] = TINT[i - 1], [b, br, bg, bb] = TINT[i], u = (t - a) / (b - a);
   return [ar + (br - ar) * u, ag + (bg - ag) * u, ab + (bb - ab) * u];
 }
-/** A pixel's colour from its shading tone (0–255, flat ground about 217) and, for altitude colours, its height. */
+/**
+ * A pixel's colour from its tone (0–255) and, for the coloured styles, its height: altitude tints
+ * darkened on slopes away from the light; Swiss ground greyish green low to warm white high, its
+ * light side warm and its shadows bluish.
+ */
 export function reliefColour(tone: number, style: ReliefStyle, height = 0, range: [number, number] = [0, 1]): [number, number, number] {
-  if (style !== 'altitude' || height !== height) return [tone, tone, tone];
-  const [r, g, b] = altitudeTint((height - range[0]) / Math.max(1e-9, range[1] - range[0]));
+  if ((style !== 'altitude' && style !== 'swiss') || height !== height) return [tone, tone, tone];
+  const fraction = Math.min(1, Math.max(0, (height - range[0]) / Math.max(1e-9, range[1] - range[0])));
+  if (style === 'swiss') {
+    const t = tone / 255, light = (dark: number, bright: number) => (dark * (1 - t) + bright * t) / 255 * 1.08;
+    return [Math.min(255, (150 + 90 * fraction) * light(118, 255)), Math.min(255, (170 + 68 * fraction) * light(132, 250)), Math.min(255, (150 + 75 * fraction) * light(170, 222))];
+  }
+  const [r, g, b] = altitudeTint(fraction);
   // Flat ground keeps the tint; slopes away from the light darken it.
   const light = .35 + .75 * tone / 255;
   return [Math.min(255, r * light), Math.min(255, g * light), Math.min(255, b * light)];
 }
-export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, altitude = 45, exaggeration = 1, firstRow = 0, rowCount = grid.height - firstRow,
-  style: ReliefStyle = 'multidirectional', range?: [number, number]) {
-  // Image rows run north first; a strip of them (firstRow, rowCount) keeps a large image's memory low.
-  const { width, height, heights, step } = grid, rgba = new Uint8ClampedArray(width * rowCount * 4);
+/**
+ * Each cell's tone (0–255; NaN without data) in a style, for the rows firstRow … firstRow +
+ * rowCount − 1 counted from the north, north first; the grid's rows run from the south. Horn's
+ * gradient (a missing neighbour counts as the cell itself). Multidirectional as gdaldem (after
+ * Mark 1992): light from 225°, 270°, 315° and 360°, each weighted by sin² of its angle to the
+ * slope's aspect. Slope: white flat to dark at 55°. Sky-view factor: the part of the sky seen
+ * within 15 m (16 directions), so hollows, shafts and gullies show dark whatever the light.
+ * Swiss: the north-west light (40° high) and the multidirectional one together. Composite: sky
+ * 45 %, slope 25 % and multidirectional shading 30 %.
+ */
+export function reliefTones(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, firstRow = 0, rowCount = grid.height - firstRow,
+  style: ReliefStyle = 'multidirectional', altitude = 45, exaggeration = 1) {
+  const { width, height, heights, step } = grid, tones = new Float32Array(width * rowCount).fill(NaN);
   const alt = altitude * Math.PI / 180, sinAlt = Math.sin(alt), cosAlt = Math.cos(alt);
+  const sin40 = Math.sin(40 * Math.PI / 180), cos40 = Math.cos(40 * Math.PI / 180);
   const lights = [225, 270, 315, 360].map(az => [Math.sin(az * Math.PI / 180), Math.cos(az * Math.PI / 180)]);
   const [l0x, l0y] = lights[0], [l1x, l1y] = lights[1], [l2x, l2y] = lights[2], [l3x, l3y] = lights[3];
-  const scale = exaggeration / (8 * step);
+  const scale = exaggeration / (8 * step), degrees = 180 / Math.PI;
+  const sky = style === 'sky' || style === 'composite' ? skyRays(step) : undefined;
   for (let r = height - 1 - firstRow; r > height - 1 - firstRow - rowCount && r >= 0; r--) {
     // Neighbouring rows (north up, south down) and columns, kept within the grid.
     const up = (r < height - 1 ? r + 1 : r) * width, row = r * width, down = (r > 0 ? r - 1 : r) * width;
-    let out = (height - 1 - r - firstRow) * width * 4;
-    for (let c = 0; c < width; c++, out += 4) {
+    let out = (height - 1 - r - firstRow) * width;
+    for (let c = 0; c < width; c++, out++) {
       const here = heights[row + c];
-      let value = 255;
-      if (here === here) {
-        const w = c > 0 ? c - 1 : c, e = c < width - 1 ? c + 1 : c;
-        // A missing neighbour counts as this cell.
-        let a = heights[up + w], b = heights[up + c], d = heights[up + e];
-        let f = heights[row + w], g = heights[row + e];
-        let h = heights[down + w], i = heights[down + c], j = heights[down + e];
-        if (a !== a) a = here; if (b !== b) b = here; if (d !== d) d = here; if (f !== f) f = here;
-        if (g !== g) g = here; if (h !== h) h = here; if (i !== i) i = here; if (j !== j) j = here;
-        // East and north gradients (Horn).
-        const dzdx = ((d + 2 * g + j) - (a + 2 * f + h)) * scale;
-        const dzdy = ((a + 2 * b + d) - (h + 2 * i + j)) * scale;
-        const slope2 = dzdx * dzdx + dzdy * dzdy;
-        let shade: number;
-        if (slope2 === 0) shade = sinAlt;
-        else if (style === 'classic') {
-          // One light from the north-west.
-          shade = Math.max(0, (-dzdx * l2x * cosAlt - dzdy * l2y * cosAlt + sinAlt) / Math.sqrt(1 + slope2));
-        } else {
-          // Downhill direction, and the light from each azimuth on the surface normal (-dzdx, -dzdy, 1),
-          // weighted by how much it falls across the slope.
-          const norm = Math.sqrt(1 + slope2), length = Math.sqrt(slope2), ax = -dzdx / length, ay = -dzdy / length;
-          const nx = -dzdx * cosAlt, ny = -dzdy * cosAlt;
-          let total = 0, along: number, lit: number;
-          lit = (nx * l0x + ny * l0y + sinAlt) / norm; along = ax * l0x + ay * l0y; if (lit > 0) total += (1 - along * along) * lit;
-          lit = (nx * l1x + ny * l1y + sinAlt) / norm; along = ax * l1x + ay * l1y; if (lit > 0) total += (1 - along * along) * lit;
-          lit = (nx * l2x + ny * l2y + sinAlt) / norm; along = ax * l2x + ay * l2y; if (lit > 0) total += (1 - along * along) * lit;
-          lit = (nx * l3x + ny * l3y + sinAlt) / norm; along = ax * l3x + ay * l3y; if (lit > 0) total += (1 - along * along) * lit;
-          shade = total / 2;
-        }
-        // Bright paper-like tone: flat ground light grey, shadows kept readable.
-        value = 255 * Math.min(1, .18 + .95 * shade);
-        if (style === 'altitude' && range) {
-          const [red, green, blue] = reliefColour(value, style, here, range);
-          rgba[out] = red; rgba[out + 1] = green; rgba[out + 2] = blue; rgba[out + 3] = 255;
-          continue;
-        }
+      if (here !== here) continue;
+      const w = c > 0 ? c - 1 : c, e = c < width - 1 ? c + 1 : c;
+      let a = heights[up + w], b = heights[up + c], d = heights[up + e];
+      let f = heights[row + w], g = heights[row + e];
+      let h = heights[down + w], i = heights[down + c], j = heights[down + e];
+      if (a !== a) a = here; if (b !== b) b = here; if (d !== d) d = here; if (f !== f) f = here;
+      if (g !== g) g = here; if (h !== h) h = here; if (i !== i) i = here; if (j !== j) j = here;
+      // East and north gradients (Horn).
+      const dzdx = ((d + 2 * g + j) - (a + 2 * f + h)) * scale;
+      const dzdy = ((a + 2 * b + d) - (h + 2 * i + j)) * scale;
+      const slope2 = dzdx * dzdx + dzdy * dzdy, norm = Math.sqrt(1 + slope2);
+      let shade = sinAlt;
+      if (style === 'classic') {
+        // One light from the north-west.
+        if (slope2) shade = Math.max(0, (-dzdx * l2x * cosAlt - dzdy * l2y * cosAlt + sinAlt) / norm);
+        tones[out] = 255 * Math.min(1, .18 + .95 * shade);
+        continue;
       }
-      rgba[out] = rgba[out + 1] = rgba[out + 2] = value; rgba[out + 3] = 255;
+      if (slope2 && style !== 'slope' && style !== 'sky') {
+        // Downhill direction, and the light from each azimuth on the surface normal (-dzdx, -dzdy, 1),
+        // weighted by how much it falls across the slope.
+        const length = Math.sqrt(slope2), ax = -dzdx / length, ay = -dzdy / length;
+        const nx = -dzdx * cosAlt, ny = -dzdy * cosAlt;
+        let total = 0, along: number, lit: number;
+        lit = (nx * l0x + ny * l0y + sinAlt) / norm; along = ax * l0x + ay * l0y; if (lit > 0) total += (1 - along * along) * lit;
+        lit = (nx * l1x + ny * l1y + sinAlt) / norm; along = ax * l1x + ay * l1y; if (lit > 0) total += (1 - along * along) * lit;
+        lit = (nx * l2x + ny * l2y + sinAlt) / norm; along = ax * l2x + ay * l2y; if (lit > 0) total += (1 - along * along) * lit;
+        lit = (nx * l3x + ny * l3y + sinAlt) / norm; along = ax * l3x + ay * l3y; if (lit > 0) total += (1 - along * along) * lit;
+        shade = total / 2;
+      }
+      const flatness = 1 - Math.min(1, Math.atan(Math.sqrt(slope2)) * degrees / 55);
+      let open = 1;
+      if (sky) {
+        // Mean over the directions of 1 − sin(horizon angle), the horizon no lower than level.
+        let sum = 0;
+        for (const ray of sky) {
+          let rise = 0;
+          for (let k = 0; k < ray.length; k += 3) {
+            const x = c + ray[k], y = r + ray[k + 1];
+            if (x < 0 || x >= width || y < 0 || y >= height) continue;
+            const there = heights[y * width + x];
+            if (there === there) { const s = (there - here) * ray[k + 2]; if (s > rise) rise = s; }
+          }
+          sum += 1 - rise / Math.sqrt(1 + rise * rise);
+        }
+        open = Math.min(1, Math.max(0, (sum / sky.length - .5) / .45));
+      }
+      let tone: number;
+      if (style === 'slope') tone = 255 * (1 - .9 * (1 - flatness));
+      else if (style === 'sky') tone = 255 * open;
+      else if (style === 'composite') tone = 255 * Math.min(1, .45 * open + .25 * flatness + .3 * Math.min(1, shade));
+      else if (style === 'swiss') {
+        const sun = slope2 ? Math.max(0, (-dzdx * l2x * cos40 - dzdy * l2y * cos40 + sin40) / norm) : sin40;
+        tone = 255 * Math.min(1, Math.max(0, .5 * sun / sin40 + .5 * shade / .65 - .35) / 1.15);
+      } else tone = 255 * Math.min(1, .18 + .95 * shade);
+      tones[out] = tone;
     }
   }
+  return tones;
+}
+/** Contours every 10 m, each 50 m bolder, drawn from heights smoothed over about 5 m. */
+const CONTOURS = { interval: 10, index: 5, smooth: 5, thin: [160, 100, 50], bold: [105, 55, 20] };
+/** Box blur (radius in pixels) along rows, then columns, of a rows × width array, in place. */
+function boxBlur(values: Float32Array, width: number, rows: number, radius: number) {
+  const line = new Float32Array(Math.max(width, rows));
+  for (let r = 0; r < rows; r++) {
+    let sum = 0;
+    for (let c = -radius; c <= radius; c++) if (c >= 0 && c < width) sum += values[r * width + c];
+    for (let c = 0; c < width; c++) {
+      line[c] = sum;
+      const add = c + radius + 1, drop = c - radius;
+      if (add < width) sum += values[r * width + add];
+      if (drop >= 0) sum -= values[r * width + drop];
+    }
+    values.set(line.subarray(0, width), r * width);
+  }
+  for (let c = 0; c < width; c++) {
+    let sum = 0;
+    for (let r = -radius; r <= radius; r++) if (r >= 0 && r < rows) sum += values[r * width + c];
+    for (let r = 0; r < rows; r++) {
+      line[r] = sum;
+      const add = r + radius + 1, drop = r - radius;
+      if (add < rows) sum += values[add * width + c];
+      if (drop >= 0) sum -= values[drop * width + c];
+    }
+    for (let r = 0; r < rows; r++) values[r * width + c] = line[r];
+  }
+}
+/**
+ * Draws contours over RGBA rows first … first + count − 1 of an image `height` rows high (north
+ * first), from the heights of its pixels (heightAt(row from the north, column); NaN without data),
+ * smoothed (twice a box of about 5 m, cells without data left out) so they run calmly, and
+ * antialiased: each pixel by its distance to the nearest contour (height off the contour over the gradient).
+ */
+export function drawContours(rgba: Uint8ClampedArray, width: number, height: number, first: number, count: number, pixel: number,
+  heightAt: (row: number, column: number) => number) {
+  const radius = Math.max(1, Math.round(CONTOURS.smooth / pixel)), margin = 2 * radius + 2;
+  const top = Math.max(0, first - margin), bottom = Math.min(height, first + count + margin), rows = bottom - top;
+  const sums = new Float32Array(rows * width), weights = new Float32Array(rows * width);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < width; c++) {
+    const h = heightAt(top + r, c);
+    if (h === h) { sums[r * width + c] = h; weights[r * width + c] = 1; }
+  }
+  for (let pass = 0; pass < 2; pass++) { boxBlur(sums, width, rows, radius); boxBlur(weights, width, rows, radius); }
+  const smooth = (r: number, c: number) => {
+    const at = Math.min(rows - 1, Math.max(0, r)) * width + Math.min(width - 1, Math.max(0, c));
+    return weights[at] > 1e-6 ? sums[at] / weights[at] : NaN;
+  };
+  for (let row = first; row < first + count; row++) {
+    const r = row - top;
+    for (let c = 0; c < width; c++) {
+      if (heightAt(row, c) !== heightAt(row, c)) continue;
+      const h = smooth(r, c);
+      if (h !== h) continue;
+      let east = smooth(r, c + 1), west = smooth(r, c - 1), north = smooth(r - 1, c), south = smooth(r + 1, c);
+      if (east !== east) east = h; if (west !== west) west = h; if (north !== north) north = h; if (south !== south) south = h;
+      const gradient = Math.hypot((east - west) / 2, (north - south) / 2);
+      if (gradient < 1e-6) continue;
+      const k = Math.round(h / CONTOURS.interval), bold = k % CONTOURS.index === 0;
+      const distance = Math.abs(h - k * CONTOURS.interval) / gradient;
+      const cover = Math.min(1, Math.max(0, (bold ? .95 : .55) + .5 - distance)) * (bold ? .95 : .8);
+      if (cover <= 0) continue;
+      const colour = bold ? CONTOURS.bold : CONTOURS.thin, at = ((row - first) * width + c) * 4;
+      for (let k2 = 0; k2 < 3; k2++) rgba[at + k2] = rgba[at + k2] * (1 - cover) + colour[k2] * cover;
+    }
+  }
+}
+/**
+ * The relief of a grid as RGBA rows (north first) in a style, a strip of rows at a time (firstRow,
+ * rowCount: memory stays low for a large image); cells without data white. Coloured styles need
+ * the height range; contours are drawn from the whole grid's heights.
+ */
+export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, altitude = 45, exaggeration = 1, firstRow = 0, rowCount = grid.height - firstRow,
+  style: ReliefStyle = 'multidirectional', range?: [number, number]) {
+  const { width, height, heights } = grid, rgba = new Uint8ClampedArray(width * rowCount * 4);
+  const tones = reliefTones(grid, firstRow, rowCount, style, altitude, exaggeration);
+  const coloured = range && (style === 'altitude' || style === 'swiss');
+  for (let i = 0; i < width * rowCount; i++) {
+    const tone = tones[i];
+    if (tone !== tone) { rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = 255; }
+    else if (coloured) {
+      const row = firstRow + Math.floor(i / width), [r, g, b] = reliefColour(tone, style, heights[(height - 1 - row) * width + i % width], range);
+      rgba[i * 4] = r; rgba[i * 4 + 1] = g; rgba[i * 4 + 2] = b;
+    } else rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = tone;
+    rgba[i * 4 + 3] = 255;
+  }
+  if (style === 'contours') drawContours(rgba, width, height, firstRow, rowCount, grid.step, (row, column) => heights[(height - 1 - row) * width + column]);
   return rgba;
 }
 

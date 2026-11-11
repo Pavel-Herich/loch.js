@@ -265,6 +265,32 @@ describe('relief image styles', () => {
     expect(reliefColour(100, 'multidirectional', 1500, [1000, 2000])).toEqual([100, 100, 100]);
   });
 
+  it('shades every style the same in strips as at once (the sky-view factor looks 15 m beyond each strip)', async () => {
+    const { reliefFromFile, wholeFile } = await import('../src/dmr');
+    const file = fixture('dmr-lzw.tif'), { tiff } = await inspectDmr(file);
+    for (const style of ['sky', 'composite', 'contours', 'swiss', 'slope'] as const) {
+      const once = await reliefFromFile(file, tiff, wholeFile(tiff), 1, undefined, style, [1200, 1400], 4096);
+      const strips = await reliefFromFile(file, tiff, wholeFile(tiff), 1, undefined, style, [1200, 1400], 1);
+      expect(Array.from(strips.rows(0, strips.height))).toEqual(Array.from(once.rows(0, once.height)));
+    }
+  });
+
+  it('darkens hollows in the sky-view factor, slopes in the slope style, and draws contours', async () => {
+    const { hillshade } = await import('../src/dmr');
+    // A 40 × 40 m bowl, 8 m deep in the middle.
+    const bowl = { width: 41, height: 41, step: 1, heights: Float32Array.from({ length: 41 * 41 }, (_, i) => 1000 + Math.min(8, Math.hypot(i % 41 - 20, Math.floor(i / 41) - 20) * .5) - 8) };
+    const at = (rgba: Uint8ClampedArray, r: number, c: number) => rgba[(r * 41 + c) * 4];
+    const sky = hillshade(bowl, 45, 1, 0, 41, 'sky');
+    expect(at(sky, 20, 20)).toBeLessThan(at(sky, 2, 2));
+    const slope = hillshade(bowl, 45, 1, 0, 41, 'slope');
+    expect(at(slope, 20, 30)).toBeLessThan(at(slope, 2, 2)); // the bowl's side darker than the flat rim
+    const contours = hillshade(bowl, 45, 1, 0, 41, 'contours'), plain = hillshade(bowl, 45, 1, 0, 41, 'multidirectional');
+    let coloured = 0;
+    for (let i = 0; i < 41 * 41; i++) if (contours[i * 4] !== contours[i * 4 + 2]) coloured++;
+    expect(coloured).toBeGreaterThan(0); // brown lines (the 1000 m contour is a ring round the bottom)
+    expect(Array.from(plain.slice(0, 4))).toEqual([plain[0], plain[0], plain[0], 255]);
+  });
+
   it('crops a preview grid to the chosen corners', async () => {
     const { cropGrid } = await import('../src/dmr');
     const grid = { width: 4, height: 3, step: 2, origin: [100, 200] as [number, number], heights: Float32Array.from({ length: 12 }, (_, i) => i) };

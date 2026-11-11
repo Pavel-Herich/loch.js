@@ -1095,16 +1095,22 @@ function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: 
   }, { once: true }));
 }
 /**
- * The relief image's style (the step after its size): previews of this terrain shaded from four
- * directions (chosen beforehand), from the north-west only, and coloured by altitude.
+ * The relief image's style (the step after its size): previews of the cropped terrain in eight
+ * styles, multidirectional chosen beforehand.
  */
 const styleDialog = document.querySelector<HTMLDialogElement>('#style-dialog')!;
 function askReliefStyle(preview: Dmr, range: [number, number]) {
   const styles: [ReliefStyle, string, string][] = [
-    ['multidirectional', 'Multidirectional', 'Light from four directions (as gdaldem -multidirectional): every slope readable.'],
     ['classic', 'Classic hillshade', 'One light from the north-west, 45° high.'],
+    ['multidirectional', 'Multidirectional', 'Light from four directions (as gdaldem -multidirectional): every slope readable.'],
     ['altitude', 'Altitude colours', 'Low ground blue, through green, yellow and brown, to white heights, over the shading.'],
+    ['slope', 'Slope', 'White flat ground to dark slopes of 55° and more: rock steps and edges.'],
+    ['sky', 'Sky-view factor', 'How much sky each place sees within 15 m: hollows, shafts and gullies dark whatever the light.'],
+    ['contours', 'Contours', 'Every 10 m, each 50 m bolder, smoothed over about 5 m, over the multidirectional shading.'],
+    ['swiss', 'Swiss', 'Light from the north-west in warm tones, bluish shadows, ground lighter with height.'],
+    ['composite', 'Composite', 'Sky-view factor, slope and multidirectional shading together: the most detail.'],
   ];
+
   // Previews about 320 px wide, from the preview grid.
   const shrink = Math.max(1, Math.ceil(preview.width / 320));
   const small = shrink > 1 ? { ...preview, width: Math.floor(preview.width / shrink), height: Math.floor(preview.height / shrink), step: preview.step * shrink,
@@ -1112,13 +1118,13 @@ function askReliefStyle(preview: Dmr, range: [number, number]) {
       const w = Math.floor(preview.width / shrink), c = i % w, r = (i - c) / w;
       return preview.heights[r * shrink * preview.width + c * shrink];
     }) } : preview;
-  document.querySelector('#style-options')!.replaceChildren(...styles.map(([style, title, text], index) => {
+  document.querySelector('#style-options')!.replaceChildren(...styles.map(([style, title, text]) => {
     const label = document.createElement('label'), input = document.createElement('input');
     label.className = 'quality-option';
-    input.type = 'radio'; input.name = 'relief-style'; input.value = style; input.checked = index === 0;
+    input.type = 'radio'; input.name = 'relief-style'; input.value = style; input.checked = style === 'multidirectional';
     const canvas = document.createElement('canvas'); canvas.width = small.width; canvas.height = small.height;
     canvas.getContext('2d')!.putImageData(new ImageData(hillshade(small, 45, 1, 0, small.height, style, range) as Uint8ClampedArray<ArrayBuffer>, small.width, small.height), 0, 0);
-    const strong = document.createElement('strong'); strong.textContent = title + (index === 0 ? ' · default' : '');
+    const strong = document.createElement('strong'); strong.textContent = title + (style === 'multidirectional' ? ' · default' : '');
     const detail = document.createElement('small'); detail.textContent = text;
     label.append(input, canvas, strong, detail);
     return label;
