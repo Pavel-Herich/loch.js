@@ -19,4 +19,11 @@ describe('speed of rotation and animation', () => {
     const half = animationCamera(camera, target, size, 15, 1, 10, 3); // 15 frames of a 3 s turn at 10 fps: half a turn
     expect(half.position.x).toBeCloseTo(-10, 6);
   });
+  it('tells how far the camera is on its way to the next view (for scene fades)', () => {
+    const timeline = new PresentationTimeline([view('a', 0), view('b', 10)], false);
+    const start = timeline.sample(0), middle = timeline.sample(1.5), end = timeline.sample(10);
+    expect([start.sceneIndex, start.nextIndex, start.blend]).toEqual([0, 1, 0]);
+    expect(middle.nextIndex).toBe(1); expect(middle.blend!).toBeGreaterThan(.3); expect(middle.blend!).toBeLessThan(.7);
+    expect(end.sceneIndex).toBe(1); expect(end.nextIndex).toBeUndefined();
+  });
 });

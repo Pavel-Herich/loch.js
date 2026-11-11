@@ -1,7 +1,7 @@
 import { Presentation, type LxaCamera } from './presentation';
 import { PresentationTimeline, type PresentationPose } from './presentation-timeline';
 import { PresentationPlayer } from './presentation-player';
-import { applySceneSettings, captureSceneSettings } from './presentation-scene';
+import { applySceneSettings, blendSceneSettings, captureSceneSettings } from './presentation-scene';
 import { initializeSaveFile } from './save-image';
 import { readPresentationXml } from './presentation-file';
 
@@ -27,6 +27,8 @@ export function initializePresentation(host: Host) {
     [name, globalThis.document.querySelector<HTMLInputElement>(`#presentation-${name}`)!])) as Record<string, HTMLInputElement>;
   const player = new PresentationPlayer(pose => {
     if (document.sceneChanges && appliedScene !== pose.sceneIndex) { applySceneSettings(timeline.views[pose.sceneIndex].scene); appliedScene = pose.sceneIndex; }
+    if (document.sceneChanges && pose.nextIndex !== undefined && pose.nextIndex !== pose.sceneIndex)
+      blendSceneSettings(timeline.views[pose.sceneIndex].scene, timeline.views[pose.nextIndex].scene, pose.blend ?? 0);
     host.apply(pose);
     if (list.selectedIndex !== pose.sceneIndex) list.selectedIndex = pose.sceneIndex;
   }, active => { checkbox.checked = active; play.textContent = active ? 'Stop' : 'Play'; host.playing(active); });

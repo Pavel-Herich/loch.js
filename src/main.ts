@@ -56,7 +56,7 @@ import { imageCamera, renderImage } from './render-image';
 import { applyImageBackground } from './image-print-theme';
 import { initializePresentation } from './presentation-ui';
 import { capturePresentationCamera, presentationCamera, type PresentationPose } from './presentation-timeline';
-import { applySceneSettings, snapshotPresentationControls } from './presentation-scene';
+import { applySceneSettings, blendSceneSettings, registerSceneControl, snapshotPresentationControls } from './presentation-scene';
 import { PresentationGuides } from './presentation-guides';
 import { readPresentationXml } from './presentation-file';
 import { AnimationWakeLock } from './screen-wake-lock';
@@ -2377,7 +2377,7 @@ window.addEventListener('drop', e => { e.preventDefault(); openFiles(Array.from(
  * Animations (Loch-compatible .lxa): views marked in the editor, played back here and exported
  * as MP4; and the view saved as a PNG or JPG at any size (both from Stacho Mudrák's loch.js).
  */
-let exportRendering = false;
+let exportRendering = false, mapsRefreshed = 0;
 // One speed for the autorotation (15 s a turn at 1×) and for animations played or exported.
 const SPEED_KEY = 'loch.js.speed';
 const speedControls = Array.from(document.querySelectorAll<HTMLSelectElement>('#animation-speed, #presentation-speed'));
@@ -2431,6 +2431,58 @@ async function openAnimation(file: File) {
     await presentation.loadFile(file, xml);
   } catch (error) { menus.expand(); showLoadError(status, error, { phase: 'Reading animation', file }); }
 }
+/*
+ * Settings an animation view keeps besides Loch's (with Scene changes): field objects, SHP layers
+ * and the map layers with their opacity. Map layers coming on fade in over the second half of the
+ * way to the view, those going off fade out over the first half, and one staying on changes its
+ * opacity all the way.
+ */
+for (const [key, id] of [['objects', '#objects-visible'], ['shp', '#layers-visible']] as const) registerSceneControl({
+  key, capture: () => String(document.querySelector<HTMLInputElement>(id)!.checked),
+  apply(value) {
+    const box = document.querySelector<HTMLInputElement>(id)!, on = value === 'true';
+    if (box.checked !== on) { box.checked = on; box.dispatchEvent(new Event('change', { bubbles: true })); }
+  },
+});
+const mapsOf = (value: string) => new Map(value.split(',').filter(Boolean).map(item => { const [id, opacity] = item.split(':'); return [id, Math.max(0, Math.min(1, Number(opacity) || 0))] as [string, number]; }));
+function showMapLayer(id: string, opacity: number) {
+  const state = mapLayers.get(id);
+  if (!state) return;
+  if (opacity > 0 && !state.on) setMapLayer(id, true, true);
+  if (state.on) surfaceScene.setLayerOpacity(id, opacity);
+}
+registerSceneControl({
+  key: 'maps',
+  capture: () => [...mapLayers].filter(([, state]) => state.on).map(([id, state]) => `${id}:${state.opacity}`).join(','),
+  apply(value) {
+    const wanted = mapsOf(value);
+    for (const [id, state] of mapLayers) {
+      const opacity = wanted.get(id);
+      if (opacity === undefined) { if (state.on) setMapLayer(id, false, true); continue; }
+      state.opacity = opacity;
+      const input = layerList.querySelector<HTMLInputElement>(`.map-layer[data-layer="${id}"] input[type=range]`);
+      if (input) { input.value = String(Math.round(opacity * 100)); input.nextElementSibling!.textContent = `${Math.round(opacity * 100)}%`; }
+      if (!state.on) setMapLayer(id, true, true); else surfaceScene.setLayerOpacity(id, opacity);
+    }
+  },
+  blend(from, to, t) {
+    const first = mapsOf(from), next = mapsOf(to);
+    for (const id of new Set([...first.keys(), ...next.keys()])) {
+      const a = first.get(id), b = next.get(id);
+      if (a !== undefined && b !== undefined) showMapLayer(id, a + (b - a) * t);
+      else if (a !== undefined) showMapLayer(id, a * Math.max(0, 1 - 2 * t));
+      else if (b !== undefined && t >= .5) showMapLayer(id, b * (2 * t - 1));
+    }
+  },
+});
+const loadsForView = (id: string) => { const service = UNDERLAY_SERVICES.find(item => item.id === id); return service?.kind === 'xyz' && Boolean(service.onDemand); };
+/** Map layers that load for the view: all ready and nothing loading (or the time is up). */
+async function mapsSettled(signal: AbortSignal, timeout = 20000) {
+  const until = performance.now() + timeout;
+  const busy = () => viewLoading > 0 || [...mapLayers].some(([id, state]) => state.on && !state.shown && loadsForView(id));
+  while (busy() && performance.now() < until) { signal.throwIfAborted(); await new Promise(resolve => setTimeout(resolve, 100)); }
+}
+const onDemandLayers = () => [...mapLayers].filter(([, state]) => state.on && state.shown).map(([id]) => id);
 const saveImageButton = document.querySelector<HTMLButtonElement>('#save-image')!;
 const saveAnimationButton = document.querySelector<HTMLButtonElement>('#save-animation')!;
 for (const button of [saveImageButton, saveAnimationButton]) button.addEventListener('click', () => { menus.close(); resize(); });
@@ -2491,11 +2543,19 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
     camera = originalCamera; controls.target.copy(originalTarget);
     drawOverlays();
   };
-  const frame = async (view: ViewCamera, target = originalTarget, sceneIndex = -1) => {
+  // A film's map layers load for its camera about once a second of film (and at each view).
+  let filmFrames = 0, refreshEvery = 1;
+  const frame = async (view: ViewCamera, target = originalTarget, sceneIndex = -1, nextIndex = sceneIndex, blend = 0) => {
     signal.throwIfAborted();
-    if (timeline.sceneChanges && sceneIndex >= 0 && sceneIndex !== exportScene) { applySceneSettings(timeline.views[sceneIndex].scene); exportScene = sceneIndex; }
+    const changed = timeline.sceneChanges && sceneIndex >= 0 && sceneIndex !== exportScene;
+    if (changed) { applySceneSettings(timeline.views[sceneIndex].scene); exportScene = sceneIndex; }
+    if (timeline.sceneChanges && sceneIndex >= 0 && nextIndex !== sceneIndex) blendSceneSettings(timeline.views[sceneIndex].scene, timeline.views[nextIndex].scene, blend);
     camera = view; controls.target.copy(target);
     lighting.updateCamera(); surfaceScene.updateCamera(camera.position);
+    if (imageDialog.animation() && (changed || filmFrames++ % refreshEvery === 0) && [...mapLayers.values()].some(state => state.on)) {
+      for (const id of onDemandLayers()) refreshOnDemand(id);
+      await mapsSettled(signal);
+    }
     // As on screen: the walls the view would draw for this camera (its Detail setting), in one pass.
     // Otherwise every batch at full detail, one after another; a film keeps their geometry on the
     // graphics card between its frames (freed at the end; not on phones).
@@ -2518,14 +2578,15 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
       const { animationCamera, encodeAnimation } = await import('./save-animation');
       const target = controls.target.clone(), direction = autorotate.direction, settings = imageDialog.animationSettings();
       if (timeline.views.length) {
-        const schedule = timeline.frames(settings.fps);
+        const schedule = timeline.frames(settings.fps); refreshEvery = Math.max(1, Math.round(settings.fps));
         return await encodeAnimation(size, index => {
           const pose = timeline.sample(schedule.time(index));
-          return frame(presentationCamera(pose, worldOrigin, size.width / size.height, originalCamera), new THREE.Vector3(...pose.center).sub(worldOrigin), pose.sceneIndex);
+          return frame(presentationCamera(pose, worldOrigin, size.width / size.height, originalCamera), new THREE.Vector3(...pose.center).sub(worldOrigin), pose.sceneIndex, pose.nextIndex, pose.blend);
         }, signal, imageDialog.progress, settings, schedule.count);
       }
       // No views: one turn round the rotation centre in the autorotation's direction.
       const period = autorotate.period;
+      refreshEvery = Math.max(1, Math.round(settings.fps));
       return await encodeAnimation(size, index => frame(animationCamera(originalCamera, target, size, index, direction, settings.fps, period)), signal, imageDialog.progress, settings, Math.max(1, Math.round(period * settings.fps)));
     }
     const image = await frame(imageCamera(originalCamera, size));
@@ -2552,7 +2613,11 @@ function frame(time = performance.now()) {
   if (exportRendering) return;
   const suspended = Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden
     || imageDialog.dialog.open || document.querySelector<HTMLDialogElement>('#presentation-edit-dialog')!.open);
-  if (presentation.player.playing) presentation.player.update(time, suspended);
+  if (presentation.player.playing) {
+    presentation.player.update(time, suspended);
+    // The camera moves without the controls: map layers load for it about once a second.
+    if (time - mapsRefreshed > 1000) { mapsRefreshed = time; for (const id of onDemandLayers()) refreshOnDemand(id); }
+  }
   else autorotate.update(time, Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden));
   if (presentationGuides.update(presentation.timeline(), worldOrigin, !presentation.player.playing && !largeWorker && !loadingLargeWalls && !activeBox.isEmpty())) invalidateView();
   if (sceneDirty) {

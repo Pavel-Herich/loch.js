@@ -1,7 +1,8 @@
 import { MathUtils, Matrix4, OrthographicCamera, PerspectiveCamera, Vector3 } from 'three';
 import type { ViewCamera } from './camera';
 import type { LxaCamera, LxaView } from './presentation';
-export type PresentationPose = LxaCamera & { walker: boolean; sceneIndex: number };
+/** sceneIndex: the view whose settings apply; while travelling to nextIndex, blend (0–1) of the way there. */
+export type PresentationPose = LxaCamera & { walker: boolean; sceneIndex: number; nextIndex?: number; blend?: number };
 type Segment = { start: number; duration: number; from: number; to: number; rotation: boolean };
 type Velocity = { facing: number; tilt: number; distance: number; focus: number; center: number[]; position: Vector3 };
 const radians = MathUtils.degToRad;
@@ -112,7 +113,7 @@ export class PresentationTimeline {
       center: from.center.map((value, axis) => interpolate(value, to.center[axis], start.center[axis], end.center[axis])) as [number, number, number],
       distance: interpolate(from.distance, to.distance, start.distance, end.distance), focus: interpolate(from.focus, to.focus, start.focus, end.focus),
       perspective: transitionProgress(t, from.transition, to.transition) <= .5 ? from.perspective : to.perspective,
-      walker: to.walker, sceneIndex: segment.from };
+      walker: to.walker, sceneIndex: segment.from, nextIndex: segment.to, blend: transitionProgress(t, from.transition, to.transition) };
     if (to.walker) {
       const a = presentationPosition(from), b = presentationPosition(to);
       pose.center = [0, 1, 2].map(axis => interpolate(a.getComponent(axis), b.getComponent(axis), start.position.getComponent(axis), end.position.getComponent(axis))) as [number, number, number];
