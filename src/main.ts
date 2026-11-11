@@ -1367,10 +1367,13 @@ async function askQuality(service: XyzService, optimal: OfflinePlan, max: Offlin
   let near = 0;
   for (const zoom of optimal.highest.values()) near = Math.max(near, zoom);
   const ground = (zoom: number) => tileGround(latitude, tileTemplate(service).size, zoom).toFixed(1);
-  document.querySelector('#quality-optimal')!.textContent = describe(optimal.tiles, `About ${OFFLINE_BASE} m/px over the whole surface, sharper near the survey stations (${ground(near)} m/px within 100 m).`);
+  const stations = stationPoints().length > 0;
+  document.querySelector('#quality-optimal')!.textContent = describe(optimal.tiles, stations
+    ? `About ${OFFLINE_BASE} m/px over the whole surface, sharper near the survey stations (${ground(near)} m/px within 100 m).`
+    : `About ${OFFLINE_BASE} m/px over the whole surface (no survey stations to be sharper near).`);
   document.querySelector('#quality-max')!.textContent = describe(max.tiles, `About ${ground(service.maxZoom)} m/px over the whole surface.`);
   const connection = (navigator as Navigator & { connection?: { type?: string } }).connection;
-  document.querySelector('#quality-text')!.textContent = `How much of ${service.title} to keep on this device for use without a signal${connection?.type === 'cellular' ? ' (you are on mobile data)' : ''}? The map is shown either way.`;
+  document.querySelector('#quality-text')!.textContent = `How much of ${service.title} to keep on this device for use without a signal${connection?.type === 'cellular' ? ' (you are on mobile data)' : ''}? The map is shown either way${service.apiKey ? '' : ', online as sharp as the view needs'}.`;
   const last = mapQuality(service.id);
   qualityDialog.querySelectorAll<HTMLButtonElement>('.quality-option').forEach(button => button.classList.toggle('last', button.value === last));
   qualityDialog.returnValue = '';
@@ -1639,8 +1642,9 @@ function refreshOnDemand(id: string) {
     const screen = perspective ? distance * 2 * Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).getEffectiveFOV()) / 2) / height
       : ((camera as THREE.OrthographicCamera).top - (camera as THREE.OrthographicCamera).bottom) / (camera as THREE.OrthographicCamera).zoom / height;
     let zoom = Math.max(minZoom, Math.min(service.maxZoom, Math.ceil(Math.log2(tileGround(latitude, tile, 0) / (screen / density)) - .05)));
-    // Offline layers stay within the zooms kept on the device.
-    if (state.highest) zoom = Math.max(state.low ?? minZoom, Math.min(zoom, state.highest.get(piece.key) ?? zoom));
+    // Offline layers stay within the zooms kept on the device: always for Mapy.com (its tiles cost
+    // credits), for the free ZBGIS only without a signal (online it loads sharper as the view needs).
+    if (state.highest && (service.apiKey || globalThis.navigator?.onLine === false)) zoom = Math.max(state.low ?? minZoom, Math.min(zoom, state.highest.get(piece.key) ?? zoom));
     while (zoom > minZoom && Math.max(size(piece, zoom).width, size(piece, zoom).height) > maxSide) zoom--;
     return { ...piece, distance, zoom };
   }).sort((a, b) => a.distance - b.distance);
@@ -1727,7 +1731,8 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
   rememberModelLayers();
   if (service.kind === 'xyz' && service.onDemand) {
     const request = state.request = new AbortController();
-    state.shown = new Map(); state.failures = 0; state.announced = false;
+    // Pieces are shown only once the layer is ready (WMS layer names known, quality chosen).
+    state.failures = 0; state.announced = false;
     void (async () => {
       if (service.apiKey) {
         state.apiKey = mapyKey() || await askMapyKey();
@@ -1763,6 +1768,7 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
           else state.highest = undefined; // online only: any zoom the view needs
         } else { state.highest = plan.highest; tiles = plan.tiles; }
       }
+      state.shown = new Map();
       refreshOnDemand(id);
       if (service.offline && quality !== 'online') void saveOfflineTiles(id, service, tiles, request, state.apiKey ?? '', service.offlineMax && !quiet);
       else if (service.offline) layerStatus(id, 'Online only · nothing saved for use without a signal');
