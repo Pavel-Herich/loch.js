@@ -32,7 +32,10 @@ export function initializeImageSizeDialog(button: HTMLButtonElement, currentSize
   const size = () => ({ width: width.valueAsNumber, height: height.valueAsNumber });
   const round = (value: number) => animation ? Math.max(2, Math.round(value / 2) * 2) : Math.max(1, Math.round(value));
   for (const input of [width, height]) input.max = String(maxDimension);
-  const describe = () => { const info = animationInfo(); description.textContent = `${info.views ? `${info.views} views · ${info.duration} seconds` : '360° rotation · 15 seconds'} · ${fps.value} fps`; };
+  const describe = () => {
+    const info = animationInfo(), seconds = Number(info.duration.toFixed(1));
+    description.textContent = `${info.views ? `${info.views} views` : '360° rotation'} · ${seconds} seconds · ${fps.value} fps`;
+  };
   const open = (video: boolean) => {
     animation = video; abort = new AbortController(); renderingStarted = undefined;
     const current = video ? { width: 1920, height: 1080 } : currentSize();

@@ -8,9 +8,9 @@ export const ANIMATION_FPS = 30;
 export const ANIMATION_FRAMES = AUTOROTATE_PERIOD_SECONDS * ANIMATION_FPS;
 
 /** Sample a full Z-up orbit without repeating the first frame at the end. */
-export function animationCamera(camera: ViewCamera, target: Vector3, size: ImageSize, frame: number, direction: 1 | -1, fps = ANIMATION_FPS) {
+export function animationCamera(camera: ViewCamera, target: Vector3, size: ImageSize, frame: number, direction: 1 | -1, fps = ANIMATION_FPS, period = AUTOROTATE_PERIOD_SECONDS) {
   const copy = imageCamera(camera, size);
-  const offset = camera.position.clone().sub(target).applyAxisAngle(new Vector3(0, 0, 1), -direction * frame / (AUTOROTATE_PERIOD_SECONDS * fps) * 2 * Math.PI);
+  const offset = camera.position.clone().sub(target).applyAxisAngle(new Vector3(0, 0, 1), -direction * frame / (period * fps) * 2 * Math.PI);
   copy.position.copy(target).add(offset); copy.lookAt(target); copy.updateMatrixWorld(); return copy;
 }
 

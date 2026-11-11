@@ -6,7 +6,9 @@ import { initializeSaveFile } from './save-image';
 import { readPresentationXml } from './presentation-file';
 
 type Host = { capture(): LxaCamera; walker(): boolean; apply(pose: PresentationPose): void; canPlay(): boolean;
-  playing(active: boolean): void; error(error: unknown, file?: File): void };
+  playing(active: boolean): void; error(error: unknown, file?: File): void;
+  /** Overall speed (1 = as saved): every duration is divided by it for playing and exporting; the file keeps its own. */
+  speed?(): number };
 export function initializePresentation(host: Host) {
   let document = Presentation.create(), timeline = new PresentationTimeline([], true), filename = 'presentation.lxa', dirty = false, appliedScene = -1;
   const panel = globalThis.document.querySelector<HTMLDialogElement>('#presentation-panel')!;
@@ -41,7 +43,9 @@ export function initializePresentation(host: Host) {
     globalThis.document.querySelector<HTMLButtonElement>('#presentation-save')!.disabled = !timeline.views.length;
   }
   function rebuild(selected = list.selectedIndex) {
-    timeline = new PresentationTimeline(document.views(), document.loop, document.sceneChanges); appliedScene = -1;
+    const speed = host.speed?.() ?? 1;
+    const views = document.views().map(view => speed === 1 ? view : { ...view, duration: view.duration / speed, rotationDuration: view.rotationDuration / speed });
+    timeline = new PresentationTimeline(views, document.loop, document.sceneChanges, 15 / speed); appliedScene = -1;
     list.replaceChildren();
     timeline.views.forEach((view, index) => {
       const option = globalThis.document.createElement('option'); option.value = String(index);
@@ -51,7 +55,7 @@ export function initializePresentation(host: Host) {
     list.selectedIndex = Math.max(-1, Math.min(selected, timeline.views.length - 1));
     loop.checked = document.loop; sceneChanges.checked = document.sceneChanges;
     title.textContent = `Animation${dirty ? ' *' : ''}`;
-    summary.textContent = `${timeline.views.length} views · ${timeline.duration.toFixed(2).replace(/\.00$/, '')} seconds${document.loop ? ' · loop' : ''}`;
+    summary.textContent = `${timeline.views.length} views · ${timeline.duration.toFixed(2).replace(/\.00$/, '')} seconds${document.loop ? ' · loop' : ''}${speed === 1 ? '' : ` · speed ${speed}×`}`;
     refresh();
   }
   function select() {
@@ -113,5 +117,7 @@ export function initializePresentation(host: Host) {
     else if (panel.open) { panel.close(); event.preventDefault(); }
   });
   rebuild();
-  return { player, loadFile, refresh, toggle, timeline: () => timeline, resetScene() { appliedScene = -1; } };
+  return { player, loadFile, refresh, toggle, timeline: () => timeline, resetScene() { appliedScene = -1; },
+    /** Rebuild the timeline (after a speed change), keeping the selected view. */
+    rebuild() { player.stop(); rebuild(); } };
 }

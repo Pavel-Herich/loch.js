@@ -439,3 +439,4 @@ label.quality-option:has(>input:disabled){opacity:.45;cursor:default}
 .image-white-background .tilt-direction{stroke:#255a73}
 .image-white-background .tilt-tip{fill:#255a73}
 .image-white-background .scale-ruler{border-color:#162531;background:linear-gradient(to right,#162531 25%,#fff 25% 50%,#162531 50% 75%,#fff 75%)}
+.speed-control select{margin-left:6px;padding:3px 4px;border:1px solid #678599;border-radius:4px;background:#09131c;color:inherit;font:inherit}

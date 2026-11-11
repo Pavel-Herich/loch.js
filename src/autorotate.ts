@@ -6,12 +6,14 @@ export const AUTOROTATE_DIRECTION_KEY = 'loch.js.autorotate-direction';
 
 export class AutoRotation {
   private active = false;
+  /** Seconds a turn (15 at speed 1). */
+  private seconds = AUTOROTATE_PERIOD_SECONDS;
   private interacting = false;
   private previousTime?: number;
   private startedAt?: number;
   constructor(private controls: OrbitControls, private rotationDirection: 1 | -1 = 1) {
     // OrbitControls speed 1 is one turn per 60 seconds.
-    controls.autoRotateSpeed = rotationDirection * 60 / AUTOROTATE_PERIOD_SECONDS;
+    controls.autoRotateSpeed = rotationDirection * 60 / this.seconds;
     controls.autoRotate = false;
     controls.addEventListener('start', this.startInteraction);
     controls.addEventListener('end', this.endInteraction);
@@ -19,11 +21,17 @@ export class AutoRotation {
   get enabled() { return this.active; }
   set enabled(enabled: boolean) { this.setEnabled(enabled); }
   get direction() { return this.rotationDirection; }
+  /** Seconds a turn: 15 divided by the speed. */
+  get period() { return this.seconds; }
+  set period(seconds: number) {
+    this.seconds = seconds > 0 ? seconds : AUTOROTATE_PERIOD_SECONDS;
+    this.controls.autoRotateSpeed = this.rotationDirection * 60 / this.seconds;
+  }
   setEnabled(enabled: boolean, time = performance.now()) {
     if (enabled === this.active) return;
     if (enabled && this.startedAt !== undefined && time >= this.startedAt && time - this.startedAt <= 1000) {
       this.rotationDirection = this.rotationDirection === 1 ? -1 : 1;
-      this.controls.autoRotateSpeed = this.rotationDirection * 60 / AUTOROTATE_PERIOD_SECONDS;
+      this.controls.autoRotateSpeed = this.rotationDirection * 60 / this.seconds;
     }
     if (enabled) this.startedAt = time;
     this.active = enabled; this.resetTime();

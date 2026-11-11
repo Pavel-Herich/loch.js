@@ -22,9 +22,10 @@ export class PresentationTimeline {
   readonly viewTimes: number[];
   readonly duration: number;
   private velocities: Velocity[];
-  constructor(readonly views: LxaView[], readonly loop: boolean, readonly sceneChanges = false) {
+  /** A single view turns once in `singleTurn` seconds (15 at speed 1). */
+  constructor(readonly views: LxaView[], readonly loop: boolean, readonly sceneChanges = false, readonly singleTurn = 15) {
     this.viewTimes = views.map(() => 0); let time = 0;
-    if (views.length === 1) this.segments.push({ start: 0, duration: 15, from: 0, to: 0, rotation: true });
+    if (views.length === 1) this.segments.push({ start: 0, duration: singleTurn, from: 0, to: 0, rotation: true });
     else for (let from = 0; from < (loop ? views.length : views.length - 1); from++) {
       const to = (from + 1) % views.length, view = views[from];
       this.viewTimes[from] = time;
@@ -33,7 +34,7 @@ export class PresentationTimeline {
       this.segments.push({ start: time, duration: views[to].duration, from, to, rotation: false }); time += views[to].duration;
       if (to !== 0) this.viewTimes[to] = time;
     }
-    this.duration = views.length === 1 ? 15 : time;
+    this.duration = views.length === 1 ? singleTurn : time;
     this.velocities = views.map((_, index) => ({ facing: this.velocity(index, view => view.facing, true),
       tilt: this.velocity(index, view => view.tilt, false, true), distance: this.velocity(index, view => view.distance, false, true),
       focus: this.velocity(index, view => view.focus, false, true), center: [0, 1, 2].map(axis => this.velocity(index, view => view.center[axis])), position: new Vector3() }));
@@ -72,7 +73,7 @@ export class PresentationTimeline {
   }
   frames(fps: number) {
     if (!Number.isInteger(fps) || fps < 1 || fps > 120) throw new Error('Invalid animation FPS');
-    if (this.views.length === 1) return { count: 15 * fps, time: (frame: number) => frame / fps };
+    if (this.views.length === 1) return { count: Math.max(1, Math.round(this.singleTurn * fps)), time: (frame: number) => frame / fps };
     let count = 1;
     const parts = this.segments.map((segment, index) => {
       const steps = Math.max(segment.rotation ? 0 : 1, Math.round(segment.duration * fps));

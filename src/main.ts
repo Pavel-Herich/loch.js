@@ -20,7 +20,7 @@ import { CentrelineScene, initializeCentrelineControls } from './centreline';
 import { initializeIndicators, metresPerPixel } from './indicators';
 import { FULL_SIZE_METRES_PER_PIXEL, setSymbolFilter, setSymbolView } from './station-labels';
 import { displayProjectTitle } from './lox-title';
-import { initializeAutorotateControls } from './autorotate';
+import { AUTOROTATE_PERIOD_SECONDS, initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
 import { WalkerControls } from './walker';
 import { orbitTo, ViewLocks } from './view-locks';
@@ -2378,7 +2378,20 @@ window.addEventListener('drop', e => { e.preventDefault(); openFiles(Array.from(
  * as MP4; and the view saved as a PNG or JPG at any size (both from Stacho Mudrák's loch.js).
  */
 let exportRendering = false;
+// One speed for the autorotation (15 s a turn at 1×) and for animations played or exported.
+const SPEED_KEY = 'loch.js.speed';
+const speedControls = Array.from(document.querySelectorAll<HTMLSelectElement>('#animation-speed, #presentation-speed'));
+let speed = 1;
+try { const kept = Number(localStorage.getItem(SPEED_KEY)); if (speedControls[0] && Array.from(speedControls[0].options).some(option => Number(option.value) === kept)) speed = kept; } catch { /* 1×. */ }
+function setSpeed(value: number) {
+  speed = value > 0 ? value : 1;
+  for (const control of speedControls) control.value = String(speed);
+  autorotate.period = AUTOROTATE_PERIOD_SECONDS / speed;
+  try { localStorage.setItem(SPEED_KEY, String(speed)); } catch { /* For this session. */ }
+}
+setSpeed(speed);
 const presentation = initializePresentation({
+  speed: () => speed,
   capture: () => capturePresentationCamera(camera, controls.target, worldOrigin), walker: () => walker.enabled,
   canPlay: () => !activeBox.isEmpty() && !largeWorker && !loadingLargeWalls && !preparationPending && !exportRendering,
   apply(pose: PresentationPose) {
@@ -2410,6 +2423,7 @@ document.querySelector('#menus')!.addEventListener('change', event => {
 document.querySelector('#menus')!.addEventListener('click', event => {
   if ((event.target as HTMLElement).closest('[data-view]')) presentation.player.stop();
 });
+for (const control of speedControls) control.addEventListener('change', () => { setSpeed(Number(control.value)); presentation.rebuild(); });
 async function openAnimation(file: File) {
   try {
     const xml = await readPresentationXml(file);
@@ -2423,7 +2437,10 @@ for (const button of [saveImageButton, saveAnimationButton]) button.addEventList
 const gl = renderer.getContext();
 const imageDialog = initializeImageSizeDialog(saveImageButton, () => ({ width: canvas.width, height: canvas.height }),
   Math.min(16384, renderer.capabilities.maxTextureSize, gl.getParameter(gl.MAX_RENDERBUFFER_SIZE)), saveAnimationButton, () => false,
-  () => ({ views: presentation.timeline().views.length, duration: presentation.timeline().duration }));
+  () => ({ views: presentation.timeline().views.length, duration: presentation.timeline().views.length ? presentation.timeline().duration : autorotate.period }));
+// The editor saves its film too (as File → Save animation).
+const presentationMp4 = document.querySelector<HTMLButtonElement>('#presentation-mp4')!;
+presentationMp4.addEventListener('click', () => saveAnimationButton.click());
 const stationLabelCanvas = document.querySelector<HTMLCanvasElement>('#station-labels')!;
 const escapeHtml = (text: string) => text.replace(/[&<>"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character]!);
 /**
@@ -2500,7 +2517,8 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
         }, signal, imageDialog.progress, settings, schedule.count);
       }
       // No views: one turn round the rotation centre in the autorotation's direction.
-      return await encodeAnimation(size, index => frame(animationCamera(originalCamera, target, size, index, direction, settings.fps)), signal, imageDialog.progress, settings);
+      const period = autorotate.period;
+      return await encodeAnimation(size, index => frame(animationCamera(originalCamera, target, size, index, direction, settings.fps, period)), signal, imageDialog.progress, settings, Math.max(1, Math.round(period * settings.fps)));
     }
     const image = await frame(imageCamera(originalCamera, size));
     try { return await (imageDialog.format() === 'jpg' ? canvasJpeg(image) : canvasPng(image)); } finally { image.width = 0; image.height = 0; }
@@ -2519,7 +2537,7 @@ function frame(time = performance.now()) {
   requestAnimationFrame(frame);
   saveImageButton.disabled = imageExport.busy || activeBox.isEmpty() || Boolean(largeWorker)
     || loadingLargeWalls || preparationPending || surfaceScene.loading;
-  saveAnimationButton.disabled = saveImageButton.disabled;
+  saveAnimationButton.disabled = presentationMp4.disabled = saveImageButton.disabled;
   presentation.refresh();
   // While an image or animation is rendered, its frames own the camera.
   if (exportRendering) return;
