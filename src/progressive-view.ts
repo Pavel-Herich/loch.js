@@ -49,6 +49,8 @@ export class ProgressiveView {
   get progress() { return this.batches.length ? this.next / this.batches.length : 1; }
 
   get imageTarget() { return this.target; }
+  /** Keep each batch's geometry on the graphics card after drawing it (a film draws them all again every frame). */
+  keepGeometry = false;
 
   step(present = true) {
     if (this.complete) return;
@@ -75,7 +77,7 @@ export class ProgressiveView {
       renderer.autoClear = true;
       if (present) renderer.render(this.copyScene, this.copyCamera);
     } finally {
-      if (mesh) { mesh.visible = false; mesh.geometry.dispose(); }
+      if (mesh) { mesh.visible = false; if (!this.keepGeometry) mesh.geometry.dispose(); }
       if (this.surface) this.surface.visible = this.surfaceVisible;
       this.scene.background = background;
       renderer.setRenderTarget(target); renderer.autoClear = autoClear;

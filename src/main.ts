@@ -2496,7 +2496,8 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
     if (timeline.sceneChanges && sceneIndex >= 0 && sceneIndex !== exportScene) { applySceneSettings(timeline.views[sceneIndex].scene); exportScene = sceneIndex; }
     camera = view; controls.target.copy(target);
     lighting.updateCamera(); surfaceScene.updateCamera(camera.position);
-    const rendered = await renderImage(renderer, scene, camera, size, walls.visible && largeScene ? largeScene : undefined, surfaceGroup, signal);
+    // A film keeps the walls' geometry on the graphics card between its frames (freed at the end; not on phones).
+    const rendered = await renderImage(renderer, scene, camera, size, walls.visible && largeScene ? largeScene : undefined, surfaceGroup, signal, imageDialog.animation() && !isCoarse());
     try {
       // The overlays are drawn for a view of the image's proportions, at its resolution.
       main.style.cssText += `;position:absolute;left:0;top:0;width:${overlaySize.width}px;height:${overlaySize.height}px;flex:none;`;
@@ -2527,6 +2528,7 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
     try { return await (imageDialog.format() === 'jpg' ? canvasJpeg(image) : canvasPng(image)); } finally { image.width = 0; image.height = 0; }
   } finally {
     presentationGuides.group.visible = guidesVisible;
+    if (imageDialog.animation()) for (const mesh of largeScene?.geometryBatches() ?? []) mesh.geometry.dispose();
     restoreScene(); restoreBackground?.(); restoreLayout(); wakeLock.dispose(); presentation.resetScene();
     camera = originalCamera; lighting.updateCamera(); exportRendering = false; autorotate.resetTime(); presentation.player.resetTime(); invalidateView();
   }
