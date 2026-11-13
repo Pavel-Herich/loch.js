@@ -26,7 +26,7 @@ describe('film caption and file names', () => {
     for (let i = 0; i < 3; i++) presentation.add(camera, false, {});
     presentation.setLabels([{ text: 'Krakova hola', icon: 'peak', position: [-383000.5, -1201000.25, 1752], from: 1, to: 2 }]);
     const again = Presentation.parse(presentation.xml());
-    expect(again.labels()).toEqual([{ text: 'Krakova hola', icon: 'peak', position: [-383000.5, -1201000.25, 1752], from: 1, to: 2 }]);
+    expect(again.labels()).toEqual([{ text: 'Krakova hola', icon: 'peak', position: [-383000.5, -1201000.25, 1752], from: 1, to: 2, hide: true }]);
     again.add(camera, false, {}, 0); // a new view 1: the label moves to views 2–3
     expect(again.labels()[0]).toMatchObject({ from: 2, to: 3 });
     again.move(3, -1); // view 3 becomes 2: still 2–3

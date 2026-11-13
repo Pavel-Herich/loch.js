@@ -75,6 +75,7 @@
         <button type="button" id="surface-dmr-remove" hidden>Remove terrain</button>
         <button type="button" id="underlay-mapy-key">Mapy.com API key…</button>
         <label><input id="surface-transparency" type="checkbox" checked/> Transparency</label>
+        <label title="A transparent surface shows only its nearest layer: no slopes through ridges, no jumps as the view turns (the dock's surface button: first click on, second hides the surface)"><input id="surface-nearest" type="checkbox"/> Nearest layer only</label>
         <label><input id="surface-opaque-underside" type="checkbox"/> Opaque underside</label>
         <label id="surface-opacity-control" class="surface-opacity" for="surface-opacity">Opacity <output id="surface-opacity-value" for="surface-opacity">50%</output><input id="surface-opacity" type="range" min="0" max="100" step="1" value="50"/></label>
       </div></details>
@@ -216,6 +217,7 @@
   <label>X (east, S-JTSK) <input id="label-x" type="number" step="any" required/></label>
   <label>Y (north, S-JTSK) <input id="label-y" type="number" step="any" required/></label>
   <label>Z (m) <input id="label-z" type="number" step="any" required/></label>
+  <label class="label-check"><input id="label-hide" type="checkbox" checked/> Hide behind terrain</label>
   <div class="image-save-actions"><button id="label-cancel" type="button">Cancel</button><button type="submit">Apply</button></div>
 </form></dialog><dialog id="presentation-edit-dialog" aria-labelledby="presentation-edit-title"><h2 id="presentation-edit-title">Edit animation view</h2><form>
   <label>Name <input id="presentation-name" type="text"/></label>

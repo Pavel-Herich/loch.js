@@ -61,6 +61,7 @@ import { PresentationGuides } from './presentation-guides';
 import { readPresentationXml } from './presentation-file';
 import { AnimationWakeLock } from './screen-wake-lock';
 import { setOverlayRatio } from './overlay-ratio';
+import type { PositionLabel } from './station-labels';
 import './style.css';
 
 initializeAbout();
@@ -2345,6 +2346,46 @@ new LayerBrowser({
  * view's size (CSS px); also for an image export, whose overlays are drawn at its pixel ratio
  * (white background: dark labels).
  */
+/**
+ * Is terrain between the camera and a place (S-JTSK)? The way there is sampled against the
+ * terrain heights (every 5 m or so, at least 64 and at most 400 points), leaving out the last few
+ * metres; a place under the terrain (in the cave) or a camera under it is never hidden.
+ */
+function terrainHides([x, y, z]: [number, number, number]) {
+  if (!surfaceGroup.visible) return false;
+  const ground = surfaceScene.heightAt(x, y);
+  if (ground === undefined || z < ground - 2) return false;
+  const eye = camera.position.clone().add(worldOrigin), eyeGround = surfaceScene.heightAt(eye.x, eye.y);
+  if (eyeGround !== undefined && eye.z < eyeGround) return false;
+  const distance = Math.hypot(x - eye.x, y - eye.y, z - eye.z);
+  if (distance < 1) return false;
+  const reach = 1 - Math.max(3, distance * .02) / distance, steps = Math.round(Math.min(400, Math.max(64, distance / 5)));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps * reach, px = eye.x + (x - eye.x) * t, py = eye.y + (y - eye.y) * t, pz = eye.z + (z - eye.z) * t;
+    const height = surfaceScene.heightAt(px, py);
+    if (height !== undefined && pz < height - .5) return true;
+  }
+  return false;
+}
+/** Animation labels behind a hill fade out (and in again) over 0.3 s of the animation or of the clock. */
+const labelSeen = new Map<string, number>();
+let labelSeenAt = 0;
+function behindTerrain(labels: PositionLabel[]) {
+  const now = filmSeconds ?? performance.now() / 1000, step = Math.max(0, Math.min(.25, now - labelSeenAt));
+  labelSeenAt = now;
+  let fading = false;
+  const shown = labels.map(label => {
+    if (!label.hide || label.key === undefined) return label;
+    const target = terrainHides(label.position) ? 0 : 1;
+    let seen = labelSeen.get(label.key) ?? target;
+    seen = seen < target ? Math.min(target, seen + step / .3) : Math.max(target, seen - step / .3);
+    labelSeen.set(label.key, seen);
+    if (seen !== target) fading = true;
+    return { ...label, alpha: (label.alpha ?? 1) * seen };
+  }).filter(label => (label.alpha ?? 1) > 0);
+  if (fading && filmSeconds === undefined) requestAnimationFrame(() => invalidateView());
+  return shown;
+}
 function drawOverlays(pixelRatio?: number, white = false) {
   const width = canvas.clientWidth, height = canvas.clientHeight;
   // Symbol size: zoom relative to the model (whole model → 25 %, 100 m scale → 100 %),
@@ -2357,7 +2398,7 @@ function drawOverlays(pixelRatio?: number, white = false) {
   // Overlapping small symbols hide behind earlier ones: entrances first, then field objects, then SHP points.
   resetSymbolSpace();
   // Animation cameras (editing) and labels (the selected view's, or as the animation plays or is filmed).
-  const extra = [...(presentationGuides.group.visible ? presentationGuides.labels : []), ...presentation.labelsAt(filmSeconds)];
+  const extra = [...(presentationGuides.group.visible ? presentationGuides.labels : []), ...behindTerrain(presentation.labelsAt(filmSeconds))];
   centreline.updateLabels(camera, width, height, pixelRatio, white, extra, worldOrigin);
   fieldObjects.updateMarkers(camera, width, height);
   updateLayers();
@@ -2466,7 +2507,7 @@ async function openAnimation(file: File) {
  * way to the view, those going off fade out over the first half, and one staying on changes its
  * opacity all the way.
  */
-for (const [key, id] of [['objects', '#objects-visible'], ['shp', '#layers-visible']] as const) registerSceneControl({
+for (const [key, id] of [['objects', '#objects-visible'], ['shp', '#layers-visible'], ['surface-nearest', '#surface-nearest']] as const) registerSceneControl({
   key, capture: () => String(document.querySelector<HTMLInputElement>(id)!.checked),
   apply(value) {
     const box = document.querySelector<HTMLInputElement>(id)!, on = value === 'true';

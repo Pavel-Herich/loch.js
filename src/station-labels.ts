@@ -12,7 +12,9 @@ export type StationMarker = 'entrance' | 'fixed' | 'continuation';
  * A named point drawn with the station labels: an animation camera's name, or with an icon an
  * animation label (larger, above everything else, `alpha` while it fades).
  */
-export type PositionLabel = { name: string; position: [number, number, number]; icon?: 'none' | 'peak' | 'entrance' | 'spring' | 'sinkhole' | 'point'; alpha?: number };
+export type PositionLabel = { name: string; position: [number, number, number]; icon?: 'none' | 'peak' | 'entrance' | 'spring' | 'sinkhole' | 'point'; alpha?: number;
+  /** An animation label's identity (for fading behind terrain) and whether terrain hides it. */
+  key?: string; hide?: boolean };
 /** The icon of an animation label, centred on x, y (CSS px). */
 function drawLabelIcon(context: CanvasRenderingContext2D, icon: NonNullable<PositionLabel['icon']>, x: number, y: number, whiteBackground: boolean) {
   const edge = whiteBackground ? '#ffffff' : '#09131c';

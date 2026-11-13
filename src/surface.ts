@@ -186,7 +186,10 @@ export class SurfaceScene {
    * which of two overlapping slopes won changed suddenly as the camera moved.
    */
   private depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.DoubleSide, transparent: true });
-  private get layered() { return this.transparency && this.opacity < 1; }
+  /** Nearest layer only (an option): the depth pass on. Off: every layer blends, as before. */
+  private nearestOnly = false;
+  private get layered() { return this.nearestOnly && this.transparency && this.opacity < 1; }
+  setNearestOnly(on: boolean) { this.nearestOnly = on; this.setAppearance(this.transparency, this.opacity); }
 
   constructor(readonly group: THREE.Group, private onChange: () => void, private onError: (error: unknown) => void) {}
 
@@ -253,7 +256,9 @@ export class SurfaceScene {
     const transparent = this.transparency && this.opacity < 1;
     if (material.transparent !== transparent) material.needsUpdate = true;
     material.transparent = transparent;
-    material.opacity = this.transparency ? this.opacity : 1;
+    // One layer alone looks darker than the overlapping layers it replaces: drawn as opaque as two
+    // layers of the chosen opacity would be (50 % → 75 %).
+    material.opacity = !this.transparency ? 1 : this.layered ? 1 - (1 - this.opacity) ** 2 : this.opacity;
     material.depthWrite = !transparent;
   }
 
@@ -444,6 +449,8 @@ export function initializeSurfaceControls(surface: SurfaceScene) {
   const transparency = document.querySelector<HTMLInputElement>('#surface-transparency')!;
   const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
   const underside = document.querySelector<HTMLInputElement>('#surface-opaque-underside')!;
+  const nearest = document.querySelector<HTMLInputElement>('#surface-nearest');
+  if (nearest) { nearest.checked = false; nearest.addEventListener('change', () => surface.setNearestOnly(nearest.checked)); }
   underside.checked = false;
   underside.addEventListener('change', () => surface.setOpaqueUnderside(underside.checked));
   const opacity = document.querySelector<HTMLInputElement>('#surface-opacity')!;
@@ -454,6 +461,7 @@ export function initializeSurfaceControls(surface: SurfaceScene) {
   overlay.checked = true;
   const update = () => {
     slider.hidden = !transparency.checked; opacity.disabled = !transparency.checked;
+    if (nearest) nearest.disabled = !transparency.checked;
     value.value = `${opacity.value}%`;
     surface.setAppearance(transparency.checked, Number(opacity.value) / 100);
   };

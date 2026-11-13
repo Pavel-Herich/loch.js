@@ -7,7 +7,9 @@ export const LABEL_ICONS: LabelIcon[] = ['peak', 'entrance', 'spring', 'sinkhole
  * A label pinned to a place of the model (S-JTSK, as the views' cameras), shown from the camera's
  * arrival at view `from` until it reaches the view after `to` (indices), fading in and out.
  */
-export type AnimationLabel = { text: string; icon: LabelIcon; position: [number, number, number]; from: number; to: number };
+export type AnimationLabel = { text: string; icon: LabelIcon; position: [number, number, number]; from: number; to: number;
+  /** Hidden while terrain stands between it and the camera (true unless stored as false). */
+  hide?: boolean };
 export const DEFAULT_LXA_CAMERA: LxaCamera = { facing: 0, tilt: 0, center: [0, 0, 0], distance: 10, focus: 50, perspective: true };
 const cameraFields = ['CameraFacing', 'CameraTilt', 'CameraCenterX', 'CameraCenterY', 'CameraCenterZ', 'CameraDistance', 'CameraFocus', 'CameraPerspective'];
 const children = (element: Element) => Array.from(element.childNodes).filter((node): node is Element => node.nodeType === 1);
@@ -46,7 +48,7 @@ export class Presentation {
       const icon = node.getAttribute('icon') as LabelIcon;
       return { text: node.getAttribute('text') ?? '', icon: LABEL_ICONS.includes(icon) ? icon : 'peak',
         position: (['x', 'y', 'z'] as const).map(axis => Number(node.getAttribute(axis)) || 0) as [number, number, number],
-        from: Math.min(index('from'), index('to')), to: Math.max(index('from'), index('to')) };
+        from: Math.min(index('from'), index('to')), to: Math.max(index('from'), index('to')), hide: node.getAttribute('hide') !== 'false' };
     });
   }
   setLabels(labels: AnimationLabel[]) {
@@ -54,7 +56,7 @@ export class Presentation {
     for (const label of labels) {
       const node = this.document.createElement('LochJsLabel');
       for (const [name, value] of Object.entries({ text: label.text, icon: label.icon, x: label.position[0].toFixed(3), y: label.position[1].toFixed(3),
-        z: label.position[2].toFixed(3), from: label.from, to: label.to })) node.setAttribute(name, String(value));
+        z: label.position[2].toFixed(3), from: label.from, to: label.to, hide: label.hide !== false })) node.setAttribute(name, String(value));
       this.root.appendChild(node);
     }
   }

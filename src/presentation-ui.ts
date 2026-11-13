@@ -78,13 +78,15 @@ export function initializePresentation(host: Host) {
     labelField('text').value = label.text; labelField('icon').value = label.icon;
     labelField('from').value = String(label.from); labelField('to').value = String(label.to);
     (['x', 'y', 'z'] as const).forEach((axis, i) => { labelField(axis).value = label.position[i].toFixed(2); });
+    labelField('hide').checked = label.hide !== false;
     labelDialog.showModal();
   }
   labelDialog?.querySelector('form')!.addEventListener('submit', event => {
     event.preventDefault(); if (!(event.currentTarget as HTMLFormElement).reportValidity()) return;
     const from = Number(labelField('from').value), to = Number(labelField('to').value), icon = labelField('icon').value as LabelIcon;
     const label: AnimationLabel = { text: labelField('text').value.trim(), icon: LABEL_ICONS.includes(icon) ? icon : 'peak',
-      position: (['x', 'y', 'z'] as const).map(axis => labelField(axis).valueAsNumber) as [number, number, number], from: Math.min(from, to), to: Math.max(from, to) };
+      position: (['x', 'y', 'z'] as const).map(axis => labelField(axis).valueAsNumber) as [number, number, number], from: Math.min(from, to), to: Math.max(from, to),
+      hide: labelField('hide').checked };
     const labels = document.labels();
     if (labelEditing < 0) labels.push(label); else labels[labelEditing] = label;
     document.setLabels(labels); dirty = true; title.textContent = 'Animation *';
@@ -95,7 +97,7 @@ export function initializePresentation(host: Host) {
   labelAdd?.addEventListener('click', () => {
     player.stop();
     const at = Math.max(0, list.selectedIndex);
-    void host.pick?.().then(position => { if (position) openLabel({ text: '', icon: 'peak', position, from: at, to: at }, -1); });
+    void host.pick?.().then(position => { if (position) openLabel({ text: '', icon: 'peak', position, from: at, to: at, hide: true }, -1); });
   });
   labelEdit?.addEventListener('click', () => { const label = document.labels()[labelList!.selectedIndex]; if (label) openLabel(label, labelList!.selectedIndex); });
   labelDelete?.addEventListener('click', () => {
@@ -115,11 +117,11 @@ export function initializePresentation(host: Host) {
     if (time === undefined) {
       const selected = list.selectedIndex;
       if (!panel.open || selected < 0) return [];
-      return labels.filter(label => label.from <= selected && selected <= label.to)
-        .map(label => ({ name: label.text, position: [...label.position] as [number, number, number], icon: label.icon, alpha: 1 }));
+      return labels.map((label, index) => ({ label, index })).filter(({ label }) => label.from <= selected && selected <= label.to)
+        .map(({ label, index }) => ({ name: label.text, position: [...label.position] as [number, number, number], icon: label.icon, alpha: 1, key: String(index), hide: label.hide !== false }));
     }
-    return labels.map(label => ({ name: label.text, position: [...label.position] as [number, number, number], icon: label.icon, alpha: timeline.labelAlpha(label, time) }))
-      .filter(label => label.alpha > 0);
+    return labels.map((label, index) => ({ name: label.text, position: [...label.position] as [number, number, number], icon: label.icon,
+      alpha: timeline.labelAlpha(label, time), key: String(index), hide: label.hide !== false })).filter(label => label.alpha > 0);
   }
 
   function rebuild(selected = list.selectedIndex) {
