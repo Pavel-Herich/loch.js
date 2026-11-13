@@ -103,6 +103,7 @@
         <label for="light-bearing">Bearing <output id="light-bearing-value" for="light-bearing">27°</output><input id="light-bearing" type="range" min="0" max="360" step="1" value="27" title="Light from: 0° north, 90° east, 180° south, 270° west"/></label>
         <label for="light-clino">Clino <output id="light-clino-value" for="light-clino">53°</output><input id="light-clino" type="range" min="-90" max="90" step="1" value="53" title="Light from: −90° below, 0° horizontal, +90° above"/></label>
       </div></details>
+      <label class="background-control" for="background-shade">Background <output id="background-shade-value" for="background-shade">Black</output><input id="background-shade" type="range" min="0" max="100" step="5" value="0" autocomplete="off" title="Background of the view: black to white"/></label>
       <label>Detail <select id="detail" aria-label="Wall detail" autocomplete="off"><option value="auto">Automatic</option><option value="full" selected>Full detail</option></select></label>
       <hr/>
       <button id="fullscreen" type="button">Full screen</button>
@@ -198,7 +199,7 @@
   <p id="animation-description" hidden>360° rotation · 15 seconds · 30 fps</p>
   <div id="animation-export-progress" hidden><progress id="animation-progress" value="0" max="450"></progress><span id="animation-progress-text" role="status"></span></div>
   <div class="image-save-actions"><button id="image-save-cancel" type="button">Cancel</button><button id="image-save-confirm" type="button">Save…</button></div>
-</form></dialog><dialog id="presentation-panel" aria-labelledby="presentation-title"><header><h2 id="presentation-title">Animation</h2><button id="presentation-close" type="button" aria-label="Close animation editor">×</button></header>
+</form></dialog><dialog id="presentation-panel" aria-labelledby="presentation-title"><header><h2 id="presentation-title">Animation</h2><span class="presentation-window-buttons"><button id="presentation-detach" type="button" aria-label="Move into a window of its own" title="Move into a window of its own" hidden>⧉</button><button id="presentation-close" type="button" aria-label="Close animation editor">×</button></span></header>
   <p id="presentation-summary"></p><select id="presentation-views" size="8" aria-label="Animation views"></select>
   <div class="presentation-actions"><button id="presentation-play" type="button">Play</button><button id="presentation-mark" type="button">Mark</button><button id="presentation-update" type="button">Update</button><button id="presentation-edit" type="button">Edit…</button><button id="presentation-up" type="button">Move up</button><button id="presentation-down" type="button">Move down</button><button id="presentation-delete" type="button">Delete</button></div>
   <h3 class="presentation-subheading">Labels</h3>

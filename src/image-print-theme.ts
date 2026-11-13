@@ -10,13 +10,18 @@ function annotationMaterials(centreline: Group) {
   return materials;
 }
 
+/** Station dots and an uncoloured centreline dark on a light background, white on a dark one. */
+export function setAnnotationContrast(centreline: Group, light: boolean, defaultCentreline: boolean) {
+  for (const material of annotationMaterials(centreline)) {
+    const hex = light && (material instanceof PointsMaterial || defaultCentreline) ? 0x162531 : 0xffffff;
+    if (material.color.getHex() !== hex) material.color.setHex(hex);
+  }
+}
 /** Keep station dots and uncoloured centreline readable against either background. */
 export function setSceneBackground(scene: Scene, centreline: Group, white: boolean, defaultCentreline: boolean) {
   if (scene.background instanceof Color) scene.background.setHex(white ? 0xffffff : 0x000000);
   else scene.background = new Color(white ? 0xffffff : 0x000000);
-  for (const material of annotationMaterials(centreline)) {
-    material.color.setHex(white && (material instanceof PointsMaterial || defaultCentreline) ? 0x162531 : 0xffffff);
-  }
+  setAnnotationContrast(centreline, white, defaultCentreline);
 }
 
 /**

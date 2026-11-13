@@ -53,7 +53,7 @@ import { modelFileFormat, parseModelFile } from './model-file';
 import { canvasJpeg, canvasPng, composeImage, initializeSaveFile, type ImageOverlay } from './save-image';
 import { initializeImageSizeDialog } from './image-size';
 import { imageCamera, renderImage } from './render-image';
-import { applyImageBackground } from './image-print-theme';
+import { applyImageBackground, setAnnotationContrast } from './image-print-theme';
 import { initializePresentation } from './presentation-ui';
 import { capturePresentationCamera, presentationCamera, type PresentationPose } from './presentation-timeline';
 import { applySceneSettings, blendSceneSettings, registerSceneControl, snapshotPresentationControls } from './presentation-scene';
@@ -73,7 +73,7 @@ const projectTitle = document.querySelector<HTMLElement>('#project-title')!;
 const detail = document.querySelector<HTMLSelectElement>('#detail')!;
 // Full detail at every start (browsers may restore a choice from an earlier visit).
 detail.value = 'full';
-const scene = new THREE.Scene(); scene.background = new THREE.Color(0x09131c);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x000000);
 let camera: ViewCamera = new THREE.PerspectiveCamera(45, 1, .01, 1e9);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -2386,8 +2386,31 @@ function behindTerrain(labels: PositionLabel[]) {
   if (fading && filmSeconds === undefined) requestAnimationFrame(() => invalidateView());
   return shown;
 }
+/*
+ * The view's background: a grey from black (as at start) to white, kept in this browser. On a
+ * light one (over 55 %) labels, station dots and an uncoloured centreline turn dark.
+ */
+const BACKGROUND_KEY = 'loch.js.background';
+const backgroundShade = document.querySelector<HTMLInputElement>('#background-shade')!;
+const backgroundValue = document.querySelector<HTMLOutputElement>('#background-shade-value')!;
+let viewLight = false;
+function applyBackground() {
+  const shade = Math.max(0, Math.min(100, Number(backgroundShade.value) || 0)), level = Math.round(shade * 2.55);
+  (scene.background as THREE.Color).setRGB(level / 255, level / 255, level / 255, THREE.SRGBColorSpace);
+  viewLight = shade > 55;
+  document.documentElement.style.setProperty('--view-background', `rgb(${level},${level},${level})`);
+  document.body.classList.toggle('light-view', viewLight);
+  backgroundValue.value = shade === 0 ? 'Black' : shade === 100 ? 'White' : `${shade}%`;
+  invalidateView();
+}
+try { const kept = localStorage.getItem(BACKGROUND_KEY); if (kept !== null && Number.isFinite(Number(kept))) backgroundShade.value = kept; } catch { /* Black. */ }
+backgroundShade.addEventListener('input', () => { applyBackground(); try { localStorage.setItem(BACKGROUND_KEY, backgroundShade.value); } catch { /* For this session. */ } });
+applyBackground();
 function drawOverlays(pixelRatio?: number, white = false) {
   const width = canvas.clientWidth, height = canvas.clientHeight;
+  // A white export or a light view background: dark station dots, uncoloured centreline and labels.
+  white ||= viewLight;
+  setAnnotationContrast(lines, white, centreline.options.color === 'default');
   // Symbol size: zoom relative to the model (whole model → 25 %, 100 m scale → 100 %),
   // then nearer than the rotation centre larger, farther smaller.
   if (height > 0 && !activeBox.isEmpty()) {
@@ -2685,7 +2708,7 @@ function frame(time = performance.now()) {
   // While an image or animation is rendered, its frames own the camera.
   if (exportRendering) return;
   const suspended = Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden
-    || imageDialog.dialog.open || document.querySelector<HTMLDialogElement>('#presentation-edit-dialog')!.open);
+    || imageDialog.dialog.open || presentation.editDialog.open);
   if (presentation.player.playing) {
     presentation.player.update(time, suspended);
     // The camera moves without the controls: map layers load for it about once a second.

@@ -43,10 +43,10 @@ export function initializePresentation(host: Host) {
     panelToggle.title = panel.open ? 'Hide animation' : 'Show animation';
     panelToggle.setAttribute('aria-label', panelToggle.title);
     play.disabled = checkbox.disabled = !ready || !timeline.views.length;
-    for (const id of ['mark', 'update']) globalThis.document.querySelector<HTMLButtonElement>(`#presentation-${id}`)!.disabled = !ready || id === 'update' && !selected;
-    for (const id of ['edit', 'delete', 'up', 'down']) globalThis.document.querySelector<HTMLButtonElement>(`#presentation-${id}`)!.disabled = !selected
+    for (const id of ['mark', 'update']) panel.querySelector<HTMLButtonElement>(`#presentation-${id}`)!.disabled = !ready || id === 'update' && !selected;
+    for (const id of ['edit', 'delete', 'up', 'down']) panel.querySelector<HTMLButtonElement>(`#presentation-${id}`)!.disabled = !selected
       || id === 'up' && list.selectedIndex === 0 || id === 'down' && list.selectedIndex === timeline.views.length - 1;
-    globalThis.document.querySelector<HTMLButtonElement>('#presentation-save')!.disabled = !timeline.views.length;
+    panel.querySelector<HTMLButtonElement>('#presentation-save')!.disabled = !timeline.views.length;
     if (labelList) {
       labelAdd!.disabled = !ready || !timeline.views.length || !host.pick;
       labelEdit!.disabled = labelDelete!.disabled = labelList.selectedIndex < 0;
@@ -58,7 +58,8 @@ export function initializePresentation(host: Host) {
   const labelEdit = globalThis.document.querySelector<HTMLButtonElement>('#label-edit');
   const labelDelete = globalThis.document.querySelector<HTMLButtonElement>('#label-delete');
   const labelDialog = globalThis.document.querySelector<HTMLDialogElement>('#label-dialog');
-  const labelField = (name: string) => globalThis.document.querySelector<HTMLInputElement & HTMLSelectElement>(`#label-${name}`)!;
+  // Fields are looked up in the dialog: it may live in the animation's own window.
+  const labelField = (name: string) => labelDialog!.querySelector<HTMLInputElement & HTMLSelectElement>(`#label-${name}`)!;
   let labelEditing = -1;
   const viewName = (index: number) => timeline.views[index]?.name ?? String(index);
   function rebuildLabels(selected = labelList?.selectedIndex ?? -1) {
@@ -156,8 +157,45 @@ export function initializePresentation(host: Host) {
     player.stop(); const selected = action(); dirty = true; rebuild(typeof selected === 'number' ? selected : list.selectedIndex);
   }
   globalThis.document.querySelector('#animation-editor')!.addEventListener('click', () => { if (!panel.open) panel.show(); refresh(); });
-  panelToggle.addEventListener('click', () => { if (panel.open) panel.close(); else panel.show(); refresh(); });
-  globalThis.document.querySelector('#presentation-close')!.addEventListener('click', () => panel.close());
+  panelToggle.addEventListener('click', () => { if (detached) { detached.close(); return; } if (panel.open) panel.close(); else panel.show(); refresh(); });
+  globalThis.document.querySelector('#presentation-close')!.addEventListener('click', () => { if (detached) detached.close(); panel.close(); });
+  /*
+   * The editor in a window of its own (Document Picture-in-Picture, Chrome and Edge): it can stand
+   * beside or outside the browser window and stays on top; closing it brings the editor back.
+   */
+  type PipApi = { requestWindow(options: { width: number; height: number }): Promise<Window>; window: Window | null };
+  const pipApi = (globalThis as unknown as { documentPictureInPicture?: PipApi }).documentPictureInPicture;
+  const detachButton = panel.querySelector<HTMLButtonElement>('#presentation-detach');
+  let detached: Window | undefined;
+  if (detachButton) detachButton.hidden = !pipApi;
+  detachButton?.addEventListener('click', async () => {
+    if (detached) { detached.close(); return; }
+    if (!pipApi) return;
+    try {
+      const own = await pipApi.requestWindow({ width: 540, height: Math.min(820, Math.max(500, (globalThis.screen?.availHeight ?? 900) - 120)) });
+      for (const sheet of Array.from(globalThis.document.styleSheets)) {
+        try {
+          const style = own.document.createElement('style'); style.textContent = Array.from(sheet.cssRules).map(rule => rule.cssText).join('\n'); own.document.head.append(style);
+        } catch {
+          if (sheet.href) { const link = own.document.createElement('link'); link.rel = 'stylesheet'; link.href = sheet.href; own.document.head.append(link); }
+        }
+      }
+      own.document.title = 'Animation'; own.document.body.classList.add('presentation-window');
+      own.document.body.append(...[panel, edit, labelDialog].filter((element): element is HTMLDialogElement => Boolean(element)));
+      panel.classList.add('detached'); if (!panel.open) panel.show();
+      detached = own; detachButton.textContent = '⇲'; detachButton.title = 'Back into the page'; detachButton.setAttribute('aria-label', detachButton.title);
+      own.document.addEventListener('keydown', escape);
+      own.addEventListener('pagehide', () => {
+        detached = undefined; panel.classList.remove('detached');
+        const open = panel.open;
+        globalThis.document.body.append(...[panel, edit, labelDialog].filter((element): element is HTMLDialogElement => Boolean(element)));
+        if (open) { panel.close(); panel.show(); }
+        detachButton.textContent = '⧉'; detachButton.title = 'Move into a window of its own'; detachButton.setAttribute('aria-label', detachButton.title);
+        refresh();
+      });
+      refresh();
+    } catch (error) { host.error(error); }
+  });
   play.addEventListener('click', toggle); checkbox.checked = false; checkbox.addEventListener('change', toggle);
   list.addEventListener('change', select);
   globalThis.document.querySelector('#presentation-mark')!.addEventListener('click', () => mutate(() => document.add(host.capture(), host.walker(), captureSceneSettings(), list.selectedIndex < 0 ? document.count - 1 : list.selectedIndex)));
@@ -197,16 +235,20 @@ export function initializePresentation(host: Host) {
   save.addEventListener('click', () => { captured = failed = false; });
   initializeSaveFile(save, async () => { captured = true; return new Blob([document.xml()], { type: 'application/xml' }); }, () => filename,
     error => { failed = true; host.error(error); }, () => { if (captured && !failed) dirty = false; rebuild(); }, () => 'lxa');
-  globalThis.document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape' || globalThis.document.querySelector('dialog:modal')) return;
+  function escape(event: KeyboardEvent) {
+    const own = (event.currentTarget as Document | null) ?? globalThis.document;
+    if (event.key !== 'Escape' || own.querySelector('dialog:modal')) return;
     if (player.playing) { player.stop(); event.preventDefault(); }
-    else if (panel.open) { panel.close(); event.preventDefault(); }
-  });
+    else if (panel.open && !detached) { panel.close(); event.preventDefault(); }
+  }
+  globalThis.document.addEventListener('keydown', escape);
   rebuild();
   return { player, loadFile, refresh, toggle, timeline: () => timeline, resetScene() { appliedScene = -1; },
     /** Rebuild the timeline (after a speed change), keeping the selected view. */
     rebuild() { player.stop(); rebuild(); },
     labelsAt,
     /** The film's caption (empty: the model's name). */
-    caption: () => document.caption.trim() };
+    caption: () => document.caption.trim(),
+    /** The view-edit dialog (in the page or in the editor's own window). */
+    editDialog: edit };
 }
