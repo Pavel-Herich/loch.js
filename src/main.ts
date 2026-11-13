@@ -2585,6 +2585,7 @@ async function mapsSettled(signal: AbortSignal, timeout = 20000) {
   while (busy() && performance.now() < until) { signal.throwIfAborted(); await new Promise(resolve => setTimeout(resolve, 100)); }
 }
 const onDemandLayers = () => [...mapLayers].filter(([, state]) => state.on && state.shown).map(([id]) => id);
+const scaleIndicator = document.querySelector<HTMLElement>('#scale-indicator')!;
 const saveImageButton = document.querySelector<HTMLButtonElement>('#save-image')!;
 const saveAnimationButton = document.querySelector<HTMLButtonElement>('#save-animation')!;
 for (const button of [saveImageButton, saveAnimationButton]) button.addEventListener('click', () => { menus.close(); resize(); });
@@ -2614,8 +2615,9 @@ function exportOverlays(size: { width: number; height: number }, white: boolean)
     if (items.length && !white) overlays.push({ html: `<div style="position:absolute;left:12px;top:12px;width:${rowWidth + 2 * pad}px;height:${rowHeight + 2 * pad}px;box-sizing:border-box;background:#162531e6;border:1px solid #3c5668;border-radius:10px"></div>` });
     let left = 12 + pad;
     items.forEach((item, index) => { overlays.push({ element: item, left, top: 12 + pad + (rowHeight - rects[index].height) / 2 }); left += rects[index].width + gap; });
+    // A film shows the scale only in orthographic projection (in perspective it holds only at the rotation centre).
     const scale = document.querySelector<HTMLElement>('#scale-indicator');
-    if (shown(scale)) { const rect = scale.getBoundingClientRect(); overlays.push({ element: scale, left: (size.width - rect.width) / 2, top: 10 }); }
+    if (shown(scale) && (!imageDialog.animation() || camera instanceof THREE.OrthographicCamera)) { const rect = scale.getBoundingClientRect(); overlays.push({ element: scale, left: (size.width - rect.width) / 2, top: 10 }); }
   }
   const markers = document.querySelector<HTMLElement>('#object-markers');
   if (shown(markers)) overlays.push(markers);
@@ -2711,6 +2713,8 @@ function frame(time = performance.now()) {
     || loadingLargeWalls || preparationPending || surfaceScene.loading;
   saveAnimationButton.disabled = presentationMp4.disabled = saveImageButton.disabled;
   presentation.refresh();
+  // Nor does a playing animation show it in perspective.
+  scaleIndicator.classList.toggle('animation-hidden', presentation.player.playing && !(camera instanceof THREE.OrthographicCamera));
   // Labels shown while stopped follow the selected view and the editor; redraw when they change.
   const labelKey = presentation.player.playing || exportRendering ? labelShown : JSON.stringify(presentation.labelsAt());
   if (labelKey !== labelShown) { labelShown = labelKey; invalidateView(); }

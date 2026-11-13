@@ -457,3 +457,4 @@ body.presentation-window{margin:0;background:#162531;overflow:auto}
 body.light-view .scale-indicator{color:#162531;text-shadow:0 0 3px #fff,0 0 2px #fff}
 body.light-view .scale-ruler{background:linear-gradient(#162531,#162531) top/100% 1px no-repeat,repeating-linear-gradient(to right,#162531 0 1px,transparent 1px calc((100% - 1px) / 4));filter:drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff)}
 body.light-view .object-marker span{color:#7a3d00;text-shadow:0 0 3px #fff,0 0 3px #fff}
+#scale-indicator.animation-hidden{visibility:hidden}
