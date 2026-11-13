@@ -87,21 +87,23 @@ function bindLabels(button: HTMLButtonElement, select: HTMLSelectElement, parent
 }
 
 /**
- * The surface button: a transparent surface first turns to its nearest layer only, a second click
- * hides it (and goes back to all layers for next time), a third shows it again. Opaque: on and off.
+ * The surface button: a transparent surface shown as its nearest layer only turns first to all
+ * layers, a second click hides it (and goes back to the nearest layer for next time), a third shows
+ * it again. Opaque: on and off.
  */
 function bindSurface(button: HTMLButtonElement, visible: HTMLInputElement, nearest: HTMLInputElement, transparency: HTMLInputElement) {
   const sync = () => {
     button.setAttribute('aria-pressed', String(visible.checked));
-    button.classList.toggle('nearest', visible.checked && nearest.checked && transparency.checked);
+    // Marked while all layers blend (the nearest layer is the usual look).
+    button.classList.toggle('nearest', visible.checked && !nearest.checked && transparency.checked);
     button.title = !visible.checked ? 'Show surface'
-      : transparency.checked && !nearest.checked ? 'Surface: all layers (click for nearest layer only)'
-      : transparency.checked ? 'Surface: nearest layer only (click to hide)' : 'Hide surface';
+      : transparency.checked && nearest.checked ? 'Surface: nearest layer only (click for all layers)'
+      : transparency.checked ? 'Surface: all layers (click to hide)' : 'Hide surface';
     button.setAttribute('aria-label', button.title);
   };
   button.addEventListener('click', () => {
-    if (visible.checked && transparency.checked && !nearest.checked) { nearest.checked = true; emit(nearest); }
-    else if (visible.checked) { visible.checked = false; emit(visible); if (nearest.checked) { nearest.checked = false; emit(nearest); } }
+    if (visible.checked && transparency.checked && nearest.checked) { nearest.checked = false; emit(nearest); }
+    else if (visible.checked) { visible.checked = false; emit(visible); if (!nearest.checked) { nearest.checked = true; emit(nearest); } }
     else { visible.checked = true; emit(visible); }
   });
   for (const control of [visible, nearest, transparency]) control.addEventListener('change', sync);

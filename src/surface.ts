@@ -128,9 +128,10 @@ type LayerUniforms = { map: THREE.Texture; transform: THREE.Vector4; opacity: { 
  * the cave is told apart from a view down onto the terrain. Map layers are laid over the
  * base colour in order, each placed by the vertex position (scene x/y) and with its opacity.
  */
-function shadeSurface(material: THREE.Material, frontUp: { value: number }, opaque: { value: number }, below: { value: number }, layers: LayerUniforms[] = []) {
+function shadeSurface(material: THREE.Material, frontUp: { value: number }, opaque: { value: number }, below: { value: number }, layers: LayerUniforms[] = [], gamma = { value: 1 }) {
   material.onBeforeCompile = shader => {
     shader.uniforms.surfaceFrontUp = frontUp; shader.uniforms.surfaceUndersideOpaque = opaque; shader.uniforms.surfaceCameraBelow = below;
+    shader.uniforms.surfaceGamma = gamma;
     layers.forEach((layer, i) => {
       shader.uniforms[`layerMap${i}`] = { value: layer.map };
       shader.uniforms[`layerTransform${i}`] = { value: layer.transform };
@@ -155,8 +156,11 @@ function shadeSurface(material: THREE.Material, frontUp: { value: number }, opaq
     }
     // Only while the camera is under the terrain: from above, the backs of far slopes
     // (higher than the camera, seen through the transparent surface) keep their normal look.
+    // Image brightness: the image (and map layers) lifted or darkened by a gamma, black and white kept.
     shader.fragmentShader = shader.fragmentShader
-      .replace('void main() {', 'uniform float surfaceFrontUp;\nuniform float surfaceUndersideOpaque;\nuniform float surfaceCameraBelow;\nvoid main() {')
+      .replace('#include <alphamap_fragment>', '  diffuseColor.rgb = pow(max(diffuseColor.rgb, vec3(0.)), vec3(surfaceGamma));\n#include <alphamap_fragment>');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('void main() {', 'uniform float surfaceFrontUp;\nuniform float surfaceUndersideOpaque;\nuniform float surfaceCameraBelow;\nuniform float surfaceGamma;\nvoid main() {')
       .replace('#include <dithering_fragment>', `#include <dithering_fragment>
   if (surfaceCameraBelow > .5 && gl_FrontFacing != (surfaceFrontUp > .5)) {
     gl_FragColor.rgb = mix(gl_FragColor.rgb, ${UNDERSIDE}, .6) * .85;
@@ -171,6 +175,10 @@ export class SurfaceScene {
   opacity = DEFAULT_SURFACE_OPACITY;
   imageOverlay = true;
   private undersideOpaque = { value: 0 };
+  /** Image brightness as a gamma (1: as the image is), shared by every surface material. */
+  private gamma = { value: 1 };
+  /** Brightness of the image on the surface, −50 to 100 (%): 0 as it is, 100 much lighter. */
+  setImageBrightness(percent: number) { this.gamma.value = 2 ** (-Math.max(-50, Math.min(100, percent)) / 100 * 1.5); this.onChange(); }
   private cameraBelow = { value: 0 };
   private origin = new THREE.Vector3();
   private lowest = Infinity;
@@ -186,8 +194,8 @@ export class SurfaceScene {
    * which of two overlapping slopes won changed suddenly as the camera moved.
    */
   private depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.DoubleSide, transparent: true });
-  /** Nearest layer only (an option): the depth pass on. Off: every layer blends, as before. */
-  private nearestOnly = false;
+  /** Nearest layer only (at start): the depth pass on. Off: every layer blends. */
+  private nearestOnly = true;
   private get layered() { return this.nearestOnly && this.transparency && this.opacity < 1; }
   setNearestOnly(on: boolean) { this.nearestOnly = on; this.setAppearance(this.transparency, this.opacity); }
 
@@ -318,7 +326,7 @@ export class SurfaceScene {
 
   private prepare(material: SurfaceMaterial, frontUp: { value: number }, layers?: LayerUniforms[]) {
     material.forceSinglePass = true; this.applyAppearance(material);
-    shadeSurface(material, frontUp, this.undersideOpaque, this.cameraBelow, layers);
+    shadeSurface(material, frontUp, this.undersideOpaque, this.cameraBelow, layers, this.gamma);
   }
   /**
    * The tile's material: the shared base (LOX image or plain shading) when no map lies over
@@ -450,7 +458,20 @@ export function initializeSurfaceControls(surface: SurfaceScene) {
   const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
   const underside = document.querySelector<HTMLInputElement>('#surface-opaque-underside')!;
   const nearest = document.querySelector<HTMLInputElement>('#surface-nearest');
-  if (nearest) { nearest.checked = false; nearest.addEventListener('change', () => surface.setNearestOnly(nearest.checked)); }
+  if (nearest) { nearest.checked = true; surface.setNearestOnly(true); nearest.addEventListener('change', () => surface.setNearestOnly(nearest.checked)); }
+  const brightness = document.querySelector<HTMLInputElement>('#surface-brightness');
+  const brightnessValue = document.querySelector<HTMLOutputElement>('#surface-brightness-value');
+  if (brightness) {
+    const KEY = 'loch.js.surface-brightness';
+    try { const kept = localStorage.getItem(KEY); if (kept !== null && Number.isFinite(Number(kept))) brightness.value = kept; } catch { /* As the image is. */ }
+    const apply = () => {
+      const percent = Number(brightness.value);
+      if (brightnessValue) brightnessValue.value = percent > 0 ? `+${percent}%` : `${percent}%`;
+      surface.setImageBrightness(percent);
+      try { localStorage.setItem(KEY, brightness.value); } catch { /* For this session. */ }
+    };
+    brightness.addEventListener('input', apply); apply();
+  }
   underside.checked = false;
   underside.addEventListener('change', () => surface.setOpaqueUnderside(underside.checked));
   const opacity = document.querySelector<HTMLInputElement>('#surface-opacity')!;

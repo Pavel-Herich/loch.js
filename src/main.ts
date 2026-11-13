@@ -2545,6 +2545,15 @@ function showMapLayer(id: string, opacity: number) {
   if (state.on) surfaceScene.setLayerOpacity(id, opacity);
 }
 registerSceneControl({
+  key: 'surface-brightness',
+  capture: () => document.querySelector<HTMLInputElement>('#surface-brightness')!.value,
+  apply(value) {
+    const input = document.querySelector<HTMLInputElement>('#surface-brightness')!;
+    if (input.value !== value) { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }
+  },
+  blend(from, to, t) { surfaceScene.setImageBrightness(Number(from) + (Number(to) - Number(from)) * t); },
+});
+registerSceneControl({
   key: 'maps',
   capture: () => [...mapLayers].filter(([, state]) => state.on).map(([id, state]) => `${id}:${state.opacity}`).join(','),
   apply(value) {

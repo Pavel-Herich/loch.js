@@ -115,7 +115,10 @@ describe('LOX terrain surfaces', () => {
     const lit = mesh.material as THREE.MeshStandardMaterial;
     expect(lit).toBeInstanceOf(THREE.MeshStandardMaterial); expect(lit.color.getHex()).toBe(0xffffff);
     expect(lit.flatShading).toBe(false); expect(geometry.getAttribute('normal')).toBeDefined(); expect(mesh.geometry).toBe(geometry);
-    expect(lit.opacity).toBe(.5); expect(lit.transparent).toBe(true); expect(lit.depthWrite).toBe(false);
+    // Nearest layer only (at start): drawn as opaque as two layers of 50 %, after its depth pass.
+    expect(lit.opacity).toBe(.75); expect(lit.transparent).toBe(true); expect(lit.depthWrite).toBe(false);
+    expect(mesh.children[0].visible).toBe(true);
+    scene.setNearestOnly(false); expect(lit.opacity).toBe(.5); expect(mesh.children[0].visible).toBe(false);
     scene.setAppearance(false, .3); scene.setImageOverlay(true);
     expect(mesh.material).toBe(imageMaterial); expect(mesh.material.opacity).toBe(1); expect(mesh.material.transparent).toBe(false);
     scene.setImageOverlay(false); scene.setAppearance(true, .3);
@@ -173,7 +176,8 @@ describe('LOX terrain surfaces', () => {
     expect(group.children).toHaveLength(2); // A shared edge spans the two bounded tiles.
     const meshes = group.children as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>[];
     const material = meshes[0].material;
-    expect(DEFAULT_SURFACE_OPACITY).toBe(.5); expect(material.opacity).toBe(.5);
+    expect(DEFAULT_SURFACE_OPACITY).toBe(.5); expect(material.opacity).toBe(.75); // nearest layer only
+    scene.setNearestOnly(false); expect(material.opacity).toBe(.5);
     expect(material.transparent).toBe(true); expect(material.depthWrite).toBe(false);
     scene.setAppearance(false, .25);
     expect(material.opacity).toBe(1); expect(material.transparent).toBe(false); expect(material.depthWrite).toBe(true);

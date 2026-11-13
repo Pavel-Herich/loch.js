@@ -75,9 +75,10 @@
         <button type="button" id="surface-dmr-remove" hidden>Remove terrain</button>
         <button type="button" id="underlay-mapy-key">Mapy.com API key…</button>
         <label><input id="surface-transparency" type="checkbox" checked/> Transparency</label>
-        <label title="A transparent surface shows only its nearest layer: no slopes through ridges, no jumps as the view turns (the dock's surface button: first click on, second hides the surface)"><input id="surface-nearest" type="checkbox"/> Nearest layer only</label>
+        <label title="A transparent surface shows only its nearest layer: no slopes through ridges, no jumps as the view turns (on at start; the dock's surface button: first click all layers, second hides the surface)"><input id="surface-nearest" type="checkbox" checked/> Nearest layer only</label>
         <label><input id="surface-opaque-underside" type="checkbox"/> Opaque underside</label>
         <label id="surface-opacity-control" class="surface-opacity" for="surface-opacity">Opacity <output id="surface-opacity-value" for="surface-opacity">50%</output><input id="surface-opacity" type="range" min="0" max="100" step="1" value="50"/></label>
+        <label id="surface-brightness-control" class="surface-opacity" for="surface-brightness" title="Lighter or darker image on the surface (relief, orthophoto, maps)">Image brightness <output id="surface-brightness-value" for="surface-brightness">0%</output><input id="surface-brightness" type="range" min="-50" max="100" step="5" value="0" autocomplete="off"/></label>
       </div></details>
     </div></details>
     <details class="menu"><summary>View</summary><div class="menu-items">
