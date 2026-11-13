@@ -63,10 +63,10 @@ export class StationScene {
   }
 
   /** Also draws extra named points (animation cameras) when given, and at an export's pixel ratio and background. */
-  updateLabels(camera: THREE.Camera, width: number, height: number, pixelRatio?: number, whiteBackground = false, additional: readonly PositionLabel[] = []) {
+  updateLabels(camera: THREE.Camera, width: number, height: number, pixelRatio?: number, whiteBackground = false, additional: readonly PositionLabel[] = [], origin?: THREE.Vector3) {
     const visible = this.group.visible && overlayVisible(this.options);
     this.labels.setVisible(visible || additional.length > 0);
-    if (visible || additional.length) this.labels.draw(camera, width, height, this.origin, visible ? station => stationLabelMode(station, this.options) : 'none',
+    if (visible || additional.length) this.labels.draw(camera, width, height, visible ? this.origin : origin ?? this.origin, visible ? station => stationLabelMode(station, this.options) : 'none',
       station => visible && stationVisible(station, this.options), visible && (this.options.entrance || this.options.fixed || this.options.continuation) ? station => stationMarker(station, this.options) : undefined,
       pixelRatio, whiteBackground, additional);
   }

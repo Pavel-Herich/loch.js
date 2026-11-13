@@ -441,3 +441,9 @@ label.quality-option:has(>input:disabled){opacity:.45;cursor:default}
 .image-white-background .scale-ruler{border-color:#162531;background:linear-gradient(to right,#162531 25%,#fff 25% 50%,#162531 50% 75%,#fff 75%)}
 .speed-control select{margin-left:6px;padding:3px 4px;border:1px solid #678599;border-radius:4px;background:#09131c;color:inherit;font:inherit}
 #presentation-panel>label.presentation-caption{display:flex;align-items:center;gap:8px}#presentation-caption{flex:1;min-width:0;padding:5px 6px;border:1px solid #678599;border-radius:4px;background:#09131c;color:inherit;font:inherit}
+#presentation-labels{width:100%;min-height:80px;background:#09131c;color:inherit;border:1px solid #678599;font:inherit;padding:6px}
+.presentation-subheading{margin:10px 0 6px;font-size:.95rem}
+#label-dialog{width:min(460px,calc(100% - 32px));padding:24px;border:1px solid #678599;border-radius:12px;background:#162531;color:#eaf3ff}
+#label-dialog::backdrop{background:#0009}#label-dialog h2{margin-top:0;font-size:1.2rem}
+#label-dialog label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}
+#label-dialog input,#label-dialog select{width:220px;max-width:60%;padding:6px;background:#09131c;color:inherit;border:1px solid #678599;border-radius:4px;font:inherit}

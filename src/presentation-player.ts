@@ -15,6 +15,8 @@ export class PresentationPlayer {
   }
   stop() { if (!this.playing) return; this.playing = false; this.previous = undefined; this.wake.enabled = false; this.changed(false); }
   resetTime() { this.previous = undefined; }
+  /** Seconds into the animation. */
+  get time() { return this.seconds; }
   update(time: number, suspended: boolean) {
     if (!this.playing || !this.timeline) return;
     if (suspended) { this.previous = undefined; return; }

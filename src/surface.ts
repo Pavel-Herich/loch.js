@@ -92,6 +92,8 @@ type SurfaceMaterial = THREE.MeshBasicMaterial | THREE.MeshStandardMaterial;
 type Extent = [number, number, number, number];
 type SurfaceTile = {
   geometry: THREE.BufferGeometry; mesh: THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>;
+  /** The same piece drawn into depth only, before any transparent piece's colour. */
+  depth: THREE.Mesh;
   column: number; row: number; columns: number; rows: number;
   /** [minEast, minNorth, maxEast, maxNorth] in file coordinates. */
   extent: Extent;
@@ -177,6 +179,14 @@ export class SurfaceScene {
   private pending = new Map<string, THREE.Texture>();
   private grids: Pick<Surface, 'width' | 'height' | 'calibration' | 'heights'>[] = [];
   private layers = new Map<string, Layer>();
+  /**
+   * A transparent surface is drawn in two passes: every piece into depth only, then the colour of
+   * only the nearest surface, blended over the cave behind it. Without the first pass the slopes
+   * behind a ridge showed through it, and since the pieces are sorted one by one by distance,
+   * which of two overlapping slopes won changed suddenly as the camera moved.
+   */
+  private depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.DoubleSide, transparent: true });
+  private get layered() { return this.transparency && this.opacity < 1; }
 
   constructor(readonly group: THREE.Group, private onChange: () => void, private onError: (error: unknown) => void) {}
 
@@ -216,7 +226,7 @@ export class SurfaceScene {
     this.transparency = transparency; this.opacity = Math.max(0, Math.min(1, opacity));
     for (const entry of this.entries) {
       this.applyAppearance(entry.image); this.applyAppearance(entry.lit);
-      for (const tile of entry.tiles) if (tile.own) this.applyAppearance(tile.own.material);
+      for (const tile of entry.tiles) { if (tile.own) this.applyAppearance(tile.own.material); tile.depth.visible = this.layered; }
     }
     this.onChange();
   }
@@ -268,8 +278,12 @@ export class SurfaceScene {
         const geometry = surfaceGeometry(surface, origin, column, row, columns, rows);
         if (!geometry.index!.count) { geometry.dispose(); continue; } // all outside the terrain model
         const mesh = new THREE.Mesh<THREE.BufferGeometry, SurfaceMaterial>(geometry, this.imageOverlay && (surface.id >= 0 || surface.bitmap) ? material : lit); mesh.name = `Surface ${surface.id}`;
+        // Depth pass first (render order 1), then the colour (2); both after the cave.
+        const depth = new THREE.Mesh(geometry, this.depthOnly); depth.name = 'Surface depth';
+        depth.renderOrder = 1; mesh.renderOrder = 2; depth.raycast = () => {}; depth.visible = this.layered;
+        mesh.add(depth);
         this.group.add(mesh); entry.meshes.push(mesh);
-        tiles.push({ geometry, mesh, column, row, columns, rows, extent: tileExtent(surface, column, row, columns, rows), pieces: new Map() });
+        tiles.push({ geometry, mesh, depth, column, row, columns, rows, extent: tileExtent(surface, column, row, columns, rows), pieces: new Map() });
       }
     }
     if (!surface.bitmap || !tiles.length) return;

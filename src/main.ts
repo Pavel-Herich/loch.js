@@ -2356,7 +2356,9 @@ function drawOverlays(pixelRatio?: number, white = false) {
   indicators.update(height);
   // Overlapping small symbols hide behind earlier ones: entrances first, then field objects, then SHP points.
   resetSymbolSpace();
-  centreline.updateLabels(camera, width, height, pixelRatio, white, presentationGuides.group.visible ? presentationGuides.labels : []);
+  // Animation cameras (editing) and labels (the selected view's, or as the animation plays or is filmed).
+  const extra = [...(presentationGuides.group.visible ? presentationGuides.labels : []), ...presentation.labelsAt(filmSeconds)];
+  centreline.updateLabels(camera, width, height, pixelRatio, white, extra, worldOrigin);
   fieldObjects.updateMarkers(camera, width, height);
   updateLayers();
   measureCanvas.hidden = !measuring || (!measured.length && !surfaceLink);
@@ -2378,6 +2380,29 @@ window.addEventListener('drop', e => { e.preventDefault(); openFiles(Array.from(
  * as MP4; and the view saved as a PNG or JPG at any size (both from Stacho Mudrák's loch.js).
  */
 let exportRendering = false, mapsRefreshed = 0;
+/** Seconds into the animation of the film frame being drawn. */
+let filmSeconds: number | undefined, labelShown = '';
+/** While a label's place is being picked: called with it (S-JTSK), or undefined when cancelled. */
+let labelPick: ((point?: [number, number, number]) => void) | undefined, labelPickDown: { x: number; y: number } | undefined;
+function endLabelPick(point?: [number, number, number]) { const done = labelPick; labelPick = undefined; pivotHint.hidden = true; done?.(point); }
+canvas.addEventListener('pointerdown', event => { if (labelPick) labelPickDown = { x: event.clientX, y: event.clientY }; }, { capture: true });
+canvas.addEventListener('click', event => {
+  if (!labelPick) return;
+  event.stopImmediatePropagation();
+  // A drag turns the view; only a click picks.
+  if (labelPickDown && Math.hypot(event.clientX - labelPickDown.x, event.clientY - labelPickDown.y) > 6) return;
+  const hit = symbolAt(event.clientX, event.clientY, true);
+  let point: [number, number, number] | undefined = hit ? [hit.position.east, hit.position.north, hit.position.z] : undefined;
+  if (!point) {
+    const rect = canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, -((event.clientY - rect.top) / rect.height) * 2 + 1);
+    const local = pickModelPoint(camera, [walls, surfaceGroup, lines], ndc, rect.height, controls.target);
+    if (local) point = [local.x + worldOrigin.x, local.y + worldOrigin.y, local.z + worldOrigin.z];
+  }
+  if (point) endLabelPick(point);
+  else pivotHint.textContent = 'Nothing there. Click a wall, the surface, a centreline shot or a symbol · Esc cancels';
+}, { capture: true });
+document.addEventListener('keydown', event => { if (labelPick && event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); endLabelPick(); } }, { capture: true });
 // One speed for the autorotation (15 s a turn at 1×) and for animations played or exported.
 const SPEED_KEY = 'loch.js.speed';
 const speedControls = Array.from(document.querySelectorAll<HTMLSelectElement>('#animation-speed, #presentation-speed'));
@@ -2392,6 +2417,10 @@ function setSpeed(value: number) {
 setSpeed(speed);
 const presentation = initializePresentation({
   speed: () => speed,
+  pick: () => new Promise(resolve => {
+    labelPick?.(); labelPick = resolve;
+    pivotHint.textContent = 'Click the place for the label: a wall, the surface, a centreline shot or a symbol · Esc cancels'; pivotHint.hidden = false;
+  }),
   capture: () => capturePresentationCamera(camera, controls.target, worldOrigin), walker: () => walker.enabled,
   canPlay: () => !activeBox.isEmpty() && !largeWorker && !loadingLargeWalls && !preparationPending && !exportRendering,
   apply(pose: PresentationPose) {
@@ -2580,7 +2609,7 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
       if (timeline.views.length) {
         const schedule = timeline.frames(settings.fps); refreshEvery = Math.max(1, Math.round(settings.fps));
         return await encodeAnimation(size, index => {
-          const pose = timeline.sample(schedule.time(index));
+          const pose = timeline.sample(filmSeconds = schedule.time(index));
           return frame(presentationCamera(pose, worldOrigin, size.width / size.height, originalCamera), new THREE.Vector3(...pose.center).sub(worldOrigin), pose.sceneIndex, pose.nextIndex, pose.blend);
         }, signal, imageDialog.progress, settings, schedule.count);
       }
@@ -2592,7 +2621,7 @@ const imageExport = initializeSaveFile(imageDialog.save, async () => {
     const image = await frame(imageCamera(originalCamera, size));
     try { return await (imageDialog.format() === 'jpg' ? canvasJpeg(image) : canvasPng(image)); } finally { image.width = 0; image.height = 0; }
   } finally {
-    presentationGuides.group.visible = guidesVisible;
+    presentationGuides.group.visible = guidesVisible; filmSeconds = undefined;
     if (imageDialog.animation()) for (const mesh of largeScene?.geometryBatches() ?? []) mesh.geometry.dispose();
     restoreScene(); restoreBackground?.(); restoreLayout(); wakeLock.dispose(); presentation.resetScene();
     camera = originalCamera; lighting.updateCamera(); exportRendering = false; autorotate.resetTime(); presentation.player.resetTime(); invalidateView();
@@ -2609,6 +2638,9 @@ function frame(time = performance.now()) {
     || loadingLargeWalls || preparationPending || surfaceScene.loading;
   saveAnimationButton.disabled = presentationMp4.disabled = saveImageButton.disabled;
   presentation.refresh();
+  // Labels shown while stopped follow the selected view and the editor; redraw when they change.
+  const labelKey = presentation.player.playing || exportRendering ? labelShown : JSON.stringify(presentation.labelsAt());
+  if (labelKey !== labelShown) { labelShown = labelKey; invalidateView(); }
   // While an image or animation is rendered, its frames own the camera.
   if (exportRendering) return;
   const suspended = Boolean(largeWorker || (preparationPending && walls.visible) || document.hidden

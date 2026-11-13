@@ -36,7 +36,8 @@ export class CentrelineScene {
     this.stations = new StationScene(group, labels);
   }
 
-  updateLabels(camera: THREE.Camera, width: number, height: number, pixelRatio?: number, whiteBackground = false, additional: readonly PositionLabel[] = []) { this.stations.updateLabels(camera, width, height, pixelRatio, whiteBackground, additional); }
+  /** origin: of the extra points when the model has no stations (a terrain on its own). */
+  updateLabels(camera: THREE.Camera, width: number, height: number, pixelRatio?: number, whiteBackground = false, additional: readonly PositionLabel[] = [], origin?: THREE.Vector3) { this.stations.updateLabels(camera, width, height, pixelRatio, whiteBackground, additional, origin); }
 
   setModel(model: AltitudeRange & { shots: Shot[]; stationDetails?: Station[] }, origin: THREE.Vector3) {
     this.clear(); this.range = { minZ: model.minZ, maxZ: model.maxZ }; this.originZ = origin.z;

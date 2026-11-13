@@ -88,6 +88,20 @@ export class PresentationTimeline {
       return part.segment.start + part.segment.duration * (frame - part.first + 1) / part.steps;
     } };
   }
+  /**
+   * How much of a label shows at a time (0–1): from the camera's arrival at view `from` (fading in
+   * during the half second before) until it reaches the view after `to` (fading out during the last
+   * half second), so also on the way on from `to`; to the end after the last view.
+   */
+  labelAlpha(label: { from: number; to: number }, seconds: number, fade = .5) {
+    if (!this.views.length) return 0;
+    const first = Math.max(0, Math.min(label.from, label.to)), last = Math.min(this.views.length - 1, Math.max(label.from, label.to));
+    const start = (this.viewTimes[first] ?? 0) - fade;
+    const away = this.segments.find(segment => !segment.rotation && segment.from === last);
+    const end = away ? away.start + away.duration : this.duration + fade;
+    const alpha = (time: number) => Math.max(0, Math.min(1, (time - start) / fade, (end - time) / fade));
+    return this.loop ? Math.max(alpha(seconds), alpha(seconds + this.duration), alpha(seconds - this.duration)) : alpha(seconds);
+  }
   sample(seconds: number): PresentationPose {
     if (!this.views.length) throw new Error('Animation has no views');
     if (!this.loop && seconds >= this.duration) {

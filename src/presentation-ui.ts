@@ -1,4 +1,5 @@
-import { Presentation, type LxaCamera } from './presentation';
+import { LABEL_ICONS, Presentation, type AnimationLabel, type LabelIcon, type LxaCamera } from './presentation';
+import type { PositionLabel } from './station-labels';
 import { PresentationTimeline, type PresentationPose } from './presentation-timeline';
 import { PresentationPlayer } from './presentation-player';
 import { applySceneSettings, blendSceneSettings, captureSceneSettings } from './presentation-scene';
@@ -8,7 +9,9 @@ import { readPresentationXml } from './presentation-file';
 type Host = { capture(): LxaCamera; walker(): boolean; apply(pose: PresentationPose): void; canPlay(): boolean;
   playing(active: boolean): void; error(error: unknown, file?: File): void;
   /** Overall speed (1 = as saved): every duration is divided by it for playing and exporting; the file keeps its own. */
-  speed?(): number };
+  speed?(): number;
+  /** A place picked in the model (S-JTSK), for a label; undefined when cancelled. */
+  pick?(): Promise<[number, number, number] | undefined> };
 export function initializePresentation(host: Host) {
   let document = Presentation.create(), timeline = new PresentationTimeline([], true), filename = 'presentation.lxa', dirty = false, appliedScene = -1;
   const panel = globalThis.document.querySelector<HTMLDialogElement>('#presentation-panel')!;
@@ -44,7 +47,81 @@ export function initializePresentation(host: Host) {
     for (const id of ['edit', 'delete', 'up', 'down']) globalThis.document.querySelector<HTMLButtonElement>(`#presentation-${id}`)!.disabled = !selected
       || id === 'up' && list.selectedIndex === 0 || id === 'down' && list.selectedIndex === timeline.views.length - 1;
     globalThis.document.querySelector<HTMLButtonElement>('#presentation-save')!.disabled = !timeline.views.length;
+    if (labelList) {
+      labelAdd!.disabled = !ready || !timeline.views.length || !host.pick;
+      labelEdit!.disabled = labelDelete!.disabled = labelList.selectedIndex < 0;
+    }
   }
+  // Labels pinned to the model, shown between two views.
+  const labelList = globalThis.document.querySelector<HTMLSelectElement>('#presentation-labels');
+  const labelAdd = globalThis.document.querySelector<HTMLButtonElement>('#label-add');
+  const labelEdit = globalThis.document.querySelector<HTMLButtonElement>('#label-edit');
+  const labelDelete = globalThis.document.querySelector<HTMLButtonElement>('#label-delete');
+  const labelDialog = globalThis.document.querySelector<HTMLDialogElement>('#label-dialog');
+  const labelField = (name: string) => globalThis.document.querySelector<HTMLInputElement & HTMLSelectElement>(`#label-${name}`)!;
+  let labelEditing = -1;
+  const viewName = (index: number) => timeline.views[index]?.name ?? String(index);
+  function rebuildLabels(selected = labelList?.selectedIndex ?? -1) {
+    if (!labelList) return;
+    const labels = document.labels();
+    labelList.replaceChildren(...labels.map((label, index) => {
+      const option = globalThis.document.createElement('option'); option.value = String(index);
+      option.textContent = `${label.text || '(no text)'} · ${label.from === label.to ? viewName(label.from) : `${viewName(label.from)} – ${viewName(label.to)}`}`;
+      return option;
+    }));
+    labelList.selectedIndex = Math.max(-1, Math.min(selected, labels.length - 1));
+  }
+  function openLabel(label: AnimationLabel, index: number) {
+    if (!labelDialog) return;
+    labelEditing = index;
+    for (const name of ['from', 'to']) labelField(name).replaceChildren(...timeline.views.map((view, i) => new Option(view.name, String(i))));
+    labelField('text').value = label.text; labelField('icon').value = label.icon;
+    labelField('from').value = String(label.from); labelField('to').value = String(label.to);
+    (['x', 'y', 'z'] as const).forEach((axis, i) => { labelField(axis).value = label.position[i].toFixed(2); });
+    labelDialog.showModal();
+  }
+  labelDialog?.querySelector('form')!.addEventListener('submit', event => {
+    event.preventDefault(); if (!(event.currentTarget as HTMLFormElement).reportValidity()) return;
+    const from = Number(labelField('from').value), to = Number(labelField('to').value), icon = labelField('icon').value as LabelIcon;
+    const label: AnimationLabel = { text: labelField('text').value.trim(), icon: LABEL_ICONS.includes(icon) ? icon : 'peak',
+      position: (['x', 'y', 'z'] as const).map(axis => labelField(axis).valueAsNumber) as [number, number, number], from: Math.min(from, to), to: Math.max(from, to) };
+    const labels = document.labels();
+    if (labelEditing < 0) labels.push(label); else labels[labelEditing] = label;
+    document.setLabels(labels); dirty = true; title.textContent = 'Animation *';
+    labelDialog.close(); rebuildLabels(labelEditing < 0 ? labels.length - 1 : labelEditing); refresh();
+  });
+  globalThis.document.querySelector('#label-cancel')?.addEventListener('click', () => labelDialog?.close());
+  labelDialog?.addEventListener('keydown', event => { if (event.key !== 'Escape') event.stopPropagation(); });
+  labelAdd?.addEventListener('click', () => {
+    player.stop();
+    const at = Math.max(0, list.selectedIndex);
+    void host.pick?.().then(position => { if (position) openLabel({ text: '', icon: 'peak', position, from: at, to: at }, -1); });
+  });
+  labelEdit?.addEventListener('click', () => { const label = document.labels()[labelList!.selectedIndex]; if (label) openLabel(label, labelList!.selectedIndex); });
+  labelDelete?.addEventListener('click', () => {
+    const labels = document.labels(); labels.splice(labelList!.selectedIndex, 1);
+    document.setLabels(labels); dirty = true; title.textContent = 'Animation *'; rebuildLabels(); refresh();
+  });
+  labelList?.addEventListener('change', () => refresh());
+  labelList?.addEventListener('dblclick', () => labelEdit?.click());
+  /**
+   * The labels to draw now: at a time of the animation (a film's frame), while it plays at the
+   * player's time, and while it is stopped those of the selected view (only with the editor open).
+   */
+  function labelsAt(seconds?: number): PositionLabel[] {
+    const labels = document.labels();
+    if (!labels.length || !timeline.views.length) return [];
+    const time = seconds ?? (player.playing ? player.time : undefined);
+    if (time === undefined) {
+      const selected = list.selectedIndex;
+      if (!panel.open || selected < 0) return [];
+      return labels.filter(label => label.from <= selected && selected <= label.to)
+        .map(label => ({ name: label.text, position: [...label.position] as [number, number, number], icon: label.icon, alpha: 1 }));
+    }
+    return labels.map(label => ({ name: label.text, position: [...label.position] as [number, number, number], icon: label.icon, alpha: timeline.labelAlpha(label, time) }))
+      .filter(label => label.alpha > 0);
+  }
+
   function rebuild(selected = list.selectedIndex) {
     const speed = host.speed?.() ?? 1;
     const views = document.views().map(view => speed === 1 ? view : { ...view, duration: view.duration / speed, rotationDuration: view.rotationDuration / speed });
@@ -59,6 +136,7 @@ export function initializePresentation(host: Host) {
     loop.checked = document.loop; sceneChanges.checked = document.sceneChanges;
     if (caption && globalThis.document.activeElement !== caption) caption.value = document.caption;
     title.textContent = `Animation${dirty ? ' *' : ''}`;
+    rebuildLabels();
     summary.textContent = `${timeline.views.length} views · ${timeline.duration.toFixed(2).replace(/\.00$/, '')} seconds${document.loop ? ' · loop' : ''}${speed === 1 ? '' : ` · speed ${speed}×`}`;
     refresh();
   }
@@ -126,6 +204,7 @@ export function initializePresentation(host: Host) {
   return { player, loadFile, refresh, toggle, timeline: () => timeline, resetScene() { appliedScene = -1; },
     /** Rebuild the timeline (after a speed change), keeping the selected view. */
     rebuild() { player.stop(); rebuild(); },
+    labelsAt,
     /** The film's caption (empty: the model's name). */
     caption: () => document.caption.trim() };
 }
