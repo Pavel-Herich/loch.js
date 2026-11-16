@@ -71,7 +71,7 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     compass.setAttribute('aria-label', compass.title);
     arrow.setAttribute('transform', `rotate(${-orientation.tilt} 34 34)`);
     tiltValue.textContent = `${angle > 0 ? '+' : ''}${angle}°`;
-    tilt.title = `View tilt ${angle}°; 0° horizontal, +90° up, −90° down. ${tiltMode === 'plan' ? 'Click to return to the previous tilt' : tiltMode === 'side' ? 'Click for a plan view from straight above' : 'Click for a level side view with tilt locked'}`;
+    tilt.title = `View tilt ${angle}°; 0° horizontal, +90° up, −90° down. ${tiltMode === 'phone' ? 'Tilting with the phone; click to set the tilt by dragging' : compassMode === 'device' ? 'Click to tilt with the phone again' : tiltMode === 'plan' ? 'Click to return to the previous tilt' : tiltMode === 'side' ? 'Click for a plan view from straight above' : 'Click for a level side view with tilt locked'}`;
     tilt.setAttribute('aria-label', tilt.title);
     if (size) {
       // In perspective the scale holds only at the depth of the rotation centre.

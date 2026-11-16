@@ -459,5 +459,5 @@ body.light-view .scale-ruler{background:linear-gradient(#162531,#162531) top/100
 body.light-view .object-marker span{color:#7a3d00;text-shadow:0 0 3px #fff,0 0 3px #fff}
 #scale-indicator.animation-hidden{visibility:hidden}
 /* Second compass and tilt states: turning with the phone, plan view. */
-#compass-indicator[data-mode="device"],#tilt-indicator[data-mode="plan"]{background:#6b5a14b3;color:#ffd75e}
-#compass-indicator[data-mode="device"] .indicator-ring,#tilt-indicator[data-mode="plan"] .indicator-ring{stroke:#ffd75e}
+#compass-indicator[data-mode="device"],#tilt-indicator[data-mode="plan"],#tilt-indicator[data-mode="phone"]{background:#6b5a14b3;color:#ffd75e}
+#compass-indicator[data-mode="device"] .indicator-ring,#tilt-indicator[data-mode="plan"] .indicator-ring,#tilt-indicator[data-mode="phone"] .indicator-ring{stroke:#ffd75e}

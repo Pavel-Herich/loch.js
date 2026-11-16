@@ -28,7 +28,7 @@ function lockHeading(controls: OrbitControls, locked: boolean) {
 }
 
 export type CompassMode = 'free' | 'north' | 'device';
-export type TiltMode = 'free' | 'side' | 'plan';
+export type TiltMode = 'free' | 'side' | 'plan' | 'phone';
 export type ViewLockState = { north: boolean; side: boolean; compass: CompassMode; tilt: TiltMode; tiltLocked: boolean };
 
 /**
@@ -41,6 +41,8 @@ export type ViewLockState = { north: boolean; side: boolean; compass: CompassMod
 export class ViewLocks {
   private north?: { bearing: number; tilt: number; locked: boolean };
   private device = false;
+  /** While following the phone: whether its tilt steers too (else the tilt is dragged by hand). */
+  private phoneTilt = true;
   private side?: { tilt: number; locked: boolean };
   private plan = false;
 
@@ -48,7 +50,7 @@ export class ViewLocks {
 
   get state(): ViewLockState {
     const compass: CompassMode = this.device ? 'device' : this.north ? 'north' : 'free';
-    const tilt: TiltMode = this.plan ? 'plan' : this.side ? 'side' : 'free';
+    const tilt: TiltMode = this.device && this.phoneTilt ? 'phone' : this.plan ? 'plan' : this.side ? 'side' : 'free';
     return { north: compass !== 'free', side: tilt !== 'free', compass, tilt, tiltLocked: this.controls.minPolarAngle === this.controls.maxPolarAngle };
   }
 
@@ -65,7 +67,7 @@ export class ViewLocks {
       setTiltLocked(this.controls, previous.locked);
       this.north = undefined; this.device = false;
     } else if (this.north) {
-      this.device = true;
+      this.device = true; this.phoneTilt = true;
     } else {
       // The compass takes over the tilt, so the tilt toggle's state ends here.
       this.north = this.side ? { bearing, tilt: this.side.tilt, locked: this.side.locked } : { bearing, tilt, locked: this.controls.minPolarAngle === this.controls.maxPolarAngle };
@@ -83,6 +85,7 @@ export class ViewLocks {
    */
   face(bearing: number, tilt?: number) {
     if (!this.device) return;
+    if (!this.phoneTilt) tilt = undefined;
     const camera = this.getCamera();
     if (tilt !== undefined) setTiltLocked(this.controls, false);
     orbitTo(camera, this.controls, bearing, tilt ?? viewOrientation(camera).tilt);
@@ -92,8 +95,13 @@ export class ViewLocks {
 
   /** Free → level side view → plan view → free. */
   toggleSide() {
-    // The tilt toggle stops the phone steering (the view stays facing north-locked as it is).
-    if (this.device) { this.device = false; setTiltLocked(this.controls, false); }
+    // Following the phone, the tilt toggle only switches the phone's tilt off (drag to tilt) and on.
+    if (this.device) {
+      this.phoneTilt = !this.phoneTilt;
+      if (!this.phoneTilt) setTiltLocked(this.controls, false);
+      this.onChange(this.state);
+      return;
+    }
     const camera = this.getCamera(), { bearing, tilt } = viewOrientation(camera);
     if (this.plan) {
       const previous = this.side!;
