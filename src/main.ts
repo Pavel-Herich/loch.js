@@ -36,6 +36,7 @@ import { STATION_ENTRANCE, temporaryStation, type Station } from './lox-stations
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker, setRotationCentre } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading, phoneView } from './heading';
+import { altitudeFraction, colourRange, customAltitudeRange, recallAltitudeRange, rememberAltitudeRange, setCustomAltitudeRange, type AltitudeRange } from './altitude-range';
 import { addLocalMap, localMaps, localService, localTiles, removeLocalMap } from './local-maps';
 import { downloadEstimate, fetchMap, loadBlob, prepareWms, nearestPointGap, offlineTiles, OFFLINE_BASE, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
 import { forgetStored, forgetStoredUnderlays, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
@@ -851,6 +852,7 @@ const LAST_TERRAIN = 'loch.js-last-terrain';
 function showTerrainOnly(dmr: Dmr, key: string) {
   newScene();
   modelKey = key; terrainOnly = true; hasModel = true;
+  restoreAltitudeRange();
   const step = dmr.step, x0 = dmr.origin[0] + dmr.shift[0], y0 = dmr.origin[1] + dmr.shift[1];
   let low = Infinity, high = -Infinity;
   for (const h of dmr.heights) if (h === h) { if (h < low) low = h; if (h > high) high = h; }
@@ -2114,7 +2116,7 @@ const menus = initializeMenus(view => {
 initializeLayout(computer => { menus.pin(computer); invalidateView(); });
 const c = new THREE.Color();
 function altitudeColor(z: number, model: Pick<Model, 'minZ' | 'maxZ'>): THREE.Color {
-  const t = model.maxZ === model.minZ ? .5 : (z - model.minZ) / (model.maxZ - model.minZ);
+  const t = altitudeFraction(z, colourRange(model));
   return c.setHSL((1 - t) * .68, .82, .54).clone();
 }
 function offset(p: Point, origin: THREE.Vector3): [number, number, number] { return [p[0] - origin.x, p[1] - origin.y, p[2] - origin.z]; }
@@ -2123,12 +2125,74 @@ function clear(g: THREE.Group) {
   for (const object of [...g.children]) { g.remove(object); const mesh = object as THREE.Mesh; mesh.geometry?.dispose(); if (mesh.material) materials.add(mesh.material as THREE.Material); }
   for (const material of materials) material.dispose();
 }
+/** The model's own height range (the legend's default). */
+let naturalRange: AltitudeRange = { minZ: 0, maxZ: 0 };
 function updateLegend(model: Pick<Model, 'minZ' | 'maxZ'>) {
-  const low = altitudeColor(model.minZ, model).getStyle(), high = altitudeColor(model.maxZ, model).getStyle();
-  legend.innerHTML = `<div class="ramp" style="--low:${low};--high:${high}"></div><span class="legend-max">${model.maxZ.toFixed(0)} m</span><span class="legend-min">${model.minZ.toFixed(0)} m</span>`;
-  legend.title = `Altitude colours: ${model.minZ.toFixed(1)} m to ${model.maxZ.toFixed(1)} m`;
+  naturalRange = { minZ: model.minZ, maxZ: model.maxZ };
+  const range = colourRange(naturalRange), custom = Boolean(customAltitudeRange());
+  const low = altitudeColor(range.minZ, range).getStyle(), high = altitudeColor(range.maxZ, range).getStyle();
+  legend.innerHTML = `<div class="ramp" style="--low:${low};--high:${high}"></div><span class="legend-max">${range.maxZ.toFixed(0)} m</span><span class="legend-min">${range.minZ.toFixed(0)} m</span>`;
+  legend.classList.toggle('custom-range', custom);
+  legend.title = `Altitude colours: ${range.minZ.toFixed(1)} m to ${range.maxZ.toFixed(1)} m${custom ? ` (set by you; the model spans ${model.minZ.toFixed(1)} to ${model.maxZ.toFixed(1)} m)` : ''}. Click to set the colour range`;
   legend.style.visibility = '';
 }
+/** A model opens with the colour range last set for it. */
+function restoreAltitudeRange() { setCustomAltitudeRange(recallAltitudeRange(modelKey)); }
+/** Recolour walls (small models keep vertex colours; large ones read the range in their shader) and centreline. */
+function applyAltitudeRange() {
+  const color = new THREE.Color(), range = colourRange(naturalRange);
+  walls.traverse(object => {
+    const geometry = (object as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
+    const colors = geometry?.getAttribute('color'), positions = geometry?.getAttribute('position');
+    if (!colors || !positions) return;
+    for (let i = 0; i < positions.count; i++) {
+      color.setHSL((1 - altitudeFraction(positions.getZ(i) + worldOrigin.z, range)) * .68, .82, .54);
+      colors.setXYZ(i, color.r, color.g, color.b);
+    }
+    colors.needsUpdate = true;
+  });
+  centreline.refreshColors();
+  updateLegend(naturalRange);
+  invalidateView();
+}
+const altitudePanel = document.querySelector<HTMLElement>('#altitude-panel')!;
+const altitudeHigh = document.querySelector<HTMLInputElement>('#altitude-high')!;
+const altitudeLow = document.querySelector<HTMLInputElement>('#altitude-low')!;
+function placeAltitudePanel() {
+  const box = legend.getBoundingClientRect(), width = altitudePanel.offsetWidth, height = altitudePanel.offsetHeight;
+  const left = Math.max(8, Math.min(window.innerWidth - width - 8, box.left + box.width / 2 - width / 2));
+  const below = box.bottom + 6, top = below + height > window.innerHeight - 8 ? Math.max(8, box.top - height - 6) : below;
+  altitudePanel.style.left = `${left}px`; altitudePanel.style.top = `${top}px`;
+}
+function setAltitudePanel(open: boolean) {
+  altitudePanel.hidden = !open; legend.setAttribute('aria-expanded', String(open));
+  if (!open) return;
+  const range = colourRange(naturalRange);
+  altitudeHigh.value = String(+range.maxZ.toFixed(1)); altitudeLow.value = String(+range.minZ.toFixed(1));
+  placeAltitudePanel();
+}
+function altitudeInput() {
+  const high = altitudeHigh.valueAsNumber, low = altitudeLow.valueAsNumber;
+  const valid = Number.isFinite(high) && Number.isFinite(low) && low < high;
+  altitudeHigh.setCustomValidity(valid ? '' : 'The top must be higher than the bottom');
+  if (!valid) return;
+  const natural = Math.abs(low - naturalRange.minZ) < .05 && Math.abs(high - naturalRange.maxZ) < .05;
+  setCustomAltitudeRange(natural ? undefined : { minZ: low, maxZ: high });
+  rememberAltitudeRange(modelKey, customAltitudeRange());
+  applyAltitudeRange();
+}
+legend.addEventListener('click', () => setAltitudePanel(altitudePanel.hidden));
+legend.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setAltitudePanel(altitudePanel.hidden); } });
+for (const input of [altitudeHigh, altitudeLow]) input.addEventListener('input', altitudeInput);
+document.querySelector('#altitude-reset')!.addEventListener('click', () => {
+  setCustomAltitudeRange(undefined); rememberAltitudeRange(modelKey, undefined);
+  applyAltitudeRange(); setAltitudePanel(true);
+});
+document.addEventListener('pointerdown', event => {
+  if (!altitudePanel.hidden && !altitudePanel.contains(event.target as Node) && !legend.contains(event.target as Node)) setAltitudePanel(false);
+});
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !altitudePanel.hidden) setAltitudePanel(false); });
+window.addEventListener('resize', () => { if (!altitudePanel.hidden) placeAltitudePanel(); });
 function updateProjectTitle(title: string | undefined, filename: string) {
   projectTitle.textContent = displayProjectTitle(title, filename); projectTitle.hidden = false;
 }
@@ -2146,6 +2210,7 @@ function draw(model: Model, label: string) {
   const centered = new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(), bounds.getSize(new THREE.Vector3()));
   activeBox = bounds.isEmpty() ? new THREE.Box3() : centered; boxWithoutTerrain = undefined;
   worldOrigin.copy(origin); hasModel = !bounds.isEmpty();
+  restoreAltitudeRange();
   boundingBox.box.copy(centered);
   flashBoundingBox();
   for (const scrap of model.scraps) {
@@ -2244,6 +2309,7 @@ function loadLargeFile(file: File, id: number) {
         invalidateView();
         const origin = new THREE.Vector3(...model.origin); modelOrigin = origin;
         worldOrigin.copy(origin); hasModel = true;
+        restoreAltitudeRange();
         activeBox = new THREE.Box3(new THREE.Vector3(...model.min).sub(origin), new THREE.Vector3(...model.max).sub(origin)); boxWithoutTerrain = undefined;
         boundingBox.box.copy(activeBox);
         flashBoundingBox();

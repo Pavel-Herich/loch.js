@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { SHOT_DUPLICATE, SHOT_SPLAY, SHOT_SURFACE, type Shot } from './lox-shots';
 import { StationScene, type StationOptions } from './stations';
 import type { Station, StationLabel } from './lox-stations';
+import { altitudeFraction, colourRange } from './altitude-range';
 
 type AltitudeRange = { minZ: number; maxZ: number };
 export type CentrelineOptions = StationOptions & { color: 'altitude' | 'default'; duplicate: boolean };
@@ -18,7 +19,7 @@ export function centrelineColor(z: number, flags: number, range: AltitudeRange, 
   if (flags & SHOT_SURFACE) return color.setHex(0x808080);
   const splay = Boolean(flags & SHOT_SPLAY);
   if (mode === 'default') return color.setRGB(splay ? .5 : 1, splay ? .5 : 1, splay ? .5 : 1);
-  const t = range.maxZ === range.minZ ? .5 : THREE.MathUtils.clamp((z - range.minZ) / (range.maxZ - range.minZ), 0, 1);
+  const t = altitudeFraction(z, range);
   // Half saturation and lightness keep splays muted and darker than survey legs.
   return color.setHSL((1 - t) * .68, splay ? .41 : .82, splay ? .27 : .54);
 }
@@ -69,6 +70,9 @@ export class CentrelineScene {
     this.updateColors(); this.updateVisibility();
   }
 
+  /** Recolour after the legend's altitude range changed. */
+  refreshColors() { this.updateColors(); this.onChange(); }
+
   setOptions(options: CentrelineOptions) {
     const recolor = options.color !== this.options.color;
     this.options = { ...options };
@@ -84,7 +88,7 @@ export class CentrelineScene {
     for (const { flags, lines } of this.entries) {
       const positions = lines.geometry.getAttribute('position'), colors = lines.geometry.getAttribute('color');
       for (let i = 0; i < positions.count; i++) {
-        centrelineColor(positions.getZ(i) + this.originZ, flags, this.range, this.options.color, color);
+        centrelineColor(positions.getZ(i) + this.originZ, flags, colourRange(this.range), this.options.color, color);
         colors.setXYZ(i, color.r, color.g, color.b);
       }
       colors.needsUpdate = true;

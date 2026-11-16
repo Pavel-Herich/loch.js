@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { LargeModel } from './large-lox';
+import { colourRange } from './altitude-range';
 
 type AltitudeRange = Pick<LargeModel, 'minZ' | 'maxZ' | 'origin'>;
 const placeholder = new THREE.DataTexture(new Uint8Array([145, 139, 126, 255]), 1, 1);
@@ -31,8 +32,9 @@ export function wallMaterial<T extends THREE.Material>(material: T, model?: Alti
   material.onBeforeCompile = shader => {
     shader.uniforms.texturedWalls = texturedWalls;
     shader.uniforms.rockMap = rockMap;
-    shader.uniforms.lowZ = { value: model ? model.minZ - model.origin[2] : 0 };
-    shader.uniforms.highZ = { value: model ? model.maxZ - model.origin[2] : 0 };
+    // Read at each frame, so a range set from the legend recolours at once.
+    shader.uniforms.lowZ = { get value() { return model ? colourRange(model).minZ - model.origin[2] : 0; } };
+    shader.uniforms.highZ = { get value() { return model ? colourRange(model).maxZ - model.origin[2] : 0; } };
     shader.vertexShader = `varying vec3 wallPosition;\n${points ? 'varying vec3 wallSampleNormal;\n' : ''}`
       + shader.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
         wallPosition = position;
