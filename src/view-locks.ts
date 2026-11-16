@@ -27,29 +27,40 @@ function lockHeading(controls: OrbitControls, locked: boolean) {
   controls.maxAzimuthAngle = locked ? angle : Infinity;
 }
 
-export type ViewLockState = { north: boolean; side: boolean; tiltLocked: boolean };
+export type CompassMode = 'free' | 'north' | 'device';
+export type TiltMode = 'free' | 'side' | 'plan';
+export type ViewLockState = { north: boolean; side: boolean; compass: CompassMode; tilt: TiltMode; tiltLocked: boolean };
 
 /**
- * Compass: face north and hold the heading, or return to the previous heading.
- * Tilt: level side view with tilt locked, or return to the previous tilt and lock.
+ * Compass: face north and hold the heading, then follow the phone's heading,
+ * then return to the previous heading.
+ * Tilt: level side view, then a plan view looking straight down (both with
+ * tilt locked), then the previous tilt and lock.
  * Each toggle restores only its own angle, so they combine freely.
  */
 export class ViewLocks {
   private north?: { bearing: number };
+  private device = false;
   private side?: { tilt: number; locked: boolean };
+  private plan = false;
 
   constructor(private getCamera: () => ViewCamera, private controls: OrbitControls, private onChange: (state: ViewLockState) => void) {}
 
   get state(): ViewLockState {
-    return { north: Boolean(this.north), side: Boolean(this.side), tiltLocked: this.controls.minPolarAngle === this.controls.maxPolarAngle };
+    const compass: CompassMode = this.device ? 'device' : this.north ? 'north' : 'free';
+    const tilt: TiltMode = this.plan ? 'plan' : this.side ? 'side' : 'free';
+    return { north: compass !== 'free', side: tilt !== 'free', compass, tilt, tiltLocked: this.controls.minPolarAngle === this.controls.maxPolarAngle };
   }
 
+  /** Free → north → phone heading → free. */
   toggleNorth() {
     const camera = this.getCamera(), { bearing, tilt } = viewOrientation(camera);
-    if (this.north) {
+    if (this.device) {
       lockHeading(this.controls, false);
-      orbitTo(camera, this.controls, this.north.bearing, tilt);
-      this.north = undefined;
+      orbitTo(camera, this.controls, this.north!.bearing, tilt);
+      this.north = undefined; this.device = false;
+    } else if (this.north) {
+      this.device = true;
     } else {
       this.north = { bearing };
       orbitTo(camera, this.controls, 0, tilt);
@@ -58,14 +69,28 @@ export class ViewLocks {
     this.onChange(this.state);
   }
 
+  /** While following the phone, turn the view to a bearing (clockwise from model north) and hold it. */
+  face(bearing: number) {
+    if (!this.device) return;
+    const camera = this.getCamera();
+    orbitTo(camera, this.controls, bearing, viewOrientation(camera).tilt);
+    lockHeading(this.controls, true);
+  }
+
+  /** Free → level side view → plan view → free. */
   toggleSide() {
     const camera = this.getCamera(), { bearing, tilt } = viewOrientation(camera);
-    if (this.side) {
-      const previous = this.side;
+    if (this.plan) {
+      const previous = this.side!;
       setTiltLocked(this.controls, false);
       orbitTo(camera, this.controls, bearing, previous.tilt);
       setTiltLocked(this.controls, previous.locked);
-      this.side = undefined;
+      this.side = undefined; this.plan = false;
+    } else if (this.side) {
+      setTiltLocked(this.controls, false);
+      orbitTo(camera, this.controls, bearing, -90);
+      setTiltLocked(this.controls, true);
+      this.plan = true;
     } else {
       this.side = { tilt, locked: this.controls.minPolarAngle === this.controls.maxPolarAngle };
       setTiltLocked(this.controls, false);
@@ -78,7 +103,7 @@ export class ViewLocks {
   /** Forget both toggles, e.g. when a Plan, Profile or Fit view replaces the camera angles. */
   reset() {
     if (this.north) lockHeading(this.controls, false);
-    this.north = undefined; this.side = undefined;
+    this.north = undefined; this.device = false; this.side = undefined; this.plan = false;
     this.onChange(this.state);
   }
 }

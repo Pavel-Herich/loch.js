@@ -39,19 +39,32 @@ describe('compass and tilt toggles', () => {
     expect(Math.min(angles(camera).bearing, 360 - angles(camera).bearing)).toBeLessThan(1e-6);
     expect(angles(camera).tilt).not.toBeCloseTo(-30, 1);
     locks.toggleNorth();
+    expect(locks.state.compass).toBe('device');
+    locks.face(75);
+    expect(angles(camera).bearing).toBeCloseTo(75, 6);
+    drag(canvas, 200, 0);
+    expect(angles(camera).bearing).toBeCloseTo(75, 6);
+    locks.toggleNorth();
     expect(angles(camera).bearing).toBeCloseTo(120, 6);
     expect(controls.minAzimuthAngle).toBe(-Infinity);
-    expect(states.map(state => state.north)).toEqual([true, false]);
+    expect(states.map(state => state.compass)).toEqual(['north', 'device', 'free']);
+    locks.face(10);
+    expect(angles(camera).bearing).toBeCloseTo(120, 6);
   });
 
   it('levels to a side view with tilt locked, then restores tilt and the earlier lock', () => {
     const { canvas, camera, controls, locks, states } = setup();
     locks.toggleSide();
     expect(angles(camera).tilt).toBeCloseTo(0, 6); expect(angles(camera).bearing).toBeCloseTo(120, 6);
-    expect(states.at(-1)).toEqual({ north: false, side: true, tiltLocked: true });
+    expect(states.at(-1)).toEqual({ north: false, side: true, compass: 'free', tilt: 'side', tiltLocked: true });
     drag(canvas, 120, 80);
     expect(angles(camera).tilt).toBeCloseTo(0, 6);
     const bearing = angles(camera).bearing;
+    locks.toggleSide();
+    expect(angles(camera).tilt).toBeLessThan(-89.99); expect(angles(camera).bearing).toBeCloseTo(bearing, 4);
+    expect(states.at(-1)).toMatchObject({ tilt: 'plan', tiltLocked: true });
+    drag(canvas, 0, 80);
+    expect(angles(camera).tilt).toBeLessThan(-89.99);
     locks.toggleSide();
     expect(angles(camera).tilt).toBeCloseTo(-30, 6); expect(angles(camera).bearing).toBeCloseTo(bearing, 6);
     expect(controls.minPolarAngle).toBe(0); expect(states.at(-1)?.tiltLocked).toBe(false);
@@ -61,10 +74,10 @@ describe('compass and tilt toggles', () => {
     const { camera, locks } = setup();
     locks.toggleNorth(); locks.toggleSide();
     expect(angles(camera).bearing % 360).toBeCloseTo(0, 6); expect(angles(camera).tilt).toBeCloseTo(0, 6);
-    locks.toggleNorth();
+    locks.toggleNorth(); locks.toggleNorth();
     expect(angles(camera).bearing).toBeCloseTo(120, 6); expect(angles(camera).tilt).toBeCloseTo(0, 6);
-    locks.toggleSide();
-    expect(angles(camera).bearing).toBeCloseTo(120, 6); expect(angles(camera).tilt).toBeCloseTo(-30, 6);
+    locks.toggleSide(); locks.toggleSide();
+    expect(angles(camera).bearing).toBeCloseTo(120, 4); expect(angles(camera).tilt).toBeCloseTo(-30, 6);
     locks.toggleNorth(); locks.reset();
     expect(locks.state.north).toBe(false);
     expect(new Vector3(1, 0, 0).applyQuaternion(camera.quaternion).z).toBeCloseTo(0, 9);

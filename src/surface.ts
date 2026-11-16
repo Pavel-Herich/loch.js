@@ -194,8 +194,8 @@ export class SurfaceScene {
    * which of two overlapping slopes won changed suddenly as the camera moved.
    */
   private depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true, side: THREE.DoubleSide, transparent: true });
-  /** Nearest layer only (at start): the depth pass on. Off: every layer blends. */
-  private nearestOnly = true;
+  /** Nearest layer only (an option): the depth pass on. Off (at start): every layer blends. */
+  private nearestOnly = false;
   private get layered() { return this.nearestOnly && this.transparency && this.opacity < 1; }
   setNearestOnly(on: boolean) { this.nearestOnly = on; this.setAppearance(this.transparency, this.opacity); }
 
@@ -458,7 +458,7 @@ export function initializeSurfaceControls(surface: SurfaceScene) {
   const overlay = document.querySelector<HTMLInputElement>('#surface-image-overlay')!;
   const underside = document.querySelector<HTMLInputElement>('#surface-opaque-underside')!;
   const nearest = document.querySelector<HTMLInputElement>('#surface-nearest');
-  if (nearest) { nearest.checked = true; surface.setNearestOnly(true); nearest.addEventListener('change', () => surface.setNearestOnly(nearest.checked)); }
+  if (nearest) { nearest.checked = false; surface.setNearestOnly(false); nearest.addEventListener('change', () => surface.setNearestOnly(nearest.checked)); }
   const brightness = document.querySelector<HTMLInputElement>('#surface-brightness');
   const brightnessValue = document.querySelector<HTMLOutputElement>('#surface-brightness-value');
   if (brightness) {

@@ -23,17 +23,17 @@ import { displayProjectTitle } from './lox-title';
 import { AUTOROTATE_PERIOD_SECONDS, initializeAutorotateControls } from './autorotate';
 import { initializeDock } from './dock';
 import { WalkerControls } from './walker';
-import { orbitTo, ViewLocks } from './view-locks';
+import { orbitTo, ViewLocks, type CompassMode } from './view-locks';
 import { FieldObjects } from './objects-ui';
 import { ObjectStore } from './objects';
-import { looksLikeSJTSK, sjtskToWgs84 } from './geo';
+import { looksLikeSJTSK, sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { drawLayers, LayerStore, readShapefileLayer, type PointLayer, readPointFileLayer } from './layers';
 import { POINT_FORMATS, toCsv, toGeoJson, toGpx, toKml, toShapefile, type ExportPoint } from './formats';
 import { LayerBrowser } from './layers-ui';
 import { searchModel, type SearchResult } from './search';
 import { browsablePoints } from './layers-ui';
 import { STATION_ENTRANCE, temporaryStation, type Station } from './lox-stations';
-import { animateRotationCentre, pickModelPoint, RotationCentrePicker } from './pivot';
+import { animateRotationCentre, pickModelPoint, RotationCentrePicker, setRotationCentre } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
 import { DeviceHeading } from './heading';
 import { addLocalMap, localMaps, localService, localTiles, removeLocalMap } from './local-maps';
@@ -212,6 +212,7 @@ function centreAt(clientX: number, clientY: number) {
   if (!point) return;
   animateRotationCentre(camera, controls, point);
   pivotMarker.hidden = true; void pivotMarker.offsetWidth; pivotMarker.hidden = false;
+  if (phoneCentreWanted) { phoneCentreWanted = false; pivotHint.hidden = true; followPhone(); }
 }
 canvas.addEventListener('dblclick', event => { event.preventDefault(); centreAt(event.clientX, event.clientY); });
 // Touch has no reliable dblclick: two short taps within 300 ms and 30 px.
@@ -252,6 +253,7 @@ function showInfo(title: string, rows: [string, string][], actions: InfoAction[]
 document.querySelector<HTMLButtonElement>('#info-close')!.addEventListener('click', () => { infoCard.hidden = true; });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
+  if (phoneCentreWanted) { phoneCentreWanted = false; pivotHint.hidden = true; followPhone(); }
   infoCard.hidden = true; select(null);
   if (sectionPicks) { sectionPicks = undefined; pivotHint.hidden = true; sectionToggle.setAttribute('aria-pressed', String(Boolean(section))); }
   if (measuring) setMeasuring(false);
@@ -1898,7 +1900,11 @@ const locationDot = document.querySelector<HTMLElement>('#location-dot')!;
 const locationInfo = document.querySelector<HTMLElement>('#location-info')!;
 let locationInfoTimer = 0;
 function showLocationState(state: LocationState) {
-  if (state.kind === 'fix') { updateMeasuredLocation(state.fix); }
+  if (state.kind === 'fix') {
+    updateMeasuredLocation(state.fix);
+    // Turning with the phone keeps the rotation centre on the GPS position as it moves.
+    if (phoneCentredOnGps && viewLocks.state.compass === 'device') setRotationCentre(camera, controls, state.fix.local);
+  }
   const active = state.kind === 'waiting' || state.kind === 'fix';
   locateButton.setAttribute('aria-pressed', String(active));
   locateButton.title = active ? 'Stop showing my location' : 'Show my location (GPS)';
@@ -1950,10 +1956,10 @@ const deviceLocation = new DeviceLocation({
   onFirstFix: fix => animateRotationCentre(camera, controls, fix.local),
 });
 // The phone's heading turns a small arrow at the location dot.
-const deviceHeading = new DeviceHeading(() => invalidateView());
+const deviceHeading = new DeviceHeading(() => { followPhone(); invalidateView(); });
 const headingArrow = document.querySelector<HTMLElement>('#heading-arrow')!;
 function toggleLocation() {
-  if (deviceLocation.active) { deviceLocation.stop(); deviceHeading.stop(); }
+  if (deviceLocation.active) { deviceLocation.stop(); if (viewLocks.state.compass !== 'device') deviceHeading.stop(); }
   else { deviceHeading.start(); deviceLocation.start(); }
 }
 locateButton.addEventListener('click', toggleLocation);
@@ -2010,9 +2016,14 @@ texturedWalls.addEventListener('change', () => {
 });
 const compassIndicator = document.querySelector<HTMLElement>('#compass-indicator')!;
 const tiltIndicator = document.querySelector<HTMLElement>('#tilt-indicator')!;
+let phoneCompass: CompassMode = 'free';
 const viewLocks = new ViewLocks(() => camera, controls, state => {
   compassIndicator.setAttribute('aria-pressed', String(state.north));
   tiltIndicator.setAttribute('aria-pressed', String(state.side));
+  compassIndicator.dataset.mode = state.compass; tiltIndicator.dataset.mode = state.tilt;
+  if (state.compass === 'device' && phoneCompass !== 'device') startPhoneCompass();
+  if (state.compass !== 'device' && phoneCompass === 'device') stopPhoneCompass();
+  phoneCompass = state.compass;
   lockTilt.checked = state.tiltLocked;
   indicators.refresh(); invalidateView();
 });
@@ -2021,6 +2032,52 @@ for (const [element, toggle] of [[compassIndicator, () => { viewLocks.toggleNort
   element.addEventListener('keydown', event => {
     if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
   });
+}
+/*
+ * Second compass click: the model turns with the phone, so the view looks the
+ * way the phone points. It turns around the GPS position, else the selected
+ * object, else a place the user double-clicks.
+ */
+let phoneCentreWanted = false, phoneCentredOnGps = false, phoneHeadingTimer = 0;
+function startPhoneCompass() {
+  deviceHeading.start();
+  const fix = deviceLocation.active && deviceLocation.state.kind === 'fix' ? deviceLocation.state.fix : undefined;
+  phoneCentredOnGps = Boolean(fix);
+  if (fix) animateRotationCentre(camera, controls, fix.local);
+  else if (selection && hasModel) animateRotationCentre(camera, controls, new THREE.Vector3(selection.east - worldOrigin.x, selection.north - worldOrigin.y, selection.z - worldOrigin.z));
+  else if (hasModel) {
+    phoneCentreWanted = true;
+    pivotHint.textContent = 'Double-click (double-tap) the model to set the centre to turn around · Esc keeps the current one';
+    pivotHint.hidden = false;
+  }
+  clearTimeout(phoneHeadingTimer);
+  phoneHeadingTimer = window.setTimeout(() => {
+    if (viewLocks.state.compass !== 'device' || deviceHeading.heading !== undefined) return;
+    pivotHint.textContent = 'This device reports no compass heading, so the model cannot turn with it';
+    pivotHint.hidden = false;
+    window.setTimeout(() => { if (!phoneCentreWanted) pivotHint.hidden = true; }, 5000);
+  }, 3000);
+  followPhone();
+}
+function stopPhoneCompass() {
+  clearTimeout(phoneHeadingTimer);
+  if (phoneCentreWanted) { phoneCentreWanted = false; pivotHint.hidden = true; }
+  phoneCentredOnGps = false;
+  if (!deviceLocation.active) deviceHeading.stop();
+}
+/** Grid bearing of true north (S-JTSK meridian convergence) at the GPS position or the model. */
+function trueNorthBearing() {
+  if (deviceLocation.state.kind === 'fix') return deviceLocation.state.fix.trueNorth;
+  const east = worldOrigin.x + controls.target.x, north = worldOrigin.y + controls.target.y;
+  if (!hasModel || !looksLikeSJTSK(east, north)) return 0;
+  const [latitude, longitude] = sjtskToWgs84(east, north);
+  const [e1, n1] = wgs84ToSJTSK(latitude, longitude), [e2, n2] = wgs84ToSJTSK(latitude + .001, longitude);
+  return Math.atan2(e2 - e1, n2 - n1) * 180 / Math.PI;
+}
+function followPhone() {
+  if (phoneCentreWanted || deviceHeading.heading === undefined || viewLocks.state.compass !== 'device') return;
+  viewLocks.face(deviceHeading.heading + trueNorthBearing());
+  indicators.refresh(); invalidateView();
 }
 const menus = initializeMenus(view => {
   viewLocks.reset();

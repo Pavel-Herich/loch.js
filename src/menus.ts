@@ -45,11 +45,34 @@ export function initializeMenus(onView: (view: ModelView) => void, onError: (err
     setOpen(true);
   });
   setOpen(false);
+  /**
+   * A dropdown ends above the dock's buttons (and the map credits) where it would reach them, and
+   * scrolls instead, so no row hides behind a button. On a computer it is drawn above the dock.
+   */
+  function fitDropdown(group: HTMLDetailsElement) {
+    const items = group.querySelector<HTMLElement>(':scope > .menu-items');
+    if (!items || !group.open) return;
+    items.style.maxHeight = '';
+    const box = items.getBoundingClientRect();
+    let bottom = (window.visualViewport?.height ?? window.innerHeight) - 8;
+    if (!document.body.classList.contains('computer')) {
+      for (const obstacle of Array.from(document.querySelectorAll<HTMLElement>('#dock, #map-attribution'))) {
+        const r = obstacle.getBoundingClientRect();
+        if (!r.width || !r.height || r.left >= box.right || r.right <= box.left || r.top <= box.top) continue;
+        bottom = Math.min(bottom, r.top - 6);
+      }
+    }
+    items.style.maxHeight = `${Math.max(96, Math.floor(bottom - box.top))}px`;
+  }
   for (const group of groups) {
     group.addEventListener('toggle', () => {
       if (group.open) for (const other of groups) if (other !== group) other.open = false;
+      fitDropdown(group);
     });
   }
+  const refit = () => { for (const group of groups) fitDropdown(group); };
+  window.addEventListener('resize', refit);
+  window.visualViewport?.addEventListener('resize', refit);
   document.addEventListener('pointerdown', event => {
     // The Menu button lives in the top bar, outside the panel: it toggles by itself.
     if (!toolbar.contains(event.target as Node) && !toggle.contains(event.target as Node)) close();

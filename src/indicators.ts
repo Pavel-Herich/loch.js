@@ -66,11 +66,12 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     previous = state;
     rose.setAttribute('transform', `rotate(${-orientation.bearing} 34 34)`);
     bearingValue.textContent = `${String(bearing).padStart(3, '0')}°`;
-    compass.title = `Bearing ${bearing}° clockwise from north. ${compass.getAttribute('aria-pressed') === 'true' ? 'Click to return to the previous heading' : 'Click to face north and hold the heading'}`;
+    const compassMode = compass.dataset.mode ?? 'free', tiltMode = tilt.dataset.mode ?? 'free';
+    compass.title = `Bearing ${bearing}° clockwise from north. ${compassMode === 'device' ? 'Turning with the phone; click to return to the previous heading' : compassMode === 'north' ? 'Click to turn the model with the phone' : 'Click to face north and hold the heading'}`;
     compass.setAttribute('aria-label', compass.title);
     arrow.setAttribute('transform', `rotate(${-orientation.tilt} 34 34)`);
     tiltValue.textContent = `${angle > 0 ? '+' : ''}${angle}°`;
-    tilt.title = `View tilt ${angle}°; 0° horizontal, +90° up, −90° down. ${tilt.getAttribute('aria-pressed') === 'true' ? 'Click to return to the previous tilt' : 'Click for a level side view with tilt locked'}`;
+    tilt.title = `View tilt ${angle}°; 0° horizontal, +90° up, −90° down. ${tiltMode === 'plan' ? 'Click to return to the previous tilt' : tiltMode === 'side' ? 'Click for a plan view from straight above' : 'Click for a level side view with tilt locked'}`;
     tilt.setAttribute('aria-label', tilt.title);
     if (size) {
       // In perspective the scale holds only at the depth of the rotation centre.
