@@ -67,7 +67,7 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     rose.setAttribute('transform', `rotate(${-orientation.bearing} 34 34)`);
     bearingValue.textContent = `${String(bearing).padStart(3, '0')}°`;
     const compassMode = compass.dataset.mode ?? 'free', tiltMode = tilt.dataset.mode ?? 'free';
-    compass.title = `Bearing ${bearing}° clockwise from north. ${compassMode === 'device' ? 'Turning with the phone; click to return to the previous heading' : compassMode === 'north' ? 'Click to turn the model with the phone' : 'Click to face north and hold the heading'}`;
+    compass.title = `Bearing ${bearing}° clockwise from north. ${compassMode === 'device' ? 'Turning and tilting with the phone; click to return to the previous view' : compassMode === 'north' ? 'Click to turn and tilt the model with the phone' : 'Click to face north looking straight down, heading held'}`;
     compass.setAttribute('aria-label', compass.title);
     arrow.setAttribute('transform', `rotate(${-orientation.tilt} 34 34)`);
     tiltValue.textContent = `${angle > 0 ? '+' : ''}${angle}°`;

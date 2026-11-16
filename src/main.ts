@@ -35,7 +35,7 @@ import { browsablePoints } from './layers-ui';
 import { STATION_ENTRANCE, temporaryStation, type Station } from './lox-stations';
 import { animateRotationCentre, pickModelPoint, RotationCentrePicker, setRotationCentre } from './pivot';
 import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type LocationState, headingScreenAngle } from './location';
-import { DeviceHeading } from './heading';
+import { DeviceHeading, phoneView } from './heading';
 import { addLocalMap, localMaps, localService, localTiles, removeLocalMap } from './local-maps';
 import { downloadEstimate, fetchMap, loadBlob, prepareWms, nearestPointGap, offlineTiles, OFFLINE_BASE, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
 import { forgetStored, forgetStoredUnderlays, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
@@ -2061,6 +2061,7 @@ function startPhoneCompass() {
 }
 function stopPhoneCompass() {
   clearTimeout(phoneHeadingTimer);
+  cancelAnimationFrame(phoneFrame); phoneFrame = 0; phoneShown = undefined;
   if (phoneCentreWanted) { phoneCentreWanted = false; pivotHint.hidden = true; }
   phoneCentredOnGps = false;
   if (!deviceLocation.active) deviceHeading.stop();
@@ -2074,9 +2075,31 @@ function trueNorthBearing() {
   const [e1, n1] = wgs84ToSJTSK(latitude, longitude), [e2, n2] = wgs84ToSJTSK(latitude + .001, longitude);
   return Math.atan2(e2 - e1, n2 - n1) * 180 / Math.PI;
 }
+/*
+ * The view eases toward each reading (heading and, where the phone reports it, tilt: lying flat
+ * looks straight down, held upright looks level the way the camera points).
+ */
+let phoneTarget: { bearing: number; tilt?: number } | undefined, phoneShown: { bearing: number; tilt?: number } | undefined, phoneFrame = 0;
 function followPhone() {
-  if (phoneCentreWanted || deviceHeading.heading === undefined || viewLocks.state.compass !== 'device') return;
-  viewLocks.face(deviceHeading.heading + trueNorthBearing());
+  if (phoneCentreWanted || deviceHeading.heading === undefined || viewLocks.state.compass !== 'device') { phoneShown = undefined; return; }
+  const { heading, beta, gamma, screenAngle } = deviceHeading;
+  const view = beta !== undefined && gamma !== undefined ? phoneView(heading, beta, gamma, screenAngle) : { bearing: heading, tilt: undefined };
+  phoneTarget = { bearing: view.bearing + trueNorthBearing(), tilt: view.tilt };
+  if (!phoneShown) { phoneShown = { ...phoneTarget }; showPhoneView(); }
+  else if (!phoneFrame) phoneFrame = requestAnimationFrame(stepPhoneView);
+}
+function stepPhoneView() {
+  phoneFrame = 0;
+  if (!phoneShown || !phoneTarget || viewLocks.state.compass !== 'device') return;
+  const turn = ((phoneTarget.bearing - phoneShown.bearing) % 360 + 540) % 360 - 180;
+  const lift = phoneTarget.tilt === undefined || phoneShown.tilt === undefined ? 0 : phoneTarget.tilt - phoneShown.tilt;
+  phoneShown.bearing += turn * .25;
+  phoneShown.tilt = phoneTarget.tilt === undefined ? undefined : (phoneShown.tilt ?? phoneTarget.tilt) + lift * .25;
+  showPhoneView();
+  if (Math.abs(turn) > .1 || Math.abs(lift) > .1) phoneFrame = requestAnimationFrame(stepPhoneView);
+}
+function showPhoneView() {
+  viewLocks.face(phoneShown!.bearing, phoneShown!.tilt);
   indicators.refresh(); invalidateView();
 }
 const menus = initializeMenus(view => {

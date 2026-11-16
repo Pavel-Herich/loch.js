@@ -31,22 +31,24 @@ describe('compass and tilt toggles', () => {
     expect(camera.position.distanceTo(controls.target)).toBeCloseTo(Math.hypot(100, 100), 6);
   });
 
-  it('faces north with the heading held, then returns to the previous heading', () => {
+  it('faces north looking down with the heading held, follows the phone, then returns to the previous view', () => {
     const { canvas, camera, controls, locks, states } = setup();
     locks.toggleNorth();
-    expect(angles(camera).bearing % 360).toBeCloseTo(0, 6); expect(angles(camera).tilt).toBeCloseTo(-30, 6);
-    drag(canvas, 200, 60);
-    expect(Math.min(angles(camera).bearing, 360 - angles(camera).bearing)).toBeLessThan(1e-6);
-    expect(angles(camera).tilt).not.toBeCloseTo(-30, 1);
+    expect(Math.min(angles(camera).bearing, 360 - angles(camera).bearing)).toBeLessThan(1e-3); expect(angles(camera).tilt).toBeLessThan(-89.99);
+    drag(canvas, 200, -60);
+    expect(Math.min(angles(camera).bearing, 360 - angles(camera).bearing)).toBeLessThan(1e-3);
+    expect(angles(camera).tilt).toBeGreaterThan(-89); // tilt stays free
     locks.toggleNorth();
     expect(locks.state.compass).toBe('device');
-    locks.face(75);
-    expect(angles(camera).bearing).toBeCloseTo(75, 6);
-    drag(canvas, 200, 0);
-    expect(angles(camera).bearing).toBeCloseTo(75, 6);
+    locks.face(75, -20);
+    expect(angles(camera).bearing).toBeCloseTo(75, 6); expect(angles(camera).tilt).toBeCloseTo(-20, 6);
+    drag(canvas, 200, 80);
+    expect(angles(camera).bearing).toBeCloseTo(75, 6); expect(angles(camera).tilt).toBeCloseTo(-20, 6);
+    locks.face(80);
+    expect(angles(camera).bearing).toBeCloseTo(80, 6); expect(angles(camera).tilt).toBeCloseTo(-20, 6);
     locks.toggleNorth();
-    expect(angles(camera).bearing).toBeCloseTo(120, 6);
-    expect(controls.minAzimuthAngle).toBe(-Infinity);
+    expect(angles(camera).bearing).toBeCloseTo(120, 6); expect(angles(camera).tilt).toBeCloseTo(-30, 6);
+    expect(controls.minAzimuthAngle).toBe(-Infinity); expect(controls.minPolarAngle).toBe(0);
     expect(states.map(state => state.compass)).toEqual(['north', 'device', 'free']);
     locks.face(10);
     expect(angles(camera).bearing).toBeCloseTo(120, 6);
@@ -72,11 +74,18 @@ describe('compass and tilt toggles', () => {
 
   it('combines both toggles and each restores only its own angle', () => {
     const { camera, locks } = setup();
-    locks.toggleNorth(); locks.toggleSide();
-    expect(angles(camera).bearing % 360).toBeCloseTo(0, 6); expect(angles(camera).tilt).toBeCloseTo(0, 6);
-    locks.toggleNorth(); locks.toggleNorth();
-    expect(angles(camera).bearing).toBeCloseTo(120, 6); expect(angles(camera).tilt).toBeCloseTo(0, 6);
+    locks.toggleSide();
+    expect(angles(camera).tilt).toBeCloseTo(0, 6);
+    // The compass takes over the tilt and later restores the view from before the tilt toggle.
+    locks.toggleNorth();
+    expect(locks.state.tilt).toBe('free'); expect(angles(camera).tilt).toBeLessThan(-89.99);
+    locks.toggleNorth(); locks.face(200, -10);
+    // The tilt toggle stops the phone steering and levels the view, still facing where it did.
+    locks.toggleSide();
+    expect(locks.state.compass).toBe('north'); expect(angles(camera).tilt).toBeCloseTo(0, 6); expect(angles(camera).bearing).toBeCloseTo(200, 6);
     locks.toggleSide(); locks.toggleSide();
+    expect(angles(camera).tilt).toBeCloseTo(-10, 6);
+    locks.toggleNorth(); locks.toggleNorth();
     expect(angles(camera).bearing).toBeCloseTo(120, 4); expect(angles(camera).tilt).toBeCloseTo(-30, 6);
     locks.toggleNorth(); locks.reset();
     expect(locks.state.north).toBe(false);

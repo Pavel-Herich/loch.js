@@ -264,9 +264,9 @@ export class SurfaceScene {
     const transparent = this.transparency && this.opacity < 1;
     if (material.transparent !== transparent) material.needsUpdate = true;
     material.transparent = transparent;
-    // One layer alone looks darker than the overlapping layers it replaces: drawn as opaque as two
-    // layers of the chosen opacity would be (50 % → 75 %).
-    material.opacity = !this.transparency ? 1 : this.layered ? 1 - (1 - this.opacity) ** 2 : this.opacity;
+    // One layer alone looks darker than the overlapping layers it replaces: drawn a little more
+    // opaque (50 % → 65 %), yet less than two layers would be, so the caves under it stand out.
+    material.opacity = !this.transparency ? 1 : this.layered ? this.opacity + (1 - this.opacity) * .3 : this.opacity;
     material.depthWrite = !transparent;
   }
 
