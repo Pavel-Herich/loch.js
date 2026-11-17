@@ -38,7 +38,7 @@ import { DeviceLocation, formatFix, markerScreenPosition, type LocationFix, type
 import { DeviceHeading, phoneView } from './heading';
 import { altitudeFraction, colourRange, customAltitudeRange, recallAltitudeRange, rememberAltitudeRange, setCustomAltitudeRange, type AltitudeRange } from './altitude-range';
 import { addLocalMap, localMaps, localService, localTiles, removeLocalMap } from './local-maps';
-import { downloadEstimate, fetchMap, loadBlob, prepareWms, nearestPointGap, offlineTiles, OFFLINE_BASE, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
+import { downloadEstimate, fetchMap, loadBlob, markStandIn, missingTiles, prepareWms, nearestPointGap, offlineTiles, OFFLINE_BASE, planPieces, tileGround, tileTemplate, tileUrl, UNDERLAY_SERVICES, zoomFor, type TileSource, type UnderlayService, type XyzService } from './underlay';
 import { forgetStored, forgetStoredUnderlays, loadStoredTile, loadStoredUnderlay, storedKeys, storeTile, storeUnderlay, underlayKey } from './underlay-cache';
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
@@ -675,7 +675,7 @@ type MapLayerState = {
   /** Offline layers: zooms kept on the device (lowest, and the highest for each piece). */
   low?: number; highest?: Map<string, number>;
   /** On-demand layers: the zoom each piece shows or is loading, and its request. */
-  shown?: Map<string, { zoom: number; pixels: number; loading?: AbortController; canvas?: HTMLCanvasElement }>;
+  shown?: Map<string, { zoom: number; pixels: number; loading?: AbortController; canvas?: HTMLCanvasElement; missing?: number; retries?: number }>;
   /** Map files: where their tiles come from. */
   source?: TileSource;
 };
@@ -1406,7 +1406,7 @@ async function askQuality(service: XyzService, optimal: OfflinePlan, max: Offlin
     : `About ${OFFLINE_BASE} m/px over the whole surface (no survey stations to be sharper near).`);
   document.querySelector('#quality-max')!.textContent = describe(max.tiles, `About ${ground(service.maxZoom)} m/px over the whole surface.`);
   const connection = (navigator as Navigator & { connection?: { type?: string } }).connection;
-  document.querySelector('#quality-text')!.textContent = `How much of ${service.title} to keep on this device for use without a signal${connection?.type === 'cellular' ? ' (you are on mobile data)' : ''}? The map is shown either way${service.apiKey ? '' : ', online as sharp as the view needs'}.`;
+  document.querySelector('#quality-text')!.textContent = `How much of ${service.title} to keep on this device for use without a signal${connection?.type === 'cellular' ? ' (you are on mobile data)' : ''}? The map is shown either way${service.apiKey ? '; Online only loads it as sharp as the view needs, each tile counting against your Mapy.com credits' : ', online as sharp as the view needs'}. Tiles not saved yet are checked and downloaded when you switch the map on.`;
   const last = mapQuality(service.id);
   qualityDialog.querySelectorAll<HTMLButtonElement>('.quality-option').forEach(button => button.classList.toggle('last', button.value === last));
   qualityDialog.returnValue = '';
@@ -1554,7 +1554,7 @@ function savedTiles(id: string): TileSource {
         const size = image.width;
         const crop = await createImageBitmap(image, (x % 2 ** up) * part, (y % 2 ** up) * part, part, part, { resizeWidth: size, resizeHeight: size, resizeQuality: 'high' });
         image.close();
-        return crop;
+        return markStandIn(crop);
       }
       throw error;
     }
@@ -1583,11 +1583,12 @@ async function saveOfflineTiles(id: string, service: XyzService, tiles: [number,
     progress.done = done; progress.failed = failed;
     if (!final) { showMapProgress(); return; }
     savingProgress.delete(id); showMapProgress();
-    layerStatus(id, `All ${(tiles.length - failed).toLocaleString()} tiles saved on this device${failed ? ` · ${failed} missing` : ''}`);
+    layerStatus(id, failed ? `${(tiles.length - failed).toLocaleString()} of ${tiles.length.toLocaleString()} tiles saved on this device · ${failed} missing (switch the map on again to finish)` : `All ${tiles.length.toLocaleString()} tiles saved on this device`);
     announce(`${service.title}: ${done - failed} tiles saved for use without a signal${failed ? `, ${failed} missing` : ''}.`);
   };
   // A few at a time, lowest zooms first (tens of thousands of tiles for a whole surface at the sharpest zoom).
   let next = 0, full = false;
+  const failedTiles: [number, number, number][] = [];
   const worker = async () => {
     while (next < missing.length && !request.signal.aborted && !full) {
       const [zoom, x, y] = missing[next++];
@@ -1601,19 +1602,33 @@ async function saveOfflineTiles(id: string, service: XyzService, tiles: [number,
       } catch (error) {
         if ((error as Error).name === 'AbortError') return;
         if ((error as Error).name === 'QuotaExceededError') full = true;
-        failed++;
+        failed++; failedTiles.push([zoom, x, y]);
       }
       finally { done++; report(); }
     }
   };
   await Promise.all(Array.from({ length: 8 }, worker));
+  // Tiles that did not come (a busy service, a moment without signal) are asked again, twice, after a pause.
+  for (let round = 1; round <= 2 && failedTiles.length && !full && !request.signal.aborted; round++) {
+    try { await new Promise<void>((resolve, reject) => { const timer = setTimeout(resolve, 5000 * round); request.signal.addEventListener('abort', () => { clearTimeout(timer); reject(new DOMException('Cancelled', 'AbortError')); }, { once: true }); }); }
+    catch { return; }
+    const again = failedTiles.splice(0);
+    failed -= again.length; done -= again.length; missing.push(...again);
+    await Promise.all(Array.from({ length: 4 }, worker));
+  }
   if (full && !request.signal.aborted) {
     savingProgress.delete(id); showMapProgress();
     layerStatus(id, `Device storage full · ${(done - failed).toLocaleString()} of ${missing.length.toLocaleString()} new tiles saved`);
     announce(`${service.title}: the device storage is full; ${(done - failed).toLocaleString()} tiles saved, the rest shown online only.`, true);
     return;
   }
-  if (!request.signal.aborted) report(true);
+  if (!request.signal.aborted) {
+    report(true);
+    // The view shows the saved tiles where it had to make do with coarser ones.
+    const state = mapLayers.get(id);
+    for (const piece of state?.shown?.values() ?? []) if (piece.missing) piece.retries = 0;
+    refreshOnDemand(id);
+  }
 }
 /** Distance from a piece to the nearest survey station (file coordinates): maps are sharpest over the caves. */
 function stationPoints() {
@@ -1651,7 +1666,7 @@ addEventListener('resize', fitCredits);
  * of view and nothing is stored beyond the browser's HTTP cache, as the service asks.
  */
 /** A piece of an on-demand layer: its zoom, texture size, the load under way, and the map it shows. */
-type ShownPiece = { zoom: number; pixels: number; loading?: AbortController; canvas?: HTMLCanvasElement };
+type ShownPiece = { zoom: number; pixels: number; loading?: AbortController; canvas?: HTMLCanvasElement; missing?: number; retries?: number };
 function refreshOnDemand(id: string) {
   const state = mapLayers.get(id)!, service = UNDERLAY_SERVICES.find(item => item.id === id)!;
   const shown = state.shown, request = state.request;
@@ -1699,11 +1714,13 @@ function refreshOnDemand(id: string) {
   let started = 0;
   for (const piece of wanted) {
     const current = shown.get(piece.key);
-    if (current && current.zoom === piece.zoom) continue;
+    // A piece still missing tiles (or showing coarser ones in their place) is asked again, a few times.
+    if (current && current.zoom === piece.zoom && (current.loading || !current.missing || (current.retries ?? 0) >= 6)) continue;
     current?.loading?.abort();
     const loading = new AbortController(), { width, height: rows } = size(piece, piece.zoom);
     request.signal.addEventListener('abort', () => loading.abort());
-    const entry: ShownPiece = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading, canvas: current?.canvas };
+    const entry: ShownPiece = { zoom: piece.zoom, pixels: current?.pixels ?? 0, loading, canvas: current?.canvas,
+      retries: current && current.zoom === piece.zoom ? (current.retries ?? 0) + 1 : 0 };
     shown.set(piece.key, entry); started++;
     viewLoading++; showMapProgress();
     const source = service.offline ? savedTiles(id) : state.source;
@@ -1720,7 +1737,9 @@ function refreshOnDemand(id: string) {
     void first.then(() => fetchMap(service, piece.extent, width, rows, loading.signal, state.apiKey ?? '', piece.zoom, source, entry.canvas)).then(canvas => {
       if (entry.loading !== loading || !state.on) return;
       entry.loading = undefined; state.failures = 0;
+      entry.missing = missingTiles(canvas);
       show(canvas);
+      if (entry.missing) retryOnDemand(id, entry.retries ?? 0);
     }).catch(error => {
       if ((error as Error).name === 'AbortError' || entry.loading !== loading) return;
       shown.delete(piece.key);
@@ -1737,6 +1756,12 @@ function refreshOnDemand(id: string) {
     }).finally(() => { viewLoading--; showMapProgress(); });
   }
   if (started && !state.announced) { state.announced = true; announce(`${service.title} ${service.attribution} · loaded for the view as it rests`); }
+}
+/** Pieces with missing tiles are asked again after a pause that grows with each try. */
+const retryTimers = new Map<string, number>();
+function retryOnDemand(id: string, tries: number) {
+  if (tries >= 6 || retryTimers.has(id)) return;
+  retryTimers.set(id, window.setTimeout(() => { retryTimers.delete(id); refreshOnDemand(id); }, 3000 * 2 ** Math.min(tries, 4)));
 }
 let onDemandTimer: number | undefined;
 // After the view rests a moment, on-demand layers load what it now shows.

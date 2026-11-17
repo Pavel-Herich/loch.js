@@ -24,7 +24,7 @@ describe('map underlays', () => {
   });
 
   it('shows Mapy.com on demand from tiles saved on the device, sharpest near the stations', () => {
-    for (const id of ['mapy-aerial', 'mapy-outdoor']) expect(UNDERLAY_SERVICES.find(s => s.id === id)).toMatchObject({ onDemand: true, offline: true, minZoom: 5, maxZoom: 19, apiKey: 'mapy' });
+    for (const id of ['mapy-aerial', 'mapy-outdoor']) expect(UNDERLAY_SERVICES.find(s => s.id === id)).toMatchObject({ onDemand: true, offline: true, minZoom: 5, maxZoom: 19, apiKey: 'mapy', offlineMax: true });
     const aerial = UNDERLAY_SERVICES.find(s => s.id === 'mapy-aerial') as XyzService;
     // A 1 km piece at the Low Tatras covers a few tiles at zoom 14 and many at 18.
     const piece: Extent = [-389000, -1206000, -388000, -1205000];

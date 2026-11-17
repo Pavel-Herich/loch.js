@@ -79,7 +79,7 @@ export const UNDERLAY_SERVICES: UnderlayService[] = [
     credits: [{ text: '© ÚGKK SR (ZBGIS)', href: 'https://www.geoportal.sk/' }] },
   // Mapy.com: shown on demand, with the tiles saved on the device first (for use without a signal).
   { id: 'mapy-aerial', kind: 'xyz', title: 'Mapy.com aerial', url: 'https://api.mapy.com/v1/maptiles/aerial/256/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 25_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true, other: true,
+    tileSize: 256, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, offlineMax: true, tileBytes: 25_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others', bytesPerPixel: .3, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true, other: true,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }] },
   // Freemap's terms: zoom 5–18, tiles for the pixel ratio, no bulk or offline download, attribution at the map.
   { id: 'freemap', kind: 'xyz', title: 'Freemap outdoor map', url: 'https://outdoor.tiles.freemap.sk/{z}/{x}/{y}{retina}', tileSize: 256, retina: true,
@@ -87,7 +87,7 @@ export const UNDERLAY_SERVICES: UnderlayService[] = [
     credits: [{ text: '© Freemap Slovakia', href: 'https://www.freemap.sk/' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' },
       { text: 'Elevation data sources', href: 'https://www.freemap.sk/' }] },
   { id: 'mapy-outdoor', kind: 'xyz', title: 'Mapy.com outdoor map', url: 'https://api.mapy.com/v1/maptiles/outdoor/256@2x/{z}/{x}/{y}?apikey={apikey}',
-    tileSize: 512, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, tileBytes: 40_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true,
+    tileSize: 512, minZoom: 5, maxZoom: 19, onDemand: true, offline: true, offlineMax: true, tileBytes: 40_000, apiKey: 'mapy', attribution: '© Seznam.cz a.s. and others, © OpenStreetMap contributors', bytesPerPixel: .45, levels: [.4, 1.6, 6.5], opacity: 1, exclusive: true,
     credits: [{ text: '© Seznam.cz a.s. and others', href: 'https://api.mapy.com/copyright' }, { text: '© OpenStreetMap contributors', href: 'https://www.openstreetmap.org/copyright' }] },
   { id: 'geology', kind: 'wms', title: 'Geological map 1:50 000', url: 'https://ags.geology.sk/arcgis/services/WebServices/GM50/MapServer/WMSServer',
     layers: '0,1,2', discover: true, format: 'image/png', transparent: true, attribution: '© ŠGÚDŠ', bytesPerPixel: .25, opacity: .5,
@@ -185,9 +185,10 @@ function loadImage(url: string, signal?: AbortSignal) {
 /** A map image as it came from the service (checked whole), for drawing or keeping on the device. */
 export function loadBlob(url: string, signal?: AbortSignal, later = false) {
   return slot(async () => {
-    let problem = 'The map service did not answer.';
+    let problem = 'The map service did not answer.', busy = false;
     for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt) await pause(500 * attempt, signal);
+      // Too many requests (429): wait longer before asking again.
+      if (attempt) await pause((busy ? 2000 : 500) * attempt, signal);
       let response: Response;
       // The page's address goes along as the referrer, so map services can tell where requests come from.
       try { response = await fetch(url, { signal, mode: 'cors', referrerPolicy: 'strict-origin-when-cross-origin' }); }
@@ -202,6 +203,7 @@ export function loadBlob(url: string, signal?: AbortSignal, later = false) {
         const reason = /<ServiceException[^>]*>([\s\S]*?)<\/ServiceException>/.exec(text)?.[1]?.trim();
         console.warn('Map image refused:', url, response.status, reason ?? text.slice(0, 200));
         problem = reason ? `The map service says: ${reason.slice(0, 160)}` : `The map service answered ${response.status}.`;
+        busy = response.status === 429 || response.status === 503;
         if (response.status >= 400 && response.status < 500 && response.status !== 429) break;
         continue;
       }
@@ -293,7 +295,7 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
   const keepShown = Boolean(backdrop) && !service.transparent;
   if (!service.transparent && !keepShown) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, mosaic.width, mosaic.height); }
   const jobs: Promise<void>[] = [];
-  let failed = 0, total = 0;
+  let failed = 0, blurred = 0, total = 0;
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
     const url = tileUrl(service, zoom, tx, ty, apiKey);
     let tile = tileCache.get(url);
@@ -303,7 +305,12 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
     // Only recent tiles stay (dropped ones are freed by the browser once drawn).
     while (tileCache.size > 96) tileCache.delete(tileCache.keys().next().value!);
     total++;
-    jobs.push(tile.then(image => { if (image) context.drawImage(image, (tx - tx0) * t, (ty - ty0) * t, t, t); else failed++; }));
+    const asked = tile;
+    jobs.push(tile.then(image => {
+      // A tile that did not come, or came only as an enlarged coarser one, is asked again next time.
+      if (!image || isStandIn(image)) { if (tileCache.get(url) === asked) tileCache.delete(url); if (image) blurred++; else failed++; }
+      if (image) context.drawImage(image, (tx - tx0) * t, (ty - ty0) * t, t, t);
+    }));
   }
   await Promise.all(jobs);
   // A map file simply has no tiles outside its area.
@@ -333,8 +340,16 @@ export async function fetchXyz(service: XyzService, extent: Extent, width: numbe
     }
   }
   output.putImageData(image, 0, 0);
+  incomplete.set(canvas, failed + blurred);
   return canvas;
 }
+/** Tiles of a map that are missing or shown only enlarged from a coarser zoom (asked again later). */
+const incomplete = new WeakMap<HTMLCanvasElement, number>();
+export const missingTiles = (canvas: HTMLCanvasElement) => incomplete.get(canvas) ?? 0;
+/** An enlarged part of a coarser tile, standing in for one that could not be loaded. */
+const standIns = new WeakSet<ImageBitmap>();
+export function markStandIn(image: ImageBitmap) { standIns.add(image); return image; }
+const isStandIn = (image: ImageBitmap) => standIns.has(image);
 
 export function fetchMap(service: UnderlayService, extent: Extent, width: number, height: number, signal?: AbortSignal, apiKey?: string, zoom?: number, source?: TileSource, backdrop?: CanvasImageSource) {
   return service.kind === 'wms' ? fetchWms(service, extent, width, height, signal) : fetchXyz(service, extent, width, height, signal, apiKey, zoom, source, backdrop);
