@@ -136,6 +136,43 @@ function reportLoadError(error: unknown, context: LoadContext) {
   collapseAfterRender = false;
   preparation?.dispose(); preparation = undefined;
   showLoadError(status, error, context);
+  // The same model failing a second time: most likely too large for this device.
+  if (loadGuard.failed()) giveUpModel(context.file?.name);
+}
+/*
+ * A model that fails to open, or takes the page down (out of memory, the browser reloads it), is
+ * counted on the device; at the second time loch.js says it is too large and starts empty (New),
+ * so it does not get stuck reopening it at every start.
+ */
+const LOADING = 'loch.js-loading';
+const loadGuard = {
+  current: '',
+  read(): { key: string; attempts: number } | undefined {
+    try { return JSON.parse(localStorage.getItem(LOADING) ?? 'null') ?? undefined; } catch { return undefined; }
+  },
+  start(key: string) {
+    const previous = this.read();
+    const attempts = previous?.key === key ? previous.attempts + 1 : 1;
+    this.current = key;
+    try { localStorage.setItem(LOADING, JSON.stringify({ key, attempts })); } catch { /* Not counted. */ }
+  },
+  /** Counted as failed; true at the second time. */
+  failed() {
+    if (!this.current) return false;
+    this.current = '';
+    return (this.read()?.attempts ?? 0) >= 2;
+  },
+  done() {
+    this.current = '';
+    try { localStorage.removeItem(LOADING); } catch { /* Nothing kept. */ }
+  },
+};
+function giveUpModel(name = '') {
+  loadGuard.done();
+  newScene();
+  try { localStorage.setItem(START_EMPTY, '1'); localStorage.removeItem(LAST_TERRAIN); } catch { /* The sample may open next time. */ }
+  void forgetLastModel().catch(() => undefined);
+  announce(`The model ${name ? `${name} ` : ''}could not be opened twice: it is probably too large for this device (or damaged). loch.js starts empty (File → New).`, true, 20000);
 }
 const lighting = initializeLightControls({ directional: light, fill: fillLight, headlight }, () => camera, () => controls.target, invalidateView);
 const surfaceScene = new SurfaceScene(surfaceGroup, invalidateView, error => reportLoadError(error, {
@@ -2294,6 +2331,7 @@ function draw(model: Model, label: string) {
 async function loadFile(file: File) {
   const id = ++loadId;
   modelKey = `${file.name}|${file.size}`;
+  loadGuard.start(modelKey);
   // A section and a map underlay belong to the model they were made for.
   applySection(undefined);
   for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
@@ -2402,6 +2440,7 @@ function updateLargeStatus() {
 function finishFileLoading() {
   if (!collapseAfterRender || loadingError || largeWorker || surfaceScene.loading || (preparationPending && walls.visible)) return;
   collapseAfterRender = false;
+  loadGuard.done();
   setStatusProgress(status);
   menus.collapse();
   void restoreTerrain().finally(restoreModelLayers);
@@ -2440,9 +2479,9 @@ void layerStore.list().then(layers => { pointLayers = layers; invalidateView(); 
 const toast = document.querySelector<HTMLElement>('#toast')!;
 let toastTimer = 0;
 /** Short message above the dock; the status line belongs to model loading. */
-function announce(text: string, error = false) {
+function announce(text: string, error = false, ms = 6000) {
   toast.textContent = text; toast.classList.toggle('error', error); toast.hidden = false;
-  clearTimeout(toastTimer); toastTimer = window.setTimeout(() => { toast.hidden = true; }, 6000);
+  clearTimeout(toastTimer); toastTimer = window.setTimeout(() => { toast.hidden = true; }, ms);
 }
 async function importLayer(files: File[]) {
   const pointFile = files.find(file => POINT_FORMATS.some(extension => file.name.toLowerCase().endsWith(extension)));
@@ -2982,7 +3021,7 @@ function frame(time = performance.now()) {
 frame();
 /** An empty scene: no model, sample, section, terrain or map layers. */
 function newScene() {
-  ++loadId; modelKey = ''; terrainOnly = false;
+  ++loadId; modelKey = ''; terrainOnly = false; loadGuard.current = '';
   applySection(undefined);
   for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
   syncUnderlayMenu(); syncAttribution();
@@ -3031,7 +3070,10 @@ if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
   });
 }
 const startEmpty = (() => { try { return localStorage.getItem(START_EMPTY) === '1'; } catch { return false; } })();
-void loadLastModel().then(file => {
+// The page went down twice while opening the same model: do not try a third time.
+const crashed = loadGuard.read();
+if (crashed && crashed.attempts >= 2) giveUpModel(crashed.key.split('|')[0]);
+else void loadLastModel().then(file => {
   if (file && loadId === 0) void loadFile(file);
   else if (loadId === 0) {
     const last = (() => { try { return localStorage.getItem(LAST_TERRAIN); } catch { return null; } })();
