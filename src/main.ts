@@ -1946,13 +1946,27 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
       if (copy) show(plan[i], mapTexture(await createImageBitmap(copy.blob, { imageOrientation: 'none', premultiplyAlpha: 'none' })));
       if (!current()) return;
     }
-    let done = 0, failed = 0, succeeded = 0, lastError: unknown;
+    let done = 0, failed = 0, succeeded = 0, partial = 0, lastError: unknown;
     const report = () => { if (current()) announce(`Loading ${service.title}… ${done}/${missing.length}`); };
+    // A piece that came with parts missing is shown, not kept, and asked again later (a few times).
+    const askAgain = (piece: (typeof plan)[number], attempt: number) => window.setTimeout(() => void (async () => {
+      if (!current()) return;
+      try {
+        const canvas = await fetchMap(service, piece.extent, piece.width, piece.height, request.signal, apiKey);
+        if (!current()) return;
+        show(piece, mapTexture(canvas));
+        if (missingTiles(canvas)) { if (attempt < 3) askAgain(piece, attempt + 1); return; }
+        const blob = await toBlob(canvas, service.kind === 'wms' && service.format === 'image/png' ? 'image/png' : 'image/jpeg');
+        if (blob) void storeUnderlay(underlayKey(store, piece.extent, piece.width), { blob, width: piece.width, height: piece.height, saved: new Date().toISOString() }).catch(() => undefined);
+        announce(`${service.title}: the missing parts have loaded.`);
+      } catch (error) { if ((error as Error).name !== 'AbortError' && attempt < 3) askAgain(piece, attempt + 1); }
+    })(), 20000 * attempt);
     if (missing.length) report();
     await Promise.all(missing.map(async piece => {
       try {
         const canvas = await fetchMap(service, piece.extent, piece.width, piece.height, request.signal, apiKey);
         if (!current()) return;
+        if (missingTiles(canvas)) { show(piece, mapTexture(canvas)); succeeded++; partial++; askAgain(piece, 1); return; }
         const blob = await toBlob(canvas, service.kind === 'wms' && service.format === 'image/png' ? 'image/png' : 'image/jpeg');
         if (blob) void storeUnderlay(underlayKey(store, piece.extent, piece.width), { blob, width: piece.width, height: piece.height, saved: new Date().toISOString() }).catch(() => undefined);
         if (!current()) return;
@@ -1976,7 +1990,7 @@ function setMapLayer(id: string, on: boolean, quiet = false) {
     if (!current()) return;
     if (failed === plan.length) { back(`${service.title}: ${lastError ? exceptionMessage(lastError) : 'the map service did not answer.'}`); return; }
     const saved = plan.length - missing.length;
-    announce(`${service.title} ${service.attribution}${failed ? ` · ${failed} pieces missing (no answer)` : ''}${saved ? ` · ${saved === plan.length ? 'saved copy' : `${saved} pieces from the saved copy`}` : ' · saved for offline use'}`);
+    announce(`${service.title} ${service.attribution}${failed ? ` · ${failed} pieces missing (no answer)` : ''}${partial ? ' · some parts did not come; they are asked again shortly' : ''}${saved ? ` · ${saved === plan.length ? 'saved copy' : `${saved} pieces from the saved copy`}` : ' · saved for offline use'}`);
   })().catch(error => { if ((error as Error).name !== 'AbortError') back(`${service.title}: ${exceptionMessage(error)}`); });
 }
 syncUnderlayMenu();

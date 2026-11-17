@@ -2,6 +2,7 @@ import { Matrix4, type Camera, type Vector3 } from 'three';
 import { stationLabel, type Station, type StationLabel } from './lox-stations';
 import { claimSymbol, symbolHidden } from './declutter';
 import { overlayRatio } from './overlay-ratio';
+import { drawLabelCard } from './label-card';
 
 const CELL = 4;
 const HEIGHT = 20;
@@ -15,26 +16,6 @@ export type StationMarker = 'entrance' | 'fixed' | 'continuation';
 export type PositionLabel = { name: string; position: [number, number, number]; icon?: 'none' | 'peak' | 'entrance' | 'spring' | 'sinkhole' | 'point'; alpha?: number;
   /** An animation label's identity (for fading behind terrain) and whether terrain hides it. */
   key?: string; hide?: boolean };
-/** The icon of an animation label, centred on x, y (CSS px). */
-function drawLabelIcon(context: CanvasRenderingContext2D, icon: NonNullable<PositionLabel['icon']>, x: number, y: number, whiteBackground: boolean) {
-  const edge = whiteBackground ? '#ffffff' : '#09131c';
-  context.save(); context.lineWidth = 2.5; context.strokeStyle = edge; context.lineJoin = 'round';
-  context.beginPath();
-  if (icon === 'peak') {
-    context.moveTo(x, y - 9); context.lineTo(x + 9, y + 7); context.lineTo(x - 9, y + 7); context.closePath();
-    context.fillStyle = '#c8553d'; context.fill(); context.stroke();
-  } else if (icon === 'entrance') { context.restore(); drawStationMarker(context, 'entrance', x, y, 1.3, whiteBackground); return; }
-  else if (icon === 'spring') {
-    context.moveTo(x, y - 10); context.bezierCurveTo(x + 8, y - 1, x + 7, y + 8, x, y + 8); context.bezierCurveTo(x - 7, y + 8, x - 8, y - 1, x, y - 10);
-    context.fillStyle = '#3a8fd6'; context.fill(); context.stroke();
-  } else if (icon === 'sinkhole') {
-    context.arc(x, y, 8, 0, Math.PI * 2); context.fillStyle = '#7a5a3a'; context.fill(); context.stroke();
-    context.beginPath(); context.arc(x, y, 3.5, 0, Math.PI * 2); context.fillStyle = edge; context.fill();
-  } else if (icon === 'point') {
-    context.arc(x, y, 5.5, 0, Math.PI * 2); context.fillStyle = '#f2c94c'; context.fill(); context.stroke();
-  }
-  context.restore();
-}
 const markerScale = (marker: StationMarker) => marker === 'fixed' ? 1 / 3 : .7;
 
 /** Smallest symbol size (entrances, field objects, SHP points), as a fraction of full size. */
@@ -177,16 +158,9 @@ export class StationLabels {
     // Animation labels first, so nothing hides them.
     for (const label of additional) {
       if (!label.icon || !(label.alpha ?? 1) || !project(label)) continue;
-      context.save(); context.globalAlpha = Math.max(0, Math.min(1, label.alpha ?? 1));
-      if (label.icon !== 'none') drawLabelIcon(context, label.icon, screenX, screenY, whiteBackground);
-      context.font = 'bold 15px system-ui, sans-serif'; context.textBaseline = 'middle'; context.lineWidth = 4;
-      const text = label.name.replace(/\s+/g, ' ').slice(0, 200), left = screenX + (label.icon === 'none' ? -context.measureText(text).width / 2 : 13);
-      context.fillStyle = whiteBackground ? '#162531' : '#ffffff';
-      context.strokeText(text, left, screenY); context.fillText(text, left, screenY);
-      const textWidth = context.measureText(text).width;
-      context.restore();
-      const x = Math.max(0, Math.min(screenX - 10, left)), top = Math.max(0, screenY - 11);
-      this.occupancy.reserve(x, top, Math.min(width, Math.max(left + textWidth, screenX + 10)) - x, Math.min(height, screenY + 11) - top);
+      const box = drawLabelCard(context, label.name, label.icon, screenX, screenY, width, height, label.alpha ?? 1, whiteBackground);
+      const x = Math.max(0, box.left), top = Math.max(0, box.top);
+      this.occupancy.reserve(x, top, Math.min(width, box.right) - x, Math.min(height, box.bottom) - top);
     }
     if (marker) {
       const mark = (station: Station) => {

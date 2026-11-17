@@ -231,21 +231,38 @@ export async function fetchWms(service: WmsService, extent: Extent, width: numbe
   const context = canvas.getContext('2d')!;
   if (!service.transparent) { context.fillStyle = '#ffffff'; context.fillRect(0, 0, width, height); }
   const layers = await discoverLayers(service, signal);
-  const jobs: Promise<void>[] = [];
   // Equal, nearly square requests (no thin leftover strips).
+  const parts: { url: string; x: number; y: number; w: number; h: number }[] = [];
   let y0 = 0;
   for (const h of split(height, WMS_TILE)) {
     let x0 = 0;
     for (const w of split(width, WMS_TILE)) {
       // Canvas rows run from the north edge down.
       const bbox: Extent = [minX + x0 / scaleX, maxY - (y0 + h) / scaleY, minX + (x0 + w) / scaleX, maxY - y0 / scaleY];
-      const x = x0, y = y0;
-      jobs.push(loadImage(getMapUrl(service, layers, bbox, w, h), signal).then(image => { context.drawImage(image, x, y, w, h); image.close(); }));
+      parts.push({ url: getMapUrl(service, layers, bbox, w, h), x: x0, y: y0, w, h });
       x0 += w;
     }
     y0 += h;
   }
-  await Promise.all(jobs);
+  // A few requests at a time (a map server drawing many large images at once answers some of them
+  // with errors or not at all); the parts that did not come are asked again after a pause.
+  let lastError: unknown, waiting = parts;
+  for (let round = 0; round < 3 && waiting.length; round++) {
+    if (round) await pause(4000 * round, signal);
+    const failed: typeof parts = [];
+    let next = 0;
+    const worker = async () => {
+      while (next < waiting.length) {
+        const part = waiting[next++];
+        try { const image = await loadImage(part.url, signal); context.drawImage(image, part.x, part.y, part.w, part.h); image.close(); }
+        catch (error) { if ((error as Error).name === 'AbortError') throw error; lastError = error; failed.push(part); }
+      }
+    };
+    await Promise.all(Array.from({ length: round ? 2 : 3 }, worker));
+    waiting = failed;
+  }
+  if (waiting.length === parts.length) throw lastError ?? new Error('The map service did not answer.');
+  incomplete.set(canvas, waiting.length);
   return canvas;
 }
 
