@@ -167,12 +167,49 @@ const loadGuard = {
     try { localStorage.removeItem(LOADING); } catch { /* Nothing kept. */ }
   },
 };
-function giveUpModel(name = '') {
+/*
+ * The page can also go down while a model is in use (the browser runs out of memory; on a phone it
+ * shows its own error page). The model in use is noted, and while the app is in front it counts as
+ * open; leaving it (another app, closing the tab) counts as closed cleanly. Found open at the next
+ * start, the page went down: twice with the same model within an hour, and loch.js does not open
+ * it again but starts empty (New) and says why.
+ */
+const SESSION = 'loch.js-session';
+type SessionNote = { key: string; open: boolean; crashes: number[] };
+const sessionGuard = {
+  note: { key: '', open: false, crashes: [] } as SessionNote,
+  read(): SessionNote | undefined {
+    try { return JSON.parse(localStorage.getItem(SESSION) ?? 'null') ?? undefined; } catch { return undefined; }
+  },
+  write() { try { localStorage.setItem(SESSION, JSON.stringify(this.note)); } catch { /* Not counted. */ } },
+  /** At start: the model the page went down with, if it did so twice lately. */
+  start() {
+    const previous = this.read(), now = Date.now();
+    let crashes = (previous?.crashes ?? []).filter(time => now - time < 3600e3);
+    if (previous?.open && previous.key) crashes = [...crashes, now];
+    this.note = { key: previous?.key ?? '', open: document.visibilityState === 'visible', crashes };
+    this.write();
+    return previous?.key && crashes.length >= 2 ? previous.key : undefined;
+  },
+  /** The model now in use (its crashes count only for it). */
+  track(key: string) {
+    if (key !== this.note.key) this.note = { key, open: this.note.open, crashes: [] };
+    this.write();
+  },
+  setOpen(open: boolean) { if (this.note.open !== open) { this.note.open = open; this.write(); } },
+};
+document.addEventListener('visibilitychange', () => sessionGuard.setOpen(document.visibilityState === 'visible'));
+window.addEventListener('pagehide', () => sessionGuard.setOpen(false));
+window.addEventListener('pageshow', () => sessionGuard.setOpen(document.visibilityState === 'visible'));
+function giveUpModel(name = '', inUse = false) {
   loadGuard.done();
   newScene();
   try { localStorage.setItem(START_EMPTY, '1'); localStorage.removeItem(LAST_TERRAIN); } catch { /* The sample may open next time. */ }
   void forgetLastModel().catch(() => undefined);
-  announce(`The model ${name ? `${name} ` : ''}could not be opened twice: it is probably too large for this device (or damaged). loch.js starts empty (File → New).`, true, 20000);
+  announce(inUse
+    ? `The app closed unexpectedly twice with the model ${name ? `${name} ` : ''}open: it is probably too large for this device. It was not opened again; loch.js starts empty (File → New). Open it again with File → Open, perhaps with Rendering → Detail → Automatic first.`
+    : `The model ${name ? `${name} ` : ''}could not be opened twice: it is probably too large for this device (or damaged). loch.js starts empty (File → New).`, true, 20000);
+  sessionGuard.track('');
 }
 const lighting = initializeLightControls({ directional: light, fill: fillLight, headlight }, () => camera, () => controls.target, invalidateView);
 const surfaceScene = new SurfaceScene(surfaceGroup, invalidateView, error => reportLoadError(error, {
@@ -890,7 +927,7 @@ let terrainOnly = false;
 const LAST_TERRAIN = 'loch.js-last-terrain';
 function showTerrainOnly(dmr: Dmr, key: string) {
   newScene();
-  modelKey = key; terrainOnly = true; hasModel = true;
+  modelKey = key; terrainOnly = true; hasModel = true; sessionGuard.track(modelKey);
   restoreAltitudeRange();
   const step = dmr.step, x0 = dmr.origin[0] + dmr.shift[0], y0 = dmr.origin[1] + dmr.shift[1];
   let low = Infinity, high = -Infinity;
@@ -2331,7 +2368,7 @@ function draw(model: Model, label: string) {
 async function loadFile(file: File) {
   const id = ++loadId;
   modelKey = `${file.name}|${file.size}`;
-  loadGuard.start(modelKey);
+  loadGuard.start(modelKey); sessionGuard.track(modelKey);
   // A section and a map underlay belong to the model they were made for.
   applySection(undefined);
   for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
@@ -3021,7 +3058,7 @@ function frame(time = performance.now()) {
 frame();
 /** An empty scene: no model, sample, section, terrain or map layers. */
 function newScene() {
-  ++loadId; modelKey = ''; terrainOnly = false; loadGuard.current = '';
+  ++loadId; modelKey = ''; terrainOnly = false; loadGuard.current = ''; sessionGuard.track('');
   applySection(undefined);
   for (const state of mapLayers.values()) { state.request?.abort(); state.request = undefined; state.on = false; }
   syncUnderlayMenu(); syncAttribution();
@@ -3035,7 +3072,7 @@ function newScene() {
   menus.collapse();
 }
 async function loadSample() {
-  modelKey = ''; terrainOnly = false;
+  modelKey = ''; terrainOnly = false; sessionGuard.track('');
   const source = `${import.meta.env.BASE_URL}sample/demo.lox`;
   let phase = 'Fetching sample';
   try {
@@ -3071,8 +3108,9 @@ if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
 }
 const startEmpty = (() => { try { return localStorage.getItem(START_EMPTY) === '1'; } catch { return false; } })();
 // The page went down twice while opening the same model: do not try a third time.
-const crashed = loadGuard.read();
+const crashed = loadGuard.read(), crashedInUse = sessionGuard.start();
 if (crashed && crashed.attempts >= 2) giveUpModel(crashed.key.split('|')[0]);
+else if (crashedInUse) { loadGuard.done(); giveUpModel(crashedInUse.split('|')[0], true); }
 else void loadLastModel().then(file => {
   if (file && loadId === 0) void loadFile(file);
   else if (loadId === 0) {
