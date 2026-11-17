@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PerspectiveCamera, Vector3 } from 'three';
+import { MOUSE, TOUCH, PerspectiveCamera, Vector3 } from 'three';
 import { createCameraControls } from '../src/camera';
 import { viewOrientation } from '../src/indicators';
 import { orbitTo, ViewLocks, type ViewLockState } from '../src/view-locks';
@@ -35,11 +35,15 @@ describe('compass and tilt toggles', () => {
     const { canvas, camera, controls, locks, states } = setup();
     locks.toggleNorth();
     expect(Math.min(angles(camera).bearing, 360 - angles(camera).bearing)).toBeLessThan(1e-3); expect(angles(camera).tilt).toBeLessThan(-89.99);
+    // A map: dragging pans, without turning or tilting.
+    const before = controls.target.clone();
     drag(canvas, 200, -60);
     expect(Math.min(angles(camera).bearing, 360 - angles(camera).bearing)).toBeLessThan(1e-3);
-    expect(angles(camera).tilt).toBeGreaterThan(-89); // tilt stays free
+    expect(angles(camera).tilt).toBeLessThan(-89.99);
+    expect(controls.target.distanceTo(before)).toBeGreaterThan(1); expect(controls.target.z).toBeCloseTo(before.z, 3);
     locks.toggleNorth();
     expect(locks.state.compass).toBe('device');
+    expect(controls.mouseButtons.LEFT).toBe(MOUSE.ROTATE); expect(controls.touches.ONE).toBe(TOUCH.ROTATE);
     locks.face(75, -20);
     expect(angles(camera).bearing).toBeCloseTo(75, 6); expect(angles(camera).tilt).toBeCloseTo(-20, 6);
     drag(canvas, 200, 80);

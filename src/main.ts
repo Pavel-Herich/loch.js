@@ -170,7 +170,9 @@ function setWalker(enabled: boolean) {
 }
 function cycleProjection() {
   const perspectiveBox = document.querySelector<HTMLInputElement>('#perspective')!;
-  if (walker.enabled) setWalker(false);
+  // The compass's north map switches only between orthographic and perspective.
+  if (viewLocks.state.compass === 'north' && !walker.enabled) { perspectiveBox.checked = !perspectiveBox.checked; perspectiveBox.dispatchEvent(new Event('change')); }
+  else if (walker.enabled) setWalker(false);
   else if (perspectiveBox.checked) { perspectiveBox.checked = false; perspectiveBox.dispatchEvent(new Event('change')); }
   else { perspectiveBox.checked = true; perspectiveBox.dispatchEvent(new Event('change')); setWalker(true); }
   syncProjection();
@@ -2019,10 +2021,28 @@ texturedWalls.addEventListener('change', () => {
 const compassIndicator = document.querySelector<HTMLElement>('#compass-indicator')!;
 const tiltIndicator = document.querySelector<HTMLElement>('#tilt-indicator')!;
 let phoneCompass: CompassMode = 'free';
+let projectionBeforeMap: { perspective: boolean; walker: boolean } | undefined;
+function mapProjection(on: boolean) {
+  const perspective = document.querySelector<HTMLInputElement>('#perspective')!;
+  const setPerspective = (value: boolean) => { if (perspective.checked !== value) { perspective.checked = value; perspective.dispatchEvent(new Event('change')); } };
+  if (on) {
+    projectionBeforeMap = { perspective: perspective.checked, walker: walker.enabled };
+    if (walker.enabled) setWalker(false);
+    setPerspective(false);
+  } else if (projectionBeforeMap) {
+    setPerspective(projectionBeforeMap.perspective);
+    if (walker.enabled !== projectionBeforeMap.walker) setWalker(projectionBeforeMap.walker);
+    projectionBeforeMap = undefined;
+  }
+  syncProjection();
+}
 const viewLocks = new ViewLocks(() => camera, controls, state => {
   compassIndicator.setAttribute('aria-pressed', String(state.north));
   tiltIndicator.setAttribute('aria-pressed', String(state.side));
   compassIndicator.dataset.mode = state.compass; tiltIndicator.dataset.mode = state.tilt;
+  // North mode is an orthographic map; leaving it brings back the projection from before.
+  if (state.compass === 'north' && phoneCompass !== 'north') mapProjection(true);
+  if (state.compass !== 'north' && phoneCompass === 'north') mapProjection(false);
   if (state.compass === 'device' && phoneCompass !== 'device') startPhoneCompass();
   if (state.compass !== 'device' && phoneCompass === 'device') stopPhoneCompass();
   phoneCompass = state.compass;
@@ -2171,22 +2191,28 @@ function setAltitudePanel(open: boolean) {
   altitudeHigh.value = String(+range.maxZ.toFixed(1)); altitudeLow.value = String(+range.minZ.toFixed(1));
   placeAltitudePanel();
 }
-function altitudeInput() {
+function checkAltitudeInput() {
   const high = altitudeHigh.valueAsNumber, low = altitudeLow.valueAsNumber;
   const valid = Number.isFinite(high) && Number.isFinite(low) && low < high;
   altitudeHigh.setCustomValidity(valid ? '' : 'The top must be higher than the bottom');
-  if (!valid) return;
+  return valid;
+}
+/** Save: colour by the values entered, remembered for this model. */
+function saveAltitudeRange() {
+  if (!checkAltitudeInput()) { altitudeHigh.reportValidity(); return; }
+  const high = altitudeHigh.valueAsNumber, low = altitudeLow.valueAsNumber;
   const natural = Math.abs(low - naturalRange.minZ) < .05 && Math.abs(high - naturalRange.maxZ) < .05;
   setCustomAltitudeRange(natural ? undefined : { minZ: low, maxZ: high });
   rememberAltitudeRange(modelKey, customAltitudeRange());
-  applyAltitudeRange();
+  applyAltitudeRange(); setAltitudePanel(false);
 }
 legend.addEventListener('click', () => setAltitudePanel(altitudePanel.hidden));
 legend.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setAltitudePanel(altitudePanel.hidden); } });
-for (const input of [altitudeHigh, altitudeLow]) input.addEventListener('input', altitudeInput);
+for (const input of [altitudeHigh, altitudeLow]) input.addEventListener('input', checkAltitudeInput);
+altitudePanel.addEventListener('submit', event => { event.preventDefault(); saveAltitudeRange(); });
 document.querySelector('#altitude-reset')!.addEventListener('click', () => {
   setCustomAltitudeRange(undefined); rememberAltitudeRange(modelKey, undefined);
-  applyAltitudeRange(); setAltitudePanel(true);
+  applyAltitudeRange(); setAltitudePanel(false);
 });
 document.addEventListener('pointerdown', event => {
   if (!altitudePanel.hidden && !altitudePanel.contains(event.target as Node) && !legend.contains(event.target as Node)) setAltitudePanel(false);

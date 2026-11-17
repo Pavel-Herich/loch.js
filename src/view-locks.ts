@@ -1,4 +1,4 @@
-import { MathUtils, Vector3 } from 'three';
+import { MathUtils, MOUSE, TOUCH, Vector3 } from 'three';
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { setTiltLocked, type ViewCamera } from './camera';
 import { viewOrientation } from './indicators';
@@ -32,14 +32,20 @@ export type TiltMode = 'free' | 'side' | 'plan' | 'phone';
 export type ViewLockState = { north: boolean; side: boolean; compass: CompassMode; tilt: TiltMode; tiltLocked: boolean };
 
 /**
- * Compass: face north looking down, then follow the phone's heading and tilt,
- * then return to the previous heading and tilt.
+ * Compass: a north-up map looking straight down (no turning or tilting, dragging
+ * pans), then follow the phone's heading and tilt, then return to the previous
+ * heading and tilt.
  * Tilt: level side view, then a plan view looking straight down (both with
  * tilt locked), then the previous tilt and lock.
  * Each toggle restores only its own angle, so they combine freely.
  */
 export class ViewLocks {
-  private north?: { bearing: number; tilt: number; locked: boolean };
+  private north?: { bearing: number; tilt: number; locked: boolean; left: MOUSE | null; one: TOUCH | null };
+  /** North mode is a map: no turning or tilting, the primary button and one finger pan. */
+  private panByDrag(on: boolean) {
+    if (on) { this.controls.mouseButtons.LEFT = MOUSE.PAN; this.controls.touches.ONE = TOUCH.PAN; }
+    else if (this.north) { this.controls.mouseButtons.LEFT = this.north.left; this.controls.touches.ONE = this.north.one; }
+  }
   private device = false;
   /** While following the phone: whether its tilt steers too (else the tilt is dragged by hand). */
   private phoneTilt = true;
@@ -67,14 +73,20 @@ export class ViewLocks {
       setTiltLocked(this.controls, previous.locked);
       this.north = undefined; this.device = false;
     } else if (this.north) {
+      // Following the phone: dragging works as before (its turning and tilting come from the phone).
+      this.panByDrag(false);
+      this.side = undefined; this.plan = false;
+      setTiltLocked(this.controls, false);
       this.device = true; this.phoneTilt = true;
     } else {
       // The compass takes over the tilt, so the tilt toggle's state ends here.
-      this.north = this.side ? { bearing, tilt: this.side.tilt, locked: this.side.locked } : { bearing, tilt, locked: this.controls.minPolarAngle === this.controls.maxPolarAngle };
+      const mapping = { left: this.controls.mouseButtons.LEFT ?? null, one: this.controls.touches.ONE ?? null };
+      this.north = this.side ? { bearing, tilt: this.side.tilt, locked: this.side.locked, ...mapping } : { bearing, tilt, locked: this.controls.minPolarAngle === this.controls.maxPolarAngle, ...mapping };
       this.side = undefined; this.plan = false;
       setTiltLocked(this.controls, false);
       orbitTo(camera, this.controls, 0, -90);
-      lockHeading(this.controls, true);
+      lockHeading(this.controls, true); setTiltLocked(this.controls, true);
+      this.panByDrag(true);
     }
     this.onChange(this.state);
   }
@@ -125,7 +137,10 @@ export class ViewLocks {
 
   /** Forget both toggles, e.g. when a Plan, Profile or Fit view replaces the camera angles. */
   reset() {
-    if (this.north) lockHeading(this.controls, false);
+    if (this.north) {
+      lockHeading(this.controls, false);
+      if (!this.device) { this.panByDrag(false); setTiltLocked(this.controls, false); setTiltLocked(this.controls, this.north.locked); }
+    }
     if (this.device) setTiltLocked(this.controls, false);
     this.north = undefined; this.device = false; this.side = undefined; this.plan = false;
     this.onChange(this.state);

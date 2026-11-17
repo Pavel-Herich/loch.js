@@ -465,8 +465,10 @@ body.light-view .object-marker span{color:#7a3d00;text-shadow:0 0 3px #fff,0 0 3
 #legend{cursor:pointer;border-radius:6px}
 @media(hover:hover){#legend:hover{background:#ffffff14}}
 #legend.custom-range .ramp{outline:2px solid #ffd75e;outline-offset:1px}
-#altitude-panel{position:fixed;min-width:220px}
-#altitude-panel .altitude-field{display:grid;grid-template-columns:5.5em 1fr auto;align-items:center;gap:8px;padding:.35rem .7rem;font-size:.9rem}
-#altitude-panel input{width:100%;min-width:80px;font-size:16px;padding:.3rem .4rem;border:1px solid #678599;border-radius:4px;background:#0f1c26;color:inherit}
+#altitude-panel{position:fixed;min-width:0;width:auto;padding:6px}
+#altitude-panel .altitude-field{display:grid;grid-template-columns:4.6em 5.5em auto;align-items:center;gap:6px;padding:2px 4px;font-size:.85rem}
+#altitude-panel input{width:100%;min-width:0;font-size:16px;padding:.2rem .35rem;border:1px solid #678599;border-radius:4px;background:#0f1c26;color:inherit}
 #altitude-panel input:invalid{border-color:#ff5a5a}
-#altitude-note{display:block;padding:.2rem .7rem .4rem;color:#9fb6c6;font-size:.75rem;max-width:240px}
+#altitude-panel .altitude-buttons{display:flex;gap:6px;padding:6px 4px 2px}
+#altitude-panel .altitude-buttons button{width:auto;flex:1;white-space:nowrap;padding:.35rem .5rem;text-align:center;border:1px solid #678599;font-size:.85rem}
+#altitude-panel #altitude-save{background:#215a75;color:#fff}
