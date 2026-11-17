@@ -207,7 +207,7 @@ function giveUpModel(name = '', inUse = false) {
   try { localStorage.setItem(START_EMPTY, '1'); localStorage.removeItem(LAST_TERRAIN); } catch { /* The sample may open next time. */ }
   void forgetLastModel().catch(() => undefined);
   announce(inUse
-    ? `The app closed unexpectedly twice with the model ${name ? `${name} ` : ''}open: it is probably too large for this device. It was not opened again; loch.js starts empty (File → New). Open it again with File → Open, perhaps with Rendering → Detail → Automatic first.`
+    ? `The app closed unexpectedly twice with the model ${name ? `${name} ` : ''}open: it is probably too large for this device. It was not opened again; loch.js starts empty (File → New). It can be opened again with File → Open.`
     : `The model ${name ? `${name} ` : ''}could not be opened twice: it is probably too large for this device (or damaged). loch.js starts empty (File → New).`, true, 20000);
   sessionGuard.track('');
 }
