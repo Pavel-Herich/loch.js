@@ -19,8 +19,8 @@ function setup() {
   const controls = createCameraControls(camera, canvas as unknown as HTMLElement);
   controls.target.set(100, 200, 50); camera.position.set(100, 100, 150); controls.update();
   orbitTo(camera, controls, 120, -30);
-  const states: ViewLockState[] = [];
-  return { canvas, camera, controls, states, locks: new ViewLocks(() => camera, controls, state => states.push(state)) };
+  const states: ViewLockState[] = [], clock = { now: 0 };
+  return { canvas, camera, controls, states, clock, locks: new ViewLocks(() => camera, controls, state => states.push(state), () => clock.now) };
 }
 const angles = (camera: PerspectiveCamera) => viewOrientation(camera);
 
@@ -100,5 +100,18 @@ describe('compass and tilt toggles', () => {
     locks.toggleNorth(); locks.reset();
     expect(locks.state.north).toBe(false);
     expect(new Vector3(1, 0, 0).applyQuaternion(camera.quaternion).z).toBeCloseTo(0, 9);
+  });
+  it('goes back to the view before when the second click comes more than 10 s later', () => {
+    const { camera, controls, locks, clock } = setup();
+    locks.toggleNorth(); clock.now = 10_500; locks.toggleNorth();
+    expect(locks.state.compass).toBe('free'); expect(angles(camera).bearing).toBeCloseTo(120, 4); expect(angles(camera).tilt).toBeCloseTo(-30, 4);
+    expect(controls.mouseButtons.LEFT).toBe(MOUSE.ROTATE); expect(controls.minAzimuthAngle).toBe(-Infinity);
+    locks.toggleNorth(); clock.now = 15_000; locks.toggleNorth();
+    expect(locks.state.compass).toBe('device');
+    locks.toggleNorth();
+    locks.toggleSide(); clock.now = 30_000; locks.toggleSide();
+    expect(locks.state.tilt).toBe('free'); expect(angles(camera).tilt).toBeCloseTo(-30, 4); expect(controls.minPolarAngle).toBe(0);
+    locks.toggleSide(); clock.now = 35_000; locks.toggleSide();
+    expect(locks.state.tilt).toBe('plan');
   });
 });

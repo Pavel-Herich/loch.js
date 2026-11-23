@@ -52,7 +52,15 @@ export class ViewLocks {
   private side?: { tilt: number; locked: boolean };
   private plan = false;
 
-  constructor(private getCamera: () => ViewCamera, private controls: OrbitControls, private onChange: (state: ViewLockState) => void) {}
+  /** When the compass or the tilt indicator was last clicked into its first state. */
+  private compassAt = -Infinity;
+  private tiltAt = -Infinity;
+
+  constructor(private getCamera: () => ViewCamera, private controls: OrbitControls, private onChange: (state: ViewLockState) => void,
+    private now: () => number = () => performance.now()) {}
+
+  /** A second click within this time goes on to the second state; later it goes back to the view before. */
+  static readonly SECOND_CLICK = 10_000;
 
   get state(): ViewLockState {
     const compass: CompassMode = this.device ? 'device' : this.north ? 'north' : 'free';
@@ -62,16 +70,19 @@ export class ViewLocks {
 
   /**
    * Free → north looking straight down (a map; the heading held, tilt free) → following the
-   * phone's heading and tilt → the previous heading, tilt and tilt lock.
+   * phone's heading and tilt → the previous heading, tilt and tilt lock. More than 10 s after the
+   * first click the map goes straight back.
    */
   toggleNorth() {
     const camera = this.getCamera(), { bearing, tilt } = viewOrientation(camera);
-    if (this.device) {
+    if (this.device || (this.north && this.now() - this.compassAt > ViewLocks.SECOND_CLICK)) {
       const previous = this.north!;
+      if (!this.device) this.panByDrag(false);
       lockHeading(this.controls, false); setTiltLocked(this.controls, false);
       orbitTo(camera, this.controls, previous.bearing, previous.tilt);
       setTiltLocked(this.controls, previous.locked);
       this.north = undefined; this.device = false;
+      this.side = undefined; this.plan = false;
     } else if (this.north) {
       // Following the phone: dragging works as before (its turning and tilting come from the phone).
       this.panByDrag(false);
@@ -87,6 +98,7 @@ export class ViewLocks {
       orbitTo(camera, this.controls, 0, -90);
       lockHeading(this.controls, true); setTiltLocked(this.controls, true);
       this.panByDrag(true);
+      this.compassAt = this.now();
     }
     this.onChange(this.state);
   }
@@ -105,7 +117,7 @@ export class ViewLocks {
     if (tilt !== undefined) setTiltLocked(this.controls, true);
   }
 
-  /** Free → level side view → plan view → free. */
+  /** Free → level side view → plan view → free (from the side view straight back after 10 s). */
   toggleSide() {
     // Following the phone, the tilt toggle only switches the phone's tilt off (drag to tilt) and on.
     if (this.device) {
@@ -115,7 +127,7 @@ export class ViewLocks {
       return;
     }
     const camera = this.getCamera(), { bearing, tilt } = viewOrientation(camera);
-    if (this.plan) {
+    if (this.plan || (this.side && this.now() - this.tiltAt > ViewLocks.SECOND_CLICK)) {
       const previous = this.side!;
       setTiltLocked(this.controls, false);
       orbitTo(camera, this.controls, bearing, previous.tilt);
@@ -131,6 +143,7 @@ export class ViewLocks {
       setTiltLocked(this.controls, false);
       orbitTo(camera, this.controls, bearing, 0);
       setTiltLocked(this.controls, true);
+      this.tiltAt = this.now();
     }
     this.onChange(this.state);
   }

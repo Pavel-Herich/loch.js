@@ -244,8 +244,9 @@ function setWalker(enabled: boolean) {
 }
 function cycleProjection() {
   const perspectiveBox = document.querySelector<HTMLInputElement>('#perspective')!;
-  // The compass's north map switches only between orthographic and perspective.
-  if (viewLocks.state.compass === 'north' && !walker.enabled) { perspectiveBox.checked = !perspectiveBox.checked; perspectiveBox.dispatchEvent(new Event('change')); }
+  // The compass's north map and the tilt indicator's views switch only between orthographic and perspective.
+  const { compass, tilt } = viewLocks.state;
+  if ((compass === 'north' || tilt === 'side' || tilt === 'plan') && !walker.enabled) { perspectiveBox.checked = !perspectiveBox.checked; perspectiveBox.dispatchEvent(new Event('change')); }
   else if (walker.enabled) setWalker(false);
   else if (perspectiveBox.checked) { perspectiveBox.checked = false; perspectiveBox.dispatchEvent(new Event('change')); }
   else { perspectiveBox.checked = true; perspectiveBox.dispatchEvent(new Event('change')); setWalker(true); }
@@ -1135,9 +1136,32 @@ function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: 
     label.append(input, strong, small);
     return label;
   };
-  document.querySelector('#dmr-options')!.replaceChildren(...steps.map(step => option('dmr-step', String(step.factor), `${step.step} m${step === suggested ? ' · suggested' : ''}`,
+  const stepOptions = steps.map(step => option('dmr-step', String(step.factor), `${step.step} m${step === suggested ? ' · suggested' : ''}`,
     `${step.columns.toLocaleString()} columns × ${step.rows.toLocaleString()} rows${step.nodes > most ? ': too many for this device' : step.nodes > smooth ? ': may be slow here' : ''}.`,
-    step === suggested, step.nodes > most)));
+    step === suggested, step.nodes > most));
+  // Any step typed in (metres, not finer than the file's cells): its cells averaged into each node.
+  const stepCustom = option('dmr-step', 'custom', 'Other step', '', false), stepInput = document.createElement('input');
+  stepCustom.querySelector('small')!.classList.add('dmr-custom');
+  stepInput.type = 'number'; stepInput.min = String(cell); stepInput.step = 'any'; stepInput.value = String(suggested.step);
+  const stepText = document.createElement('span'), makeButton = dmrDialog.querySelector<HTMLButtonElement>('button[value="make"]')!;
+  const customStep = () => {
+    const step = Number(stepInput.value);
+    if (!(step >= cell - 1e-9)) return undefined;
+    const factor = step / cell, columns = Math.floor(area.columns / factor + 1e-9), rows = Math.floor(area.rows / factor + 1e-9);
+    return { factor, columns, rows, nodes: columns * rows };
+  };
+  const updateStep = () => {
+    const custom = customStep();
+    stepText.textContent = !custom ? ` m · at least ${cell} m (the file's cells)` : ` m · ${custom.columns.toLocaleString()} × ${custom.rows.toLocaleString()}${custom.nodes > most ? ': too many for this device' : custom.nodes > smooth ? ': may be slow here' : ''}`;
+    const picked = (stepCustom.querySelector('input[type=radio]') as HTMLInputElement).checked;
+    makeButton.disabled = picked && (!custom || custom.nodes > most || custom.columns < 2 || custom.rows < 2);
+  };
+  stepInput.addEventListener('input', () => { (stepCustom.querySelector('input[type=radio]') as HTMLInputElement).checked = true; updateStep(); });
+  stepInput.addEventListener('keydown', event => { if (event.key === 'Enter') event.preventDefault(); });
+  stepCustom.querySelector('small')!.append(stepInput, stepText);
+  document.querySelector('#dmr-options')!.replaceChildren(...stepOptions, stepCustom);
+  document.querySelector<HTMLElement>('#dmr-options')!.onchange = updateStep;
+  makeButton.disabled = false; updateStep();
   // Relief image sizes.
   const device = imageDevice(), { bytesPerPixel, maxBytes, maxSide, minSide } = RELIEF_IMAGE;
   const describe = (width: number) => {
@@ -1179,8 +1203,10 @@ function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: 
   dmrDialog.returnValue = ''; dmrDialog.showModal();
   dmrDialog.querySelector<HTMLButtonElement>('button[value="make"]')!.focus();
   return new Promise<{ factor: number; image: ImageChoice } | undefined>(resolve => dmrDialog.addEventListener('close', () => {
+    makeButton.disabled = false;
     if (dmrDialog.returnValue !== 'make') { resolve(undefined); return; }
-    const factor = Number(dmrDialog.querySelector<HTMLInputElement>('input[name="dmr-step"]:checked')?.value);
+    const pickedStep = dmrDialog.querySelector<HTMLInputElement>('input[name="dmr-step"]:checked')?.value;
+    const factor = pickedStep === 'custom' ? customStep()?.factor ?? NaN : Number(pickedStep);
     const picked = dmrDialog.querySelector<HTMLInputElement>('input[name="dmr-image"]:checked')?.value;
     let width = picked === 'custom' ? Math.round(Number(customInput.value)) : Number(picked);
     if (!(width > 0)) width = planned;
@@ -2134,18 +2160,28 @@ texturedWalls.addEventListener('change', () => {
 const compassIndicator = document.querySelector<HTMLElement>('#compass-indicator')!;
 const tiltIndicator = document.querySelector<HTMLElement>('#tilt-indicator')!;
 let phoneCompass: CompassMode = 'free';
+/*
+ * The compass's north map and the tilt indicator's side and plan views switch to orthographic
+ * projection; when the last of them ends, the projection from before comes back.
+ */
 let projectionBeforeMap: { perspective: boolean; walker: boolean } | undefined;
-function mapProjection(on: boolean) {
+const orthoHolders = new Set<'compass' | 'tilt'>();
+function holdOrtho(holder: 'compass' | 'tilt', on: boolean) {
+  if (on === orthoHolders.has(holder)) return;
   const perspective = document.querySelector<HTMLInputElement>('#perspective')!;
   const setPerspective = (value: boolean) => { if (perspective.checked !== value) { perspective.checked = value; perspective.dispatchEvent(new Event('change')); } };
   if (on) {
-    projectionBeforeMap = { perspective: perspective.checked, walker: walker.enabled };
+    if (!orthoHolders.size) projectionBeforeMap = { perspective: perspective.checked, walker: walker.enabled };
+    orthoHolders.add(holder);
     if (walker.enabled) setWalker(false);
     setPerspective(false);
-  } else if (projectionBeforeMap) {
-    setPerspective(projectionBeforeMap.perspective);
-    if (walker.enabled !== projectionBeforeMap.walker) setWalker(projectionBeforeMap.walker);
-    projectionBeforeMap = undefined;
+  } else {
+    orthoHolders.delete(holder);
+    if (!orthoHolders.size && projectionBeforeMap) {
+      setPerspective(projectionBeforeMap.perspective);
+      if (walker.enabled !== projectionBeforeMap.walker) setWalker(projectionBeforeMap.walker);
+      projectionBeforeMap = undefined;
+    }
   }
   syncProjection();
 }
@@ -2153,9 +2189,12 @@ const viewLocks = new ViewLocks(() => camera, controls, state => {
   compassIndicator.setAttribute('aria-pressed', String(state.north));
   tiltIndicator.setAttribute('aria-pressed', String(state.side));
   compassIndicator.dataset.mode = state.compass; tiltIndicator.dataset.mode = state.tilt;
-  // North mode is an orthographic map; leaving it brings back the projection from before.
-  if (state.compass === 'north' && phoneCompass !== 'north') mapProjection(true);
-  if (state.compass !== 'north' && phoneCompass === 'north') mapProjection(false);
+  // North mode is an orthographic map, and so are the side and plan views of the tilt indicator.
+  const sideOrPlan = state.tilt === 'side' || state.tilt === 'plan';
+  if (state.compass === 'north') holdOrtho('compass', true);
+  if (sideOrPlan) holdOrtho('tilt', true);
+  if (state.compass !== 'north') holdOrtho('compass', false);
+  if (!sideOrPlan) holdOrtho('tilt', false);
   if (state.compass === 'device' && phoneCompass !== 'device') startPhoneCompass();
   if (state.compass !== 'device' && phoneCompass === 'device') stopPhoneCompass();
   phoneCompass = state.compass;
@@ -2196,7 +2235,7 @@ function startPhoneCompass() {
 }
 function stopPhoneCompass() {
   clearTimeout(phoneHeadingTimer);
-  cancelAnimationFrame(phoneFrame); phoneFrame = 0; phoneShown = undefined;
+  cancelAnimationFrame(phoneFrame); phoneFrame = 0; phoneShown = undefined; phoneHeadingHeld = false; phoneTarget = undefined;
   if (phoneCentreWanted) { phoneCentreWanted = false; pivotHint.hidden = true; }
   phoneCentredOnGps = false;
   if (!deviceLocation.active) deviceHeading.stop();
@@ -2215,11 +2254,17 @@ function trueNorthBearing() {
  * looks straight down, held upright looks level the way the camera points).
  */
 let phoneTarget: { bearing: number; tilt?: number } | undefined, phoneShown: { bearing: number; tilt?: number } | undefined, phoneFrame = 0;
+let phoneHeadingHeld = false;
 function followPhone() {
   if (phoneCentreWanted || deviceHeading.heading === undefined || viewLocks.state.compass !== 'device') { phoneShown = undefined; return; }
   const { heading, beta, gamma, screenAngle } = deviceHeading;
   const view = beta !== undefined && gamma !== undefined ? phoneView(heading, beta, gamma, screenAngle) : { bearing: heading, tilt: undefined };
-  phoneTarget = { bearing: view.bearing + trueNorthBearing(), tilt: view.tilt };
+  // Raised to about 85° and more the phone's compass jumps about: the heading is held until it is
+  // lowered again (below about 82°, so it does not flicker at the edge).
+  if (view.tilt !== undefined) phoneHeadingHeld = phoneHeadingHeld ? view.tilt > -8 : view.tilt > -5;
+  else phoneHeadingHeld = false;
+  const bearing = phoneHeadingHeld && phoneTarget ? phoneTarget.bearing : view.bearing + trueNorthBearing();
+  phoneTarget = { bearing, tilt: view.tilt };
   if (!phoneShown) { phoneShown = { ...phoneTarget }; showPhoneView(); }
   else if (!phoneFrame) phoneFrame = requestAnimationFrame(stepPhoneView);
 }
@@ -2905,6 +2950,8 @@ function exportOverlays(size: { width: number; height: number }, white: boolean)
     // A film shows the scale only in orthographic projection (in perspective it holds only at the rotation centre).
     const scale = document.querySelector<HTMLElement>('#scale-indicator');
     if (shown(scale) && (!imageDialog.animation() || camera instanceof THREE.OrthographicCamera)) { const rect = scale.getBoundingClientRect(); overlays.push({ element: scale, left: (size.width - rect.width) / 2, top: 10 }); }
+    const vertical = document.querySelector<HTMLElement>('#vertical-scale');
+    if (shown(vertical) && camera instanceof THREE.OrthographicCamera) { const rect = vertical.getBoundingClientRect(); overlays.push({ element: vertical, left: size.width - rect.width - 14, top: (size.height - rect.height) / 2 }); }
   }
   const markers = document.querySelector<HTMLElement>('#object-markers');
   if (shown(markers)) overlays.push(markers);

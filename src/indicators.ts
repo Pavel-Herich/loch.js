@@ -52,6 +52,9 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
   const scale = document.querySelector<HTMLElement>('#scale-indicator')!;
   const ruler = document.querySelector<HTMLElement>('#scale-ruler')!;
   const scaleValue = document.querySelector<HTMLElement>('#scale-value')!;
+  const vertical = document.querySelector<HTMLElement>('#vertical-scale')!;
+  const verticalRuler = document.querySelector<HTMLElement>('#vertical-ruler')!;
+  const verticalValue = document.querySelector<HTMLElement>('#vertical-scale-value')!;
   let previous = '';
   visible.checked = true;
   /** Height: the view's (CSS px), or an image export's overlay height. */
@@ -60,8 +63,11 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     const camera = getCamera(), orientation = viewOrientation(camera);
     const size = viewScale(camera, getTarget(), height);
     scale.hidden = !size;
+    // In the side and plan views of the tilt indicator, orthographic: the same scale upright on the right.
+    const tiltMode0 = tilt.dataset.mode ?? 'free';
+    vertical.hidden = !size || !(camera instanceof OrthographicCamera) || (tiltMode0 !== 'side' && tiltMode0 !== 'plan');
     const bearing = Math.round(orientation.bearing) % 360, angle = Math.round(orientation.tilt);
-    const state = `${camera.type}:${orientation.bearing.toFixed(2)}:${orientation.tilt.toFixed(2)}:${size?.distance}:${size?.pixels.toFixed(2)}`;
+    const state = `${vertical.hidden}:${camera.type}:${orientation.bearing.toFixed(2)}:${orientation.tilt.toFixed(2)}:${size?.distance}:${size?.pixels.toFixed(2)}`;
     if (state === previous) return;
     previous = state;
     rose.setAttribute('transform', `rotate(${-orientation.bearing} 34 34)`);
@@ -81,10 +87,16 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
 
       scale.title = approximate ? `About ${size.label} at the depth of the rotation centre (perspective)` : `${size.label} (orthographic)`;
       scale.setAttribute('aria-label', scale.title);
+      if (!vertical.hidden) {
+        verticalRuler.style.setProperty('--length', `${Math.round(size.pixels) + 1}px`);
+        verticalValue.textContent = size.label;
+        vertical.title = `Vertical scale: ${size.label} (orthographic)`; vertical.setAttribute('aria-label', vertical.title);
+      }
     }
   }
   visible.addEventListener('change', () => {
     panel.hidden = scale.hidden = !visible.checked;
+    if (!visible.checked) vertical.hidden = true;
     update();
   });
   return { update, refresh() { previous = ''; update(); } };

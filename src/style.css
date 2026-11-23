@@ -472,3 +472,9 @@ body.light-view .object-marker span{color:#7a3d00;text-shadow:0 0 3px #fff,0 0 3
 #altitude-panel .altitude-buttons{display:flex;gap:6px;padding:6px 4px 2px}
 #altitude-panel .altitude-buttons button{width:auto;flex:1;white-space:nowrap;padding:.35rem .5rem;text-align:center;border:1px solid #678599;font-size:.85rem}
 #altitude-panel #altitude-save{background:#215a75;color:#fff}
+/* Vertical scale: on the right in the tilt indicator's side and plan views, orthographic only. */
+#vertical-scale{position:fixed;right:calc(14px + env(safe-area-inset-right,0px));top:50%;transform:translateY(-50%);z-index:2;pointer-events:none;flex-direction:column;align-items:flex-end;gap:4px}
+#vertical-scale[hidden]{display:none}
+#vertical-ruler{width:6px;height:var(--length,100px);background:linear-gradient(#eaf3ff,#eaf3ff) right/1px 100% no-repeat,repeating-linear-gradient(to bottom,#eaf3ff 0 1px,transparent 1px calc((100% - 1px) / 4))}
+body.light-view #vertical-ruler{background:linear-gradient(#162531,#162531) right/1px 100% no-repeat,repeating-linear-gradient(to bottom,#162531 0 1px,transparent 1px calc((100% - 1px) / 4))}
+@media (orientation:landscape) and (max-height:520px){#vertical-scale{right:calc(64px + env(safe-area-inset-right,0px))}}
