@@ -43,7 +43,8 @@ describe('compass and tilt toggles', () => {
     expect(controls.target.distanceTo(before)).toBeGreaterThan(1); expect(controls.target.z).toBeCloseTo(before.z, 3);
     locks.toggleNorth();
     expect(locks.state.compass).toBe('device');
-    expect(controls.mouseButtons.LEFT).toBe(MOUSE.ROTATE); expect(controls.touches.ONE).toBe(TOUCH.ROTATE);
+    // Following the phone, one finger still pans.
+    expect(controls.mouseButtons.LEFT).toBe(MOUSE.PAN); expect(controls.touches.ONE).toBe(TOUCH.PAN);
     locks.face(75, -20);
     expect(angles(camera).bearing).toBeCloseTo(75, 6); expect(angles(camera).tilt).toBeCloseTo(-20, 6);
     drag(canvas, 200, 80);

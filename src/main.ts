@@ -13,7 +13,7 @@ import { WallPreparation } from './wall-preparation';
 import { setStatusProgress, setStatusText } from './status';
 import { surfacePoint, type Surface } from './lox-surface';
 import { SurfaceScene, initializeSurfaceControls } from './surface';
-import { cropGrid, cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlan, imageSize, reliefFromFile, type ReliefStyle, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
+import { cropGrid, cropWindow, dmrLox, dmrSteps, dmrSurface, dmrTherion, dmrThconfig, hillshade, imagePlan, imageSize, reliefFromFile, type ReliefStyle, type Contours, RELIEF_IMAGE, inspectDmr, resampleDmr, tiffFromZip, wholeFile, windowCorners, type CellWindow, type Dmr } from './dmr';
 import type { GeoTiff } from './geotiff';
 import { forgetDmr, loadDmr, saveDmr } from './dmr-store';
 import { CentrelineScene, initializeCentrelineControls } from './centreline';
@@ -1215,10 +1215,11 @@ function askTerrainStep(name: string, steps: ReturnType<typeof dmrSteps>, cell: 
   }, { once: true }));
 }
 /**
- * The relief image's style (the step after its size): previews of the cropped terrain in eight
- * styles, multidirectional chosen beforehand.
+ * The relief image's style (the step after its size): previews of the cropped terrain in seven
+ * styles, multidirectional chosen beforehand, with contour lines at chosen intervals over any of them.
  */
 const styleDialog = document.querySelector<HTMLDialogElement>('#style-dialog')!;
+const CONTOUR_STORE = 'loch.js-contours';
 function askReliefStyle(preview: Dmr, range: [number, number]) {
   const styles: [ReliefStyle, string, string][] = [
     ['classic', 'Classic hillshade', 'One light from the north-west, 45° high.'],
@@ -1226,7 +1227,6 @@ function askReliefStyle(preview: Dmr, range: [number, number]) {
     ['altitude', 'Altitude colours', 'Low ground blue, through green, yellow and brown, to white heights, over the shading.'],
     ['slope', 'Slope', 'White flat ground to dark slopes of 55° and more: rock steps and edges.'],
     ['sky', 'Sky-view factor', 'How much sky each place sees within 15 m: hollows, shafts and gullies dark whatever the light.'],
-    ['contours', 'Contours', 'Every 10 m, each 50 m bolder, smoothed over about 5 m, over the multidirectional shading.'],
     ['swiss', 'Swiss', 'Light from the north-west in warm tones, bluish shadows, ground lighter with height.'],
     ['composite', 'Composite', 'Sky-view factor, slope and multidirectional shading together: the most detail.'],
   ];
@@ -1238,21 +1238,45 @@ function askReliefStyle(preview: Dmr, range: [number, number]) {
       const w = Math.floor(preview.width / shrink), c = i % w, r = (i - c) / w;
       return preview.heights[r * shrink * preview.width + c * shrink];
     }) } : preview;
+  // Contour lines over any style, at the intervals last used.
+  const contourBox = document.querySelector<HTMLInputElement>('#relief-contours')!;
+  const majorInput = document.querySelector<HTMLInputElement>('#contour-major')!, minorInput = document.querySelector<HTMLInputElement>('#contour-minor')!;
+  try {
+    const kept = JSON.parse(localStorage.getItem(CONTOUR_STORE) ?? 'null') as { on: boolean; major: number; minor: number } | null;
+    if (kept) { contourBox.checked = kept.on; majorInput.value = String(kept.major); minorInput.value = String(kept.minor); }
+  } catch { /* The defaults. */ }
+  const contours = (): Contours | undefined => {
+    const major = majorInput.valueAsNumber, minor = minorInput.valueAsNumber;
+    return contourBox.checked && major > 0 ? { major, minor: minor > 0 ? minor : 0 } : undefined;
+  };
+  const canvases: [HTMLCanvasElement, ReliefStyle][] = [];
+  const drawPreviews = () => {
+    majorInput.disabled = minorInput.disabled = !contourBox.checked;
+    for (const [canvas, style] of canvases)
+      canvas.getContext('2d')!.putImageData(new ImageData(hillshade(small, 45, 1, 0, small.height, style, range, contours()) as Uint8ClampedArray<ArrayBuffer>, small.width, small.height), 0, 0);
+  };
+  let previewTimer = 0;
+  contourBox.onchange = drawPreviews;
+  majorInput.oninput = minorInput.oninput = () => { clearTimeout(previewTimer); previewTimer = window.setTimeout(drawPreviews, 250); };
   document.querySelector('#style-options')!.replaceChildren(...styles.map(([style, title, text]) => {
     const label = document.createElement('label'), input = document.createElement('input');
     label.className = 'quality-option';
     input.type = 'radio'; input.name = 'relief-style'; input.value = style; input.checked = style === 'multidirectional';
     const canvas = document.createElement('canvas'); canvas.width = small.width; canvas.height = small.height;
-    canvas.getContext('2d')!.putImageData(new ImageData(hillshade(small, 45, 1, 0, small.height, style, range) as Uint8ClampedArray<ArrayBuffer>, small.width, small.height), 0, 0);
+    canvases.push([canvas, style]);
     const strong = document.createElement('strong'); strong.textContent = title + (style === 'multidirectional' ? ' · default' : '');
     const detail = document.createElement('small'); detail.textContent = text;
     label.append(input, canvas, strong, detail);
     return label;
   }));
+  drawPreviews();
   styleDialog.returnValue = ''; styleDialog.showModal();
   styleDialog.querySelector<HTMLButtonElement>('button[value="make"]')!.focus();
-  return new Promise<ReliefStyle | undefined>(resolve => styleDialog.addEventListener('close', () => {
-    resolve(styleDialog.returnValue === 'make' ? (styleDialog.querySelector<HTMLInputElement>('input[name="relief-style"]:checked')?.value as ReliefStyle ?? 'multidirectional') : undefined);
+  return new Promise<{ style: ReliefStyle; contours?: Contours } | undefined>(resolve => styleDialog.addEventListener('close', () => {
+    clearTimeout(previewTimer);
+    if (styleDialog.returnValue !== 'make') { resolve(undefined); return; }
+    try { localStorage.setItem(CONTOUR_STORE, JSON.stringify({ on: contourBox.checked, major: majorInput.valueAsNumber || 50, minor: minorInput.valueAsNumber || 0 })); } catch { /* Not kept. */ }
+    resolve({ style: styleDialog.querySelector<HTMLInputElement>('input[name="relief-style"]:checked')?.value as ReliefStyle ?? 'multidirectional', contours: contours() });
   }, { once: true }));
 }
 /** Lowest and highest height of a grid. */
@@ -1291,8 +1315,9 @@ async function importTerrain(picked: File) {
       ? await resampleDmr(blob, tiff, epsg, fine, name, undefined, undefined, held)
       : cropGrid(preview, windowCorners(tiff, held));
     if (id !== loadId) return;
-    const range = heightRange(cropped), style = await askReliefStyle(cropped, range);
-    if (!style || id !== loadId) { setStatusText(status, ''); return; }
+    const range = heightRange(cropped), look = await askReliefStyle(cropped, range);
+    if (!look || id !== loadId) { setStatusText(status, ''); return; }
+    const { style, contours } = look;
     const { jtsk03Shift } = await import('./jtsk03');
     const dmr = await resampleDmr(blob, tiff, epsg, factor, name, (done, total) => {
       setStatusText(status, `${name} · Making terrain · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
@@ -1307,10 +1332,10 @@ async function importTerrain(picked: File) {
         // Shaded from the file's own cells, then reduced to the chosen size (no pattern from averaging).
         const relief = await reliefFromFile(blob, tiff, held, plan.factor, (done, total) => {
           setStatusText(status, `${name} · Shading relief · ${Math.round(done / total * 100)}%`); setStatusProgress(status, done / total);
-        }, style, range);
+        }, style, range, undefined, contours);
         if (id !== loadId) return;
         setStatusText(status, `${name} · Encoding relief image (${Math.round(pixels / 1e6)} million pixels)…`);
-        dmr.image = await encodeRelief(relief, plan); dmr.style = style;
+        dmr.image = await encodeRelief(relief, plan); dmr.style = style; dmr.contours = contours;
         break;
       } catch (error) {
         if (id !== loadId) return;
@@ -1408,10 +1433,10 @@ const imageDevice = () => {
 /** Shaded relief pixels to encode: their size, rows (north first) as RGBA, outer south-west corner and pixel size. */
 type ReliefSource = { width: number; height: number; rows(first: number, count: number): Uint8ClampedArray; west: number; south: number; pixel: number };
 /** The relief of a grid (a terrain kept without its image). */
-function reliefImage(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height' | 'heights' | 'style'>, plan: ReturnType<typeof imagePlan>) {
+function reliefImage(grid: Pick<Dmr, 'origin' | 'step' | 'width' | 'height' | 'heights' | 'style' | 'contours'>, plan: ReturnType<typeof imagePlan>) {
   const range = heightRange(grid);
   return encodeRelief({
-    width: grid.width, height: grid.height, rows: (first, count) => hillshade(grid, 45, 1, first, count, grid.style ?? 'multidirectional', range),
+    width: grid.width, height: grid.height, rows: (first, count) => hillshade(grid, 45, 1, first, count, grid.style ?? 'multidirectional', range, grid.contours),
     west: grid.origin[0] - grid.step / 2, south: grid.origin[1] - grid.step / 2, pixel: grid.step,
   }, plan);
 }
@@ -2233,6 +2258,14 @@ function startPhoneCompass() {
   }, 3000);
   followPhone();
 }
+// Panning while the model turns with the phone (one finger) leaves the GPS position as centre:
+// the view stays where it was moved instead of jumping back at the next fix.
+let panStart: THREE.Vector3 | undefined;
+controls.addEventListener('start', () => { panStart = viewLocks.state.compass === 'device' ? controls.target.clone() : undefined; });
+controls.addEventListener('end', () => {
+  if (panStart && viewLocks.state.compass === 'device' && controls.target.distanceTo(panStart) > 1e-3) phoneCentredOnGps = false;
+  panStart = undefined;
+});
 function stopPhoneCompass() {
   clearTimeout(phoneHeadingTimer);
   cancelAnimationFrame(phoneFrame); phoneFrame = 0; phoneShown = undefined; phoneHeadingHeld = false; phoneTarget = undefined;

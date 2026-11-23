@@ -15,6 +15,8 @@ export type Dmr = {
   heights: Float32Array;
   /** How its relief image was drawn. */
   style?: ReliefStyle;
+  /** Contour lines drawn over the relief image (any style). */
+  contours?: Contours;
   /** Hillshade of the terrain (JPEG), finer than the grid, over its cells; south-west corner in the file's system. */
   image?: DmrImage;
 };
@@ -104,13 +106,15 @@ export function cellShares(cells: number, nodes: number, factor: number) {
  * out; pixels with none at all come out white.
  */
 export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWindow, factor: number, progress?: (done: number, total: number) => void,
-  style: ReliefStyle = 'multidirectional', range: [number, number] = [0, 1], strip = 256) {
+  style: ReliefStyle = 'multidirectional', range: [number, number] = [0, 1], strip = 256, contours?: Contours) {
+  // The Contours style is the multidirectional shading with the default lines.
+  const lines = contours ?? (style === 'contours' ? DEFAULT_CONTOURS : undefined);
   const width = Math.max(1, Math.floor(window.columns / factor + 1e-9)), height = Math.max(1, Math.floor(window.rows / factor + 1e-9));
   const columns = cellShares(window.columns, width, factor), rows = cellShares(window.rows, height, factor);
   const parts = Math.floor(65000 / Math.ceil(factor) ** 2);
   const sums = new Float32Array(width * height), weights = new Uint16Array(width * height);
   // Coloured styles and contours: the mean height of each pixel too (used when the image is drawn).
-  const heightSums = reliefUsesHeight(style) ? new Float32Array(width * height) : undefined;
+  const heightSums = reliefUsesHeight(style) || lines ? new Float32Array(width * height) : undefined;
   const across = Math.ceil(tiff.width / tiff.blockWidth);
   const blockRows = tiff.tiled ? Math.ceil(tiff.height / tiff.blockHeight) : tiff.offsets.length;
   const firstBlock = Math.floor(window.row / tiff.blockHeight), lastBlock = Math.min(blockRows - 1, Math.floor((window.row + window.rows - 1) / tiff.blockHeight));
@@ -187,10 +191,10 @@ export async function reliefFromFile(file: Blob, tiff: GeoTiff, window: CellWind
         } else rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = weight ? sums[at] / weight : 255;
         rgba[i * 4 + 3] = 255;
       }
-      if (style === 'contours' && heightSums) drawContours(rgba, width, height, first, count, pixel, (row, column) => {
+      if (lines && heightSums) drawContours(rgba, width, height, first, count, pixel, (row, column) => {
         const at = row * width + column;
         return weights[at] ? heightSums[at] / weights[at] : NaN;
-      });
+      }, lines);
       return rgba;
     },
     west: tiff.left + window.column * tiff.pixelWidth, south: tiff.top - (window.row + height * factor) * tiff.pixelHeight, pixel,
@@ -438,7 +442,10 @@ export function reliefTones(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'st
   return tones;
 }
 /** Contours every 10 m, each 50 m bolder, drawn from heights smoothed over about 5 m. */
-const CONTOURS = { interval: 10, index: 5, smooth: 5, thin: [160, 100, 50], bold: [105, 55, 20] };
+/** Contour lines: a major (bold) and a minor interval in metres (the minor 0 or not below the major: major lines only). */
+export type Contours = { major: number; minor: number };
+export const DEFAULT_CONTOURS: Contours = { major: 50, minor: 10 };
+const CONTOURS = { smooth: 5, thin: [160, 100, 50], bold: [105, 55, 20] };
 /** Box blur (radius in pixels) along rows, then columns, of a rows × width array, in place. */
 function boxBlur(values: Float32Array, width: number, rows: number, radius: number) {
   const line = new Float32Array(Math.max(width, rows));
@@ -472,7 +479,9 @@ function boxBlur(values: Float32Array, width: number, rows: number, radius: numb
  * antialiased: each pixel by its distance to the nearest contour (height off the contour over the gradient).
  */
 export function drawContours(rgba: Uint8ClampedArray, width: number, height: number, first: number, count: number, pixel: number,
-  heightAt: (row: number, column: number) => number) {
+  heightAt: (row: number, column: number) => number, contours: Contours = DEFAULT_CONTOURS) {
+  const major = contours.major > 0 ? contours.major : DEFAULT_CONTOURS.major;
+  const minor = contours.minor > 0 && contours.minor < major ? contours.minor : 0;
   const radius = Math.max(1, Math.round(CONTOURS.smooth / pixel)), margin = 2 * radius + 2;
   const top = Math.max(0, first - margin), bottom = Math.min(height, first + count + margin), rows = bottom - top;
   const sums = new Float32Array(rows * width), weights = new Float32Array(rows * width);
@@ -495,9 +504,11 @@ export function drawContours(rgba: Uint8ClampedArray, width: number, height: num
       if (east !== east) east = h; if (west !== west) west = h; if (north !== north) north = h; if (south !== south) south = h;
       const gradient = Math.hypot((east - west) / 2, (north - south) / 2);
       if (gradient < 1e-6) continue;
-      const k = Math.round(h / CONTOURS.interval), bold = k % CONTOURS.index === 0;
-      const distance = Math.abs(h - k * CONTOURS.interval) / gradient;
-      const cover = Math.min(1, Math.max(0, (bold ? .95 : .55) + .5 - distance)) * (bold ? .95 : .8);
+      // Distance (in pixels) to the nearest major and minor line; a major line wins where both are near.
+      const toMajor = Math.abs(h - Math.round(h / major) * major) / gradient;
+      const toMinor = minor ? Math.abs(h - Math.round(h / minor) * minor) / gradient : Infinity;
+      const boldCover = Math.min(1, Math.max(0, .95 + .5 - toMajor)) * .95, thinCover = Math.min(1, Math.max(0, .55 + .5 - toMinor)) * .8;
+      const bold = boldCover > 0, cover = bold ? boldCover : thinCover;
       if (cover <= 0) continue;
       const colour = bold ? CONTOURS.bold : CONTOURS.thin, at = ((row - first) * width + c) * 4;
       for (let k2 = 0; k2 < 3; k2++) rgba[at + k2] = rgba[at + k2] * (1 - cover) + colour[k2] * cover;
@@ -510,7 +521,7 @@ export function drawContours(rgba: Uint8ClampedArray, width: number, height: num
  * the height range; contours are drawn from the whole grid's heights.
  */
 export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step'>, altitude = 45, exaggeration = 1, firstRow = 0, rowCount = grid.height - firstRow,
-  style: ReliefStyle = 'multidirectional', range?: [number, number]) {
+  style: ReliefStyle = 'multidirectional', range?: [number, number], contours?: Contours) {
   const { width, height, heights } = grid, rgba = new Uint8ClampedArray(width * rowCount * 4);
   const tones = reliefTones(grid, firstRow, rowCount, style, altitude, exaggeration);
   const coloured = range && (style === 'altitude' || style === 'swiss');
@@ -523,7 +534,8 @@ export function hillshade(grid: Pick<Dmr, 'width' | 'height' | 'heights' | 'step
     } else rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = tone;
     rgba[i * 4 + 3] = 255;
   }
-  if (style === 'contours') drawContours(rgba, width, height, firstRow, rowCount, grid.step, (row, column) => heights[(height - 1 - row) * width + column]);
+  const lines = contours ?? (style === 'contours' ? DEFAULT_CONTOURS : undefined);
+  if (lines) drawContours(rgba, width, height, firstRow, rowCount, grid.step, (row, column) => heights[(height - 1 - row) * width + column], lines);
   return rgba;
 }
 

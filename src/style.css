@@ -478,3 +478,8 @@ body.light-view .object-marker span{color:#7a3d00;text-shadow:0 0 3px #fff,0 0 3
 #vertical-ruler{width:6px;height:var(--length,100px);background:linear-gradient(#eaf3ff,#eaf3ff) right/1px 100% no-repeat,repeating-linear-gradient(to bottom,#eaf3ff 0 1px,transparent 1px calc((100% - 1px) / 4))}
 body.light-view #vertical-ruler{background:linear-gradient(#162531,#162531) right/1px 100% no-repeat,repeating-linear-gradient(to bottom,#162531 0 1px,transparent 1px calc((100% - 1px) / 4))}
 @media (orientation:landscape) and (max-height:520px){#vertical-scale{right:calc(64px + env(safe-area-inset-right,0px))}}
+/* Contour lines over the relief image (any style). */
+.contour-options{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;margin:12px 0 4px;padding:8px 10px;border:1px solid #46606f;border-radius:6px}
+.contour-options label{display:flex;align-items:center;gap:6px}
+.contour-options input[type=number]{width:5.5em;font-size:16px;padding:.2rem .35rem;border:1px solid #678599;border-radius:4px;background:#0f1c26;color:inherit}
+.contour-options input[type=number]:disabled{opacity:.5}

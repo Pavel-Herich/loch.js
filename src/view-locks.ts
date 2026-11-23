@@ -77,15 +77,14 @@ export class ViewLocks {
     const camera = this.getCamera(), { bearing, tilt } = viewOrientation(camera);
     if (this.device || (this.north && this.now() - this.compassAt > ViewLocks.SECOND_CLICK)) {
       const previous = this.north!;
-      if (!this.device) this.panByDrag(false);
+      this.panByDrag(false);
       lockHeading(this.controls, false); setTiltLocked(this.controls, false);
       orbitTo(camera, this.controls, previous.bearing, previous.tilt);
       setTiltLocked(this.controls, previous.locked);
       this.north = undefined; this.device = false;
       this.side = undefined; this.plan = false;
     } else if (this.north) {
-      // Following the phone: dragging works as before (its turning and tilting come from the phone).
-      this.panByDrag(false);
+      // Following the phone (its turning and tilting come from the phone): one finger still pans.
       this.side = undefined; this.plan = false;
       setTiltLocked(this.controls, false);
       this.device = true; this.phoneTilt = true;
@@ -122,7 +121,9 @@ export class ViewLocks {
     // Following the phone, the tilt toggle only switches the phone's tilt off (drag to tilt) and on.
     if (this.device) {
       this.phoneTilt = !this.phoneTilt;
+      // Without the phone's tilt one finger tilts the view again; with it, one finger pans.
       if (!this.phoneTilt) setTiltLocked(this.controls, false);
+      this.panByDrag(this.phoneTilt);
       this.onChange(this.state);
       return;
     }
@@ -151,8 +152,8 @@ export class ViewLocks {
   /** Forget both toggles, e.g. when a Plan, Profile or Fit view replaces the camera angles. */
   reset() {
     if (this.north) {
-      lockHeading(this.controls, false);
-      if (!this.device) { this.panByDrag(false); setTiltLocked(this.controls, false); setTiltLocked(this.controls, this.north.locked); }
+      lockHeading(this.controls, false); this.panByDrag(false);
+      if (!this.device) { setTiltLocked(this.controls, false); setTiltLocked(this.controls, this.north.locked); }
     }
     if (this.device) setTiltLocked(this.controls, false);
     this.north = undefined; this.device = false; this.side = undefined; this.plan = false;

@@ -291,6 +291,26 @@ describe('relief image styles', () => {
     expect(Array.from(plain.slice(0, 4))).toEqual([plain[0], plain[0], plain[0], 255]);
   });
 
+  it('draws contours at chosen major and minor intervals over any style', async () => {
+    const { hillshade } = await import('../src/dmr');
+    // A gentle slope rising 0.5 m a cell eastwards from 1000 m: lines where the height crosses the intervals.
+    const ramp = { width: 60, height: 10, step: 1, heights: Float32Array.from({ length: 600 }, (_, i) => 1000 + (i % 60) * .5) };
+    const row = (rgba: Uint8ClampedArray) => Array.from({ length: 60 }, (_, c) => rgba.slice((5 * 60 + c) * 4, (5 * 60 + c) * 4 + 3));
+    const brownAt = (rgba: Uint8ClampedArray) => row(rgba).map(([r, , b]) => r - b > 20);
+    const lines = (brown: boolean[]) => brown.filter((on, c) => on && !brown[c - 1]).length;
+    const plain = hillshade(ramp, 45, 1, 0, 10, 'multidirectional');
+    expect(lines(brownAt(plain))).toBe(0);
+    // Every 5 m (1005 … 1025 m), the 1020 m line bold.
+    const both = hillshade(ramp, 45, 1, 0, 10, 'multidirectional', undefined, { major: 20, minor: 5 });
+    expect(lines(brownAt(both))).toBeGreaterThanOrEqual(5);
+    const darkest = (around: number) => Math.min(...[-1, 0, 1].map(d => both[(5 * 60 + around + d) * 4]));
+    expect(darkest(40)).toBeLessThan(darkest(30) - 20);
+    // Major lines only, over a coloured style.
+    const major = hillshade(ramp, 45, 1, 0, 10, 'slope', undefined, { major: 20, minor: 0 });
+    expect(lines(brownAt(major))).toBeLessThanOrEqual(2);
+    expect(brownAt(major)[40]).toBe(true);
+  });
+
   it('crops a preview grid to the chosen corners', async () => {
     const { cropGrid } = await import('../src/dmr');
     const grid = { width: 4, height: 3, step: 2, origin: [100, 200] as [number, number], heights: Float32Array.from({ length: 12 }, (_, i) => i) };
