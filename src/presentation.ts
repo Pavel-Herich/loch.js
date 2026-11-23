@@ -1,15 +1,22 @@
 export type LxaCamera = { facing: number; tilt: number; center: [number, number, number]; distance: number; focus: number; perspective: boolean };
-export type LxaView = LxaCamera & { name: string; duration: number; rotations: number; rotationDuration: number; walker: boolean; transition: boolean; scene: Record<string, string> };
+export type LxaView = LxaCamera & { name: string; duration: number; rotations: number; rotationDuration: number; walker: boolean; transition: boolean; scene: Record<string, string>;
+  /** Seconds the picture stands still on arrival at this view (a `hold` attribute, which Loch leaves alone). */
+  hold?: number };
 /** A symbol for an animation label (none: the text alone). */
 export type LabelIcon = 'none' | 'peak' | 'entrance' | 'spring' | 'sinkhole' | 'point';
 export const LABEL_ICONS: LabelIcon[] = ['peak', 'entrance', 'spring', 'sinkhole', 'point', 'none'];
 /**
  * A label pinned to a place of the model (S-JTSK, as the views' cameras), shown from the camera's
- * arrival at view `from` until it reaches the view after `to` (indices), fading in and out.
+ * arrival at view `from` until it reaches the view after `to` (indices), fading in and out; or
+ * from `delay` seconds after that arrival, for `length` seconds (e.g. during a hold).
  */
 export type AnimationLabel = { text: string; icon: LabelIcon; position: [number, number, number]; from: number; to: number;
   /** Hidden while terrain stands between it and the camera (true unless stored as false). */
-  hide?: boolean };
+  hide?: boolean;
+  /** Seconds after the arrival at `from` it appears (0: on arrival). */
+  delay?: number;
+  /** Seconds it stays (none: until the camera reaches the view after `to`). */
+  length?: number };
 export const DEFAULT_LXA_CAMERA: LxaCamera = { facing: 0, tilt: 0, center: [0, 0, 0], distance: 10, focus: 50, perspective: true };
 const cameraFields = ['CameraFacing', 'CameraTilt', 'CameraCenterX', 'CameraCenterY', 'CameraCenterZ', 'CameraDistance', 'CameraFocus', 'CameraPerspective'];
 const children = (element: Element) => Array.from(element.childNodes).filter((node): node is Element => node.nodeType === 1);
@@ -48,7 +55,9 @@ export class Presentation {
       const icon = node.getAttribute('icon') as LabelIcon;
       return { text: node.getAttribute('text') ?? '', icon: LABEL_ICONS.includes(icon) ? icon : 'peak',
         position: (['x', 'y', 'z'] as const).map(axis => Number(node.getAttribute(axis)) || 0) as [number, number, number],
-        from: Math.min(index('from'), index('to')), to: Math.max(index('from'), index('to')), hide: node.getAttribute('hide') !== 'false' };
+        from: Math.min(index('from'), index('to')), to: Math.max(index('from'), index('to')), hide: node.getAttribute('hide') !== 'false',
+        ...(Number(node.getAttribute('delay')) > 0 ? { delay: Number(node.getAttribute('delay')) } : {}),
+        ...(Number(node.getAttribute('length')) > 0 ? { length: Number(node.getAttribute('length')) } : {}) };
     });
   }
   setLabels(labels: AnimationLabel[]) {
@@ -57,6 +66,8 @@ export class Presentation {
       const node = this.document.createElement('LochJsLabel');
       for (const [name, value] of Object.entries({ text: label.text, icon: label.icon, x: label.position[0].toFixed(3), y: label.position[1].toFixed(3),
         z: label.position[2].toFixed(3), from: label.from, to: label.to, hide: label.hide !== false })) node.setAttribute(name, String(value));
+      if (label.delay && label.delay > 0) node.setAttribute('delay', String(label.delay));
+      if (label.length && label.length > 0) node.setAttribute('length', String(label.length));
       this.root.appendChild(node);
     }
   }
@@ -85,7 +96,7 @@ export class Presentation {
       return { ...camera, name: element.getAttribute('name') || String(index).padStart(4, '0'),
         duration: positive(element.getAttribute('duration'), 3), rotations: integer(element.getAttribute('rotations')),
         rotationDuration: positive(element.getAttribute('rotation-duration'), 15), walker: truth(element.getAttribute('walker-mode')),
-        transition: truth(element.getAttribute('transition-view')), scene: Object.fromEntries(Array.from(element.attributes).filter(attr => attr.name.startsWith('scene-')).map(attr => [attr.name, attr.value])) };
+        transition: truth(element.getAttribute('transition-view')), hold: Math.max(0, Number(element.getAttribute('hold')) || 0), scene: Object.fromEntries(Array.from(element.attributes).filter(attr => attr.name.startsWith('scene-')).map(attr => [attr.name, attr.value])) };
     });
   }
   add(camera: LxaCamera, walker: boolean, scene: Record<string, string>, after = this.count - 1) {
@@ -113,10 +124,11 @@ export class Presentation {
       node.setAttribute(name, value);
     }
   }
-  edit(index: number, view: Pick<LxaView, 'name' | 'duration' | 'rotations' | 'rotationDuration' | 'walker' | 'transition'>) {
+  edit(index: number, view: Pick<LxaView, 'name' | 'duration' | 'rotations' | 'rotationDuration' | 'walker' | 'transition' | 'hold'>) {
     const node = this.elements[index]; if (!node) return;
     for (const [name, value] of Object.entries({ name: view.name, duration: view.duration, rotations: view.rotations,
       'rotation-duration': view.rotationDuration, 'walker-mode': view.walker, 'transition-view': view.transition })) node.setAttribute(name, String(value));
+    if (view.hold && view.hold > 0) node.setAttribute('hold', String(view.hold)); else node.removeAttribute('hold');
   }
   remove(index: number) {
     const node = this.elements[index];

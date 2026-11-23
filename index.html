@@ -202,7 +202,7 @@
   <div class="image-save-actions"><button id="image-save-cancel" type="button">Cancel</button><button id="image-save-confirm" type="button">Save…</button></div>
 </form></dialog><dialog id="presentation-panel" aria-labelledby="presentation-title"><header><h2 id="presentation-title">Animation</h2><span class="presentation-window-buttons"><button id="presentation-detach" type="button" aria-label="Move into a window of its own" title="Move into a window of its own" hidden>⧉</button><button id="presentation-close" type="button" aria-label="Close animation editor">×</button></span></header>
   <p id="presentation-summary"></p><select id="presentation-views" size="8" aria-label="Animation views"></select>
-  <div class="presentation-actions"><button id="presentation-play" type="button">Play</button><button id="presentation-mark" type="button">Mark</button><button id="presentation-update" type="button">Update</button><button id="presentation-edit" type="button">Edit…</button><button id="presentation-up" type="button">Move up</button><button id="presentation-down" type="button">Move down</button><button id="presentation-delete" type="button">Delete</button></div>
+  <div class="presentation-actions"><button id="presentation-play" type="button">Play</button><button id="presentation-mark" type="button" title="Add the current view">Mark</button><button id="presentation-hold-add" type="button" title="Add the current view as a hold: the picture stands still there for a while (labels may come and go meanwhile)">Hold…</button><button id="presentation-update" type="button">Update</button><button id="presentation-edit" type="button">Edit…</button><button id="presentation-up" type="button">Move up</button><button id="presentation-down" type="button">Move down</button><button id="presentation-delete" type="button">Delete</button></div>
   <h3 class="presentation-subheading">Labels</h3>
   <select id="presentation-labels" size="4" aria-label="Animation labels" title="Pinned to the model from the arrival at one view until the camera reaches the view after another"></select>
   <div class="presentation-actions"><button id="label-add" type="button" disabled>Add label…</button><button id="label-edit" type="button" disabled>Edit…</button><button id="label-delete" type="button" disabled>Delete</button></div>
@@ -216,6 +216,8 @@
   <label>Icon <select id="label-icon"><option value="peak">Peak</option><option value="entrance">Cave entrance</option><option value="spring">Spring</option><option value="sinkhole">Sinkhole</option><option value="point">Point</option><option value="none">Text only</option></select></label>
   <label>Shown from view <select id="label-from"></select></label>
   <label>through view <select id="label-to" title="Shown until the camera reaches the view after this one"></select></label>
+  <label title="Seconds after the camera arrives at the first view, e.g. during a hold">Appears after (s) <input id="label-delay" type="number" min="0" step="any" placeholder="0: on arrival"/></label>
+  <label title="Empty: until the camera reaches the view after the last one">Shown for (s) <input id="label-length" type="number" min="0.1" step="any" placeholder="until the next view"/></label>
   <label>X (east, S-JTSK) <input id="label-x" type="number" step="any" required/></label>
   <label>Y (north, S-JTSK) <input id="label-y" type="number" step="any" required/></label>
   <label>Z (m) <input id="label-z" type="number" step="any" required/></label>
@@ -224,6 +226,7 @@
 </form></dialog><dialog id="presentation-edit-dialog" aria-labelledby="presentation-edit-title"><h2 id="presentation-edit-title">Edit animation view</h2><form>
   <label>Name <input id="presentation-name" type="text"/></label>
   <label>Transition duration (s) <input id="presentation-duration" type="number" min="0.001" step="any" required/></label>
+  <label title="The picture stands still on arrival at this view for this long; labels can come and go meanwhile">Hold here (s) <input id="presentation-hold" type="number" min="0" step="any" placeholder="0: no hold"/></label>
   <label>Rotations <input id="presentation-rotations" type="number" step="1" required/></label>
   <label>Rotation duration (s) <input id="presentation-rotation-duration" type="number" min="0.001" step="any" required/></label>
   <label><input id="presentation-walker" type="checkbox"/> Walker mode</label><label><input id="presentation-transition" type="checkbox"/> Transition view (pass through without stopping)</label>

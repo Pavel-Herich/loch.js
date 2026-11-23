@@ -3,7 +3,8 @@ import type { ViewCamera } from './camera';
 import type { LxaCamera, LxaView } from './presentation';
 /** sceneIndex: the view whose settings apply; while travelling to nextIndex, blend (0–1) of the way there. */
 export type PresentationPose = LxaCamera & { walker: boolean; sceneIndex: number; nextIndex?: number; blend?: number };
-type Segment = { start: number; duration: number; from: number; to: number; rotation: boolean };
+/** A segment turns the camera round a view (rotation), stands still at it (hold) or travels to the next. */
+type Segment = { start: number; duration: number; from: number; to: number; rotation: boolean; hold?: boolean };
 type Velocity = { facing: number; tilt: number; distance: number; focus: number; center: number[]; position: Vector3 };
 const radians = MathUtils.degToRad;
 const lerp = MathUtils.lerp;
@@ -26,16 +27,21 @@ export class PresentationTimeline {
   /** A single view turns once in `singleTurn` seconds (15 at speed 1). */
   constructor(readonly views: LxaView[], readonly loop: boolean, readonly sceneChanges = false, readonly singleTurn = 15) {
     this.viewTimes = views.map(() => 0); let time = 0;
-    if (views.length === 1) this.segments.push({ start: 0, duration: singleTurn, from: 0, to: 0, rotation: true });
+    // The picture stands still on arrival at a view with a hold (labels may come and go meanwhile).
+    const holdAt = (index: number) => {
+      const hold = views[index].hold ?? 0;
+      if (hold > 0) { this.segments.push({ start: time, duration: hold, from: index, to: index, rotation: false, hold: true }); time += hold; }
+    };
+    if (views.length) holdAt(0);
+    if (views.length === 1) { this.segments.push({ start: time, duration: singleTurn, from: 0, to: 0, rotation: true }); time += singleTurn; }
     else for (let from = 0; from < (loop ? views.length : views.length - 1); from++) {
       const to = (from + 1) % views.length, view = views[from];
-      this.viewTimes[from] = time;
       const rotation = Math.abs(view.rotations) * view.rotationDuration;
       if (rotation) { this.segments.push({ start: time, duration: rotation, from, to: from, rotation: true }); time += rotation; }
       this.segments.push({ start: time, duration: views[to].duration, from, to, rotation: false }); time += views[to].duration;
-      if (to !== 0) this.viewTimes[to] = time;
+      if (to !== 0) { this.viewTimes[to] = time; holdAt(to); }
     }
-    this.duration = views.length === 1 ? singleTurn : time;
+    this.duration = time;
     this.velocities = views.map((_, index) => ({ facing: this.velocity(index, view => view.facing, true),
       tilt: this.velocity(index, view => view.tilt, false, true), distance: this.velocity(index, view => view.distance, false, true),
       focus: this.velocity(index, view => view.focus, false, true), center: [0, 1, 2].map(axis => this.velocity(index, view => view.center[axis])), position: new Vector3() }));
@@ -59,7 +65,7 @@ export class PresentationTimeline {
   private velocity(index: number, value: (view: LxaView) => number, angle = false, bounded = false) {
     const view = this.views[index];
     // Explicit orbit phases ease to/from rest, so transitions must meet them at rest.
-    if (!view.transition || view.rotations || this.views.length < 2) return 0;
+    if (!view.transition || view.rotations || (view.hold ?? 0) > 0 || this.views.length < 2) return 0;
     const previous = index > 0 || this.loop ? this.views[(index + this.views.length - 1) % this.views.length] : undefined;
     const next = index < this.views.length - 1 || this.loop ? this.views[(index + 1) % this.views.length] : undefined;
     const delta = (a: LxaView, b: LxaView) => angle ? angleDelta(value(a), value(b)) : value(b) - value(a);
@@ -74,7 +80,7 @@ export class PresentationTimeline {
   }
   frames(fps: number) {
     if (!Number.isInteger(fps) || fps < 1 || fps > 120) throw new Error('Invalid animation FPS');
-    if (this.views.length === 1) return { count: Math.max(1, Math.round(this.singleTurn * fps)), time: (frame: number) => frame / fps };
+    if (this.views.length === 1) return { count: Math.max(1, Math.round(this.duration * fps)), time: (frame: number) => frame / fps };
     let count = 1;
     const parts = this.segments.map((segment, index) => {
       const steps = Math.max(segment.rotation ? 0 : 1, Math.round(segment.duration * fps));
@@ -93,12 +99,14 @@ export class PresentationTimeline {
    * during the half second before) until it reaches the view after `to` (fading out during the last
    * half second), so also on the way on from `to`; to the end after the last view.
    */
-  labelAlpha(label: { from: number; to: number }, seconds: number, fade = .5) {
+  labelAlpha(label: { from: number; to: number; delay?: number; length?: number }, seconds: number, fade = .5) {
     if (!this.views.length) return 0;
     const first = Math.max(0, Math.min(label.from, label.to)), last = Math.min(this.views.length - 1, Math.max(label.from, label.to));
-    const start = (this.viewTimes[first] ?? 0) - fade;
-    const away = this.segments.find(segment => !segment.rotation && segment.from === last);
-    const end = away ? away.start + away.duration : this.duration + fade;
+    // From `delay` seconds after the arrival, for `length` seconds; else until the view after `to`.
+    const delay = Math.max(0, label.delay ?? 0), appear = (this.viewTimes[first] ?? 0) + delay;
+    const start = appear - fade;
+    const away = this.segments.find(segment => !segment.rotation && !segment.hold && segment.from === last);
+    const end = label.length && label.length > 0 ? appear + label.length : away ? away.start + away.duration : this.duration + fade;
     const alpha = (time: number) => Math.max(0, Math.min(1, (time - start) / fade, (end - time) / fade));
     return this.loop ? Math.max(alpha(seconds), alpha(seconds + this.duration), alpha(seconds - this.duration)) : alpha(seconds);
   }
@@ -116,6 +124,7 @@ export class PresentationTimeline {
   private interpolate(segment: Segment, progress: number): PresentationPose {
     const from = this.views[segment.from], to = this.views[segment.to];
     let t = Math.max(0, Math.min(1, progress));
+    if (segment.hold) return { ...from, center: [...from.center], walker: from.walker, sceneIndex: segment.from };
     if (segment.rotation) {
       const angle = this.views.length === 1 ? t * 360 : transitionProgress(t, false, false) * 360 * from.rotations;
       return { ...from, center: [...from.center], facing: from.facing + angle, walker: from.walker, sceneIndex: segment.from };

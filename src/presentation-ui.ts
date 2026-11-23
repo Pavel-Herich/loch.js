@@ -26,7 +26,7 @@ export function initializePresentation(host: Host) {
   const play = globalThis.document.querySelector<HTMLButtonElement>('#presentation-play')!;
   const input = globalThis.document.querySelector<HTMLInputElement>('#presentation-file')!;
   const edit = globalThis.document.querySelector<HTMLDialogElement>('#presentation-edit-dialog')!;
-  const fields = Object.fromEntries(['name', 'duration', 'rotations', 'rotation-duration', 'walker', 'transition'].map(name =>
+  const fields = Object.fromEntries(['name', 'duration', 'hold', 'rotations', 'rotation-duration', 'walker', 'transition'].map(name =>
     [name, globalThis.document.querySelector<HTMLInputElement>(`#presentation-${name}`)!])) as Record<string, HTMLInputElement>;
   const player = new PresentationPlayer(pose => {
     if (document.sceneChanges && appliedScene !== pose.sceneIndex) { applySceneSettings(timeline.views[pose.sceneIndex].scene); appliedScene = pose.sceneIndex; }
@@ -43,7 +43,7 @@ export function initializePresentation(host: Host) {
     panelToggle.title = panel.open ? 'Hide animation' : 'Show animation';
     panelToggle.setAttribute('aria-label', panelToggle.title);
     play.disabled = checkbox.disabled = !ready || !timeline.views.length;
-    for (const id of ['mark', 'update']) panel.querySelector<HTMLButtonElement>(`#presentation-${id}`)!.disabled = !ready || id === 'update' && !selected;
+    for (const id of ['mark', 'hold-add', 'update']) { const button = panel.querySelector<HTMLButtonElement>(`#presentation-${id}`); if (button) button.disabled = !ready || id === 'update' && !selected; }
     for (const id of ['edit', 'delete', 'up', 'down']) panel.querySelector<HTMLButtonElement>(`#presentation-${id}`)!.disabled = !selected
       || id === 'up' && list.selectedIndex === 0 || id === 'down' && list.selectedIndex === timeline.views.length - 1;
     panel.querySelector<HTMLButtonElement>('#presentation-save')!.disabled = !timeline.views.length;
@@ -67,7 +67,8 @@ export function initializePresentation(host: Host) {
     const labels = document.labels();
     labelList.replaceChildren(...labels.map((label, index) => {
       const option = globalThis.document.createElement('option'); option.value = String(index);
-      option.textContent = `${label.text || '(no text)'} · ${label.from === label.to ? viewName(label.from) : `${viewName(label.from)} – ${viewName(label.to)}`}`;
+      const timing = `${label.delay ? ` +${label.delay} s` : ''}${label.length ? ` for ${label.length} s` : ''}`;
+      option.textContent = `${label.text || '(icon only)'} · ${label.from === label.to ? viewName(label.from) : `${viewName(label.from)} – ${viewName(label.to)}`}${timing}`;
       return option;
     }));
     labelList.selectedIndex = Math.max(-1, Math.min(selected, labels.length - 1));
@@ -80,6 +81,7 @@ export function initializePresentation(host: Host) {
     labelField('from').value = String(label.from); labelField('to').value = String(label.to);
     (['x', 'y', 'z'] as const).forEach((axis, i) => { labelField(axis).value = label.position[i].toFixed(2); });
     labelField('hide').checked = label.hide !== false;
+    labelField('delay').value = label.delay ? String(label.delay) : ''; labelField('length').value = label.length ? String(label.length) : '';
     labelDialog.showModal();
   }
   labelDialog?.querySelector('form')!.addEventListener('submit', event => {
@@ -88,6 +90,10 @@ export function initializePresentation(host: Host) {
     const label: AnimationLabel = { text: labelField('text').value.trim(), icon: LABEL_ICONS.includes(icon) ? icon : 'peak',
       position: (['x', 'y', 'z'] as const).map(axis => labelField(axis).valueAsNumber) as [number, number, number], from: Math.min(from, to), to: Math.max(from, to),
       hide: labelField('hide').checked };
+    const delay = labelField('delay').valueAsNumber, length = labelField('length').valueAsNumber;
+    if (delay > 0) label.delay = delay;
+    if (length > 0) label.length = length;
+    if (!label.text && label.icon === 'none') { labelField('text').setCustomValidity('A text, or an icon'); labelField('text').reportValidity(); labelField('text').setCustomValidity(''); return; }
     const labels = document.labels();
     if (labelEditing < 0) labels.push(label); else labels[labelEditing] = label;
     document.setLabels(labels); dirty = true; title.textContent = 'Animation *';
@@ -127,12 +133,13 @@ export function initializePresentation(host: Host) {
 
   function rebuild(selected = list.selectedIndex) {
     const speed = host.speed?.() ?? 1;
-    const views = document.views().map(view => speed === 1 ? view : { ...view, duration: view.duration / speed, rotationDuration: view.rotationDuration / speed });
+    const views = document.views().map(view => speed === 1 ? view : { ...view, duration: view.duration / speed, rotationDuration: view.rotationDuration / speed, hold: (view.hold ?? 0) / speed });
     timeline = new PresentationTimeline(views, document.loop, document.sceneChanges, 15 / speed); appliedScene = -1;
     list.replaceChildren();
     timeline.views.forEach((view, index) => {
       const option = globalThis.document.createElement('option'); option.value = String(index);
-      const time = timeline.viewTimes[index]; option.textContent = `${view.name} — ${Math.floor(time / 60)}:${(time % 60).toFixed(1).padStart(4, '0')}`;
+      const time = timeline.viewTimes[index];
+      option.textContent = `${view.name} — ${Math.floor(time / 60)}:${(time % 60).toFixed(1).padStart(4, '0')}${view.hold ? ` · hold ${+view.hold.toFixed(2)} s` : ''}`;
       list.append(option);
     });
     list.selectedIndex = Math.max(-1, Math.min(selected, timeline.views.length - 1));
@@ -206,14 +213,27 @@ export function initializePresentation(host: Host) {
   for (const control of [loop, sceneChanges]) control.addEventListener('change', () => mutate(() => { document.loop = loop.checked; document.sceneChanges = sceneChanges.checked; }));
   caption?.addEventListener('input', () => { document.caption = caption.value; dirty = true; title.textContent = 'Animation *'; });
   caption?.addEventListener('keydown', event => event.stopPropagation());
-  globalThis.document.querySelector('#presentation-edit')!.addEventListener('click', () => {
-    player.stop(); const view = timeline.views[list.selectedIndex]; if (!view) return;
+  globalThis.document.querySelector('#presentation-edit')!.addEventListener('click', () => openEdit());
+  function openEdit(focusHold = false) {
+    player.stop(); const view = document.views()[list.selectedIndex]; if (!view) return;
+    fields.hold.value = view.hold ? String(view.hold) : '';
     fields.name.value = view.name; fields.duration.value = String(view.duration); fields.rotations.value = String(view.rotations);
     fields['rotation-duration'].value = String(view.rotationDuration); fields.walker.checked = view.walker; fields.transition.checked = view.transition; edit.showModal();
+    if (focusHold) { fields.hold.focus(); fields.hold.select(); }
+  }
+  // A hold: the current view, standing still for 3 s (set in the dialog that opens).
+  globalThis.document.querySelector('#presentation-hold-add')?.addEventListener('click', () => {
+    mutate(() => {
+      const index = document.add(host.capture(), host.walker(), captureSceneSettings(), list.selectedIndex < 0 ? document.count - 1 : list.selectedIndex);
+      const view = document.views()[index];
+      document.edit(index, { ...view, name: `Hold ${String(index).padStart(4, '0')}`, transition: false, hold: 3 });
+      return index;
+    });
+    openEdit(true);
   });
   edit.querySelector('form')!.addEventListener('submit', event => {
     event.preventDefault(); if (!(event.currentTarget as HTMLFormElement).reportValidity()) return;
-    mutate(() => document.edit(list.selectedIndex, { name: fields.name.value, duration: fields.duration.valueAsNumber,
+    mutate(() => document.edit(list.selectedIndex, { name: fields.name.value, duration: fields.duration.valueAsNumber, hold: Math.max(0, fields.hold.valueAsNumber || 0),
       rotations: fields.rotations.valueAsNumber, rotationDuration: fields['rotation-duration'].valueAsNumber, walker: fields.walker.checked, transition: fields.transition.checked }));
     edit.close(); select();
   });

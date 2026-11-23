@@ -62,10 +62,9 @@ export function initializeIndicators(canvas: HTMLCanvasElement, getCamera: () =>
     if (!visible.checked) return;
     const camera = getCamera(), orientation = viewOrientation(camera);
     const size = viewScale(camera, getTarget(), height);
-    scale.hidden = !size;
-    // In the side and plan views of the tilt indicator, orthographic: the same scale upright on the right.
-    const tiltMode0 = tilt.dataset.mode ?? 'free';
-    vertical.hidden = !size || !(camera instanceof OrthographicCamera) || (tiltMode0 !== 'side' && tiltMode0 !== 'plan');
+    // In the tilt indicator's side view, orthographic: the scale stands upright on the right instead of at the top.
+    vertical.hidden = !size || !(camera instanceof OrthographicCamera) || tilt.dataset.mode !== 'side';
+    scale.hidden = !size || !vertical.hidden;
     const bearing = Math.round(orientation.bearing) % 360, angle = Math.round(orientation.tilt);
     const state = `${vertical.hidden}:${camera.type}:${orientation.bearing.toFixed(2)}:${orientation.tilt.toFixed(2)}:${size?.distance}:${size?.pixels.toFixed(2)}`;
     if (state === previous) return;

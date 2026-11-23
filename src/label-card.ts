@@ -77,7 +77,8 @@ export function drawLabelCard(context: CanvasRenderingContext2D, name: string, i
   const text = fitted(context, name.replace(/\s+/g, ' ').trim().slice(0, 200));
   const textWidth = context.measureText(text).width;
   const badge = icon !== 'none';
-  const cardWidth = Math.ceil((badge ? PAD + BADGE + GAP : 12) + textWidth + 12);
+  // An icon without text: the badge alone in a round card.
+  const cardWidth = text ? Math.ceil((badge ? PAD + BADGE + GAP : 12) + textWidth + 12) : PAD * 2 + BADGE;
   // Above the place; below it where the top of the view leaves no room. Rising into place as it fades in.
   const rise = (1 - Math.max(0, Math.min(1, alpha))) * 8;
   let top = y - ANCHOR - LEADER - HEIGHT + rise;
