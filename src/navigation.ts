@@ -27,3 +27,23 @@ export function navigate(from: { east: number; north: number; height: number; tr
 export function formatDistance(metres: number) {
   return metres >= 1000 ? `${(metres / 1000).toFixed(metres >= 10000 ? 0 : 1)} km` : `${Math.round(metres)} m`;
 }
+
+/**
+ * Distance over the terrain along the straight line (in plan) from one place to another: the
+ * terrain profile sampled about every `step` metres, each piece counted with its rise or fall.
+ * Where the terrain does not reach, the pieces run straight between the ends' heights; with no
+ * terrain at all this is the slope distance.
+ */
+export function surfaceDistance(from: { east: number; north: number; height: number }, to: { east: number; north: number; z: number },
+  heightAt: (east: number, north: number) => number | undefined, step = 2) {
+  const dx = to.east - from.east, dy = to.north - from.north, horizontal = Math.hypot(dx, dy);
+  const pieces = Math.max(1, Math.min(4000, Math.ceil(horizontal / step)));
+  let total = 0, previous = from.height;
+  for (let i = 1; i <= pieces; i++) {
+    const t = i / pieces;
+    const height = i === pieces ? to.z : heightAt(from.east + dx * t, from.north + dy * t) ?? from.height + (to.z - from.height) * t;
+    total += Math.hypot(horizontal / pieces, height - previous);
+    previous = height;
+  }
+  return total;
+}

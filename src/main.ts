@@ -43,7 +43,7 @@ import { forgetStored, forgetStoredUnderlays, loadStoredTile, loadStoredUnderlay
 import { createZip } from './zip';
 import { inSection, makeSection, SECTION_WIDTHS, withWidth, type Section } from './section';
 import { sectionCsv, sectionSvg, type ProfileStation } from './section-export';
-import { formatDistance, navigate } from './navigation';
+import { formatDistance, navigate, surfaceDistance } from './navigation';
 import { forgetLastModel, loadLastModel, saveLastModel } from './model-store';
 import { viewOrientation } from './indicators';
 import { resetSymbolSpace, symbolHidden } from './declutter';
@@ -395,10 +395,63 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   }
   return best;
 }
+/*
+ * A long press (touch) or a right click on the model gives the point there, on the terrain first:
+ * its altitude and position and, with a GPS fix, how far it is from you (over the terrain and
+ * horizontally), how much higher or lower, and which way; Navigate leads there.
+ */
+function showPointAt(clientX: number, clientY: number) {
+  if (!hasModel || walker.enabled || pivotPicker.enabled || objectPicker.enabled || measuring || sectionPicks) return false;
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new THREE.Vector2((clientX - rect.left) / rect.width * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+  const local = (surfaceGroup.visible ? pickModelPoint(camera, [surfaceGroup], ndc, rect.height, controls.target) : undefined)
+    ?? pickModelPoint(camera, [walls, surfaceGroup, lines], ndc, rect.height, controls.target);
+  if (!local) return false;
+  const east = local.x + worldOrigin.x, north = local.y + worldOrigin.y, z = local.z + worldOrigin.z;
+  const georeferenced = looksLikeSJTSK(worldOrigin.x, worldOrigin.y);
+  const target: MeasurePoint = { name: 'Point', east, north, z };
+  const rows: [string, string][] = [[georeferenced ? 'Altitude' : 'Z', `${z.toFixed(1)} m`], ['x  y', `${east.toFixed(1)}  ${north.toFixed(1)}`]];
+  const terrain = surfaceScene.heightAt(east, north);
+  if (terrain !== undefined && Math.abs(terrain - z) > .5) rows.push(['Terrain above', `${terrain.toFixed(1)} m`]);
+  const fix = georeferenced && deviceLocation.active && deviceLocation.state.kind === 'fix' ? deviceLocation.state.fix : undefined;
+  if (fix) {
+    const way = navigate(fix, target, deviceHeading.heading), height = Math.round(way.dz);
+    rows.push(['From you', `${formatDistance(surfaceDistance(fix, target, (e, n) => surfaceScene.heightAt(e, n)))} over the terrain`],
+      ['Horizontal', formatDistance(way.horizontal)],
+      ['Height', height === 0 ? 'same as you' : `${height > 0 ? '↑' : '↓'} ${Math.abs(height)} m`],
+      ['Direction', `${Math.round(way.trueBearing) % 360}°`]);
+  }
+  select(target);
+  showInfo(fix ? 'Point · from your position' : 'Point', rows, navigateActions(target));
+  return true;
+}
 let clickStart: { x: number; y: number } | undefined;
-canvas.addEventListener('pointerdown', event => { clickStart = { x: event.clientX, y: event.clientY }; });
+let longPress: { timer: number; x: number; y: number } | undefined, longPressed = false, touches = 0, lastPointer = 'mouse';
+const LONG_PRESS_MS = 550;
+function cancelLongPress() { if (longPress) { clearTimeout(longPress.timer); longPress = undefined; } }
+canvas.addEventListener('pointerdown', event => {
+  clickStart = { x: event.clientX, y: event.clientY }; lastPointer = event.pointerType; longPressed = false;
+  if (event.pointerType !== 'touch') return;
+  if (event.isPrimary) touches = 0;
+  touches++; cancelLongPress();
+  if (touches > 1) return;
+  const { clientX, clientY } = event;
+  longPress = { x: clientX, y: clientY, timer: window.setTimeout(() => {
+    longPress = undefined;
+    if (touches === 1 && showPointAt(clientX, clientY)) { longPressed = true; navigator.vibrate?.(15); }
+  }, LONG_PRESS_MS) };
+});
+canvas.addEventListener('pointermove', event => { if (longPress && Math.hypot(event.clientX - longPress.x, event.clientY - longPress.y) > 10) cancelLongPress(); });
+for (const type of ['pointerup', 'pointercancel'] as const) canvas.addEventListener(type, event => { if (event.pointerType === 'touch') { touches = Math.max(0, touches - 1); cancelLongPress(); } });
+canvas.addEventListener('contextmenu', event => {
+  event.preventDefault();
+  // Touch has its own long press; a right drag that panned is no click.
+  if (lastPointer === 'touch' || (clickStart && Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) > 6)) return;
+  showPointAt(event.clientX, event.clientY);
+});
 canvas.addEventListener('click', event => {
-  // A drag that rotated or panned is not a click.
+  // A drag that rotated or panned is not a click, nor is the end of a long press.
+  if (longPressed) { longPressed = false; return; }
   if (!clickStart || Math.hypot(event.clientX - clickStart.x, event.clientY - clickStart.y) > 6) return;
   if (walker.enabled || pivotPicker.enabled || objectPicker.enabled) return;
   if (sectionPicks) { addSectionPick(event.clientX, event.clientY); return; }
@@ -544,7 +597,9 @@ function updateNavigation() {
   const angle = way.turn ?? way.gridBearing - viewOrientation(camera).bearing;
   navArrow.style.transform = `rotate(${angle}deg)`; navArrow.style.opacity = '1';
   const height = Math.round(way.dz);
-  navText.replaceChildren(title, `${formatDistance(way.horizontal)} · ${height === 0 ? 'same height' : `${height > 0 ? '↑' : '↓'} ${Math.abs(height)} m`} · ${Math.round(way.trueBearing) % 360}°${way.turn === undefined ? ' (no compass: arrow on the map)' : ''}`);
+  // The way over the terrain (its rises and falls along the line), not the horizontal distance.
+  const over = surfaceDistance(fix, navTarget, (east, north) => surfaceScene.heightAt(east, north));
+  navText.replaceChildren(title, `${formatDistance(over)} · ${height === 0 ? 'same height' : `${height > 0 ? '↑' : '↓'} ${Math.abs(height)} m`} · ${Math.round(way.trueBearing) % 360}°${way.turn === undefined ? ' (no compass: arrow on the map)' : ''}`);
 }
 
 function download(name: string, text: string, type: string) {
