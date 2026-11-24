@@ -483,5 +483,10 @@ body.light-view #vertical-ruler{background:linear-gradient(#162531,#162531) righ
 .contour-options label{display:flex;align-items:center;gap:6px}
 .contour-options input[type=number]{width:5.5em;font-size:16px;padding:.2rem .35rem;border:1px solid #678599;border-radius:4px;background:#0f1c26;color:inherit}
 .contour-options input[type=number]:disabled{opacity:.5}
-/* A long press on the model gives the point there (no text selection or callout). */
-#view{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+/*
+ * A long press on the model gives the point there: no text selection, magnifier or callout of the
+ * system anywhere in the app (iPhone selects the nearest text otherwise), except in fields and the
+ * values of the info card.
+ */
+html,body,#view{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+input,textarea,select,[contenteditable],#info-card td,.selectable{-webkit-touch-callout:default;-webkit-user-select:text;user-select:text}

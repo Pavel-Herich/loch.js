@@ -443,6 +443,13 @@ canvas.addEventListener('pointerdown', event => {
 });
 canvas.addEventListener('pointermove', event => { if (longPress && Math.hypot(event.clientX - longPress.x, event.clientY - longPress.y) > 10) cancelLongPress(); });
 for (const type of ['pointerup', 'pointercancel'] as const) canvas.addEventListener(type, event => { if (event.pointerType === 'touch') { touches = Math.max(0, touches - 1); cancelLongPress(); } });
+// iPhone: no text selection started by a long press (CSS alone does not always stop it), and the
+// end of a long press is no tap.
+document.addEventListener('selectstart', event => {
+  const target = event.target instanceof Element ? event.target : (event.target as Node | null)?.parentElement;
+  if (!target?.closest('input, textarea, select, [contenteditable], #info-card td, .selectable')) event.preventDefault();
+});
+canvas.addEventListener('touchend', event => { if (longPressed && event.cancelable) event.preventDefault(); }, { passive: false });
 canvas.addEventListener('contextmenu', event => {
   event.preventDefault();
   // Touch has its own long press; a right drag that panned is no click.
