@@ -490,3 +490,7 @@ body.light-view #vertical-ruler{background:linear-gradient(#162531,#162531) righ
  */
 html,body,#view{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
 input,textarea,select,[contenteditable],#info-card td,.selectable{-webkit-touch-callout:default;-webkit-user-select:text;user-select:text}
+/* Field objects in the cave: a cyan diamond (on the surface orange). */
+.object-marker.cave::before{border-color:#3fd4ff}
+.object-marker.cave span{color:#bdefff}
+body.light-view .object-marker.cave span{color:#005a78}

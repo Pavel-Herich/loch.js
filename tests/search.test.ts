@@ -21,6 +21,13 @@ describe('search', () => {
       ['station', '12', 'jelenia_priepast.ohniste'], ['station', '12', 'krasna_dita.ohniste']]);
   });
 
+  it('lists stations of a number nearest the view centre first', () => {
+    // krasna_dita's 12 at 1320 m, jelenia_priepast's at 1480 m: from a view centred at 1330 m the former is nearer.
+    const { results } = searchModel('12', stations, 200, [0, 0, 1330]);
+    expect(results.map(r => [r.survey, Math.round(r.distance!)])).toEqual([['krasna_dita.ohniste', 10], ['jelenia_priepast.ohniste', 150]]);
+    expect(searchModel('12', stations, 200, [0, 0, 1475]).results[0].survey).toBe('jelenia_priepast.ohniste');
+  });
+
   it('puts stations first for a number and matches caves only by the whole number', () => {
     const more = [...stations, station('5', 'x', 'x', 900, STATION_ENTRANCE, 'Demanovska hora 12'), station('6', 'y', 'y', 900, STATION_ENTRANCE, 'brloh_2025_10_120')];
     expect(searchModel('12', more).results.map(r => [r.kind, r.title])).toEqual([

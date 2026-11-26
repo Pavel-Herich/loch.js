@@ -25,7 +25,7 @@ import { initializeDock } from './dock';
 import { WalkerControls } from './walker';
 import { orbitTo, ViewLocks, type CompassMode } from './view-locks';
 import { FieldObjects } from './objects-ui';
-import { ObjectStore } from './objects';
+import { objectHeight, objectKind, ObjectStore } from './objects';
 import { looksLikeSJTSK, sjtskToWgs84, wgs84ToSJTSK } from './geo';
 import { drawLayers, LayerStore, readShapefileLayer, type PointLayer, readPointFileLayer } from './layers';
 import { POINT_FORMATS, toCsv, toGeoJson, toGpx, toKml, toShapefile, type ExportPoint } from './formats';
@@ -375,12 +375,14 @@ function symbolAt(clientX: number, clientY: number, measuring = false): SymbolHi
   if (georeferenced && document.querySelector<HTMLInputElement>('#objects-visible')!.checked) for (const object of fieldObjects.objects) {
     const position = object.position;
     if (!position) continue;
-    consider(position.east, position.north, surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z, object.title || object.name, () => showInfo(object.title || object.name, [
-      ['Type', 'Field object'], ['Saved as', object.name],
-      ['x  y  z', `${Math.round(position.east)}  ${Math.round(position.north)}  ${position.height === null ? '–' : Math.round(position.height)}`],
+    const z = objectHeight(object, (east, north) => surfaceScene.heightAt(east, north), worldOrigin.z), cave = objectKind(object) === 'cave';
+    consider(position.east, position.north, z, object.title || object.name, () => showInfo(object.title || object.name, [
+      ['Type', cave ? 'Field object in the cave' : 'Field object'], ['Saved as', object.name],
+      ['x  y  z', cave ? `${position.east.toFixed(1)}  ${position.north.toFixed(1)}  ${position.height === null ? '–' : position.height.toFixed(1)}`
+        : `${Math.round(position.east)}  ${Math.round(position.north)}  ${position.height === null ? '–' : Math.round(position.height)}`],
       ['Note', object.note], ['Photos', object.photos.length ? String(object.photos.length) : ''],
     ], [{ label: 'Open', primary: true, run: () => { infoCard.hidden = true; fieldObjects.open(object); } },
-      ...navigateActions({ name: object.title || object.name, east: position.east, north: position.north, z: surfaceScene.heightAt(position.east, position.north) ?? position.height ?? worldOrigin.z })]), false, undefined, object);
+      ...navigateActions({ name: object.title || object.name, east: position.east, north: position.north, z })]), false, undefined, object);
   }
   if (georeferenced && layersVisible.checked) for (const layer of pointLayers) {
     browsablePoints(layer).forEach((index, position) => {
@@ -761,7 +763,7 @@ function exportSources(): { id: string; title: string; points: () => ExportPoint
     { id: 'stations', title: 'All survey stations', points: () => stations.map(s => ({ ...station(s), name: `${s.name}@${s.survey}` })) },
     { id: 'objects', title: 'Field objects', points: () => fieldObjects.objects.filter(o => o.position).map(o => ({
       name: o.title || o.name, east: o.position!.east, north: o.position!.north,
-      z: surfaceScene.heightAt(o.position!.east, o.position!.north) ?? o.position!.height ?? 0, attributes: { id: o.name, note: o.note } })) },
+      z: objectHeight(o, (east, north) => surfaceScene.heightAt(east, north)), attributes: { id: o.name, note: o.note, type: objectKind(o) === 'cave' ? 'cave' : 'surface' } })) },
     ...pointLayers.map(layer => ({ id: `layer:${layer.id}`, title: `Layer ${layer.name}`, points: () => browsablePoints(layer).map(index => {
       const p = layer.points[index];
       return { name: p.label, east: p.east, north: p.north, z: p.z ?? surfaceScene.heightAt(p.east, p.north) ?? 0, attributes: p.attributes };
@@ -2113,7 +2115,7 @@ let resolveObjectPick: ((point: THREE.Vector3 | undefined) => void) | undefined;
 const objectPicker = new RotationCentrePicker({
   canvas, controls, getCamera: () => camera, getRoots: () => [walls, surfaceGroup, lines], recenter: false,
   onModeChange: active => {
-    pivotHint.textContent = 'Tap the model where the object is · Esc cancels';
+    pivotHint.textContent = `Tap the model where the object is${surfaceGroup.visible && surfaceGroup.children.length ? ' (switch the surface off to pick in the cave)' : ''} · Esc cancels`;
     pivotHint.hidden = !active;
     // The picker leaves pick mode just before reporting the point, so a cancel is only certain afterwards.
     if (!active) queueMicrotask(() => { const resolve = resolveObjectPick; resolveObjectPick = undefined; resolve?.(undefined); });
@@ -2719,7 +2721,9 @@ const KIND_TEXT: Record<SearchResult['kind'], string> = { cave: 'cave', survey: 
 let searchTimer = 0;
 function runSearch() {
   const query = searchInput.value;
-  const { results, total } = searchModel(query, centreline.stationDetails);
+  // Stations of the searched number nearest the centre of the view come first.
+  const centre: [number, number, number] = [controls.target.x + worldOrigin.x, controls.target.y + worldOrigin.y, controls.target.z + worldOrigin.z];
+  const { results, total } = searchModel(query, centreline.stationDetails, 200, centre);
   searchSummary.textContent = !query.trim() ? 'Station numbers list every survey that uses them; add @survey to narrow, e.g. 12@krasna.'
     : !centreline.stationDetails.length ? 'This model has no named stations.'
     : total ? `${total} found${total > results.length ? `, first ${results.length} shown` : ''}` : 'Nothing found';
@@ -2727,7 +2731,8 @@ function runSearch() {
     const row = document.createElement('tr'); row.tabIndex = 0;
     const name = document.createElement('td'), title = document.createElement('strong'), kind = document.createElement('span');
     title.textContent = result.title; kind.className = 'kind';
-    kind.textContent = result.kind === 'survey' ? `survey · ${result.count} stations` : KIND_TEXT[result.kind];
+    kind.textContent = result.kind === 'survey' ? `survey · ${result.count} stations`
+      : `${KIND_TEXT[result.kind]}${result.distance !== undefined ? ` · ${formatDistance(result.distance)} from the view centre` : ''}`;
     name.append(title, kind);
     const survey = document.createElement('td'); survey.textContent = result.survey;
     const altitude = document.createElement('td'); altitude.textContent = `${Math.round(result.altitude)} m`;

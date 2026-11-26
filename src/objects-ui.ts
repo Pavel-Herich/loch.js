@@ -4,7 +4,7 @@ import { errorMessage } from './location';
 import { symbolShown, symbolSizeAt } from './station-labels';
 import { claimSymbol } from './declutter';
 import { seaLevelAltitude } from './geoid';
-import { exportTherion, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition } from './objects';
+import { exportTherion, objectHeight, objectKind, objectName, ObjectStore, removeDiacritics, type FieldObject, type FieldPhoto, type FieldPosition, type ObjectKind } from './objects';
 
 type Options = {
   store: ObjectStore;
@@ -28,9 +28,10 @@ export type SymbolOptions = { visible: boolean; label: 'none' | 'name' | 'altitu
 
 const $ = <T extends HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 
-export function formatPosition(position: FieldPosition) {
+export function formatPosition(position: FieldPosition, kind: ObjectKind = 'surface') {
   const source = { surface: '(terrain)', gps: '(GPS)', model: '(model)' } as const;
-  const height = position.height === null ? '' : ` · ${Math.round(position.height)} m ${position.heightSource ? source[position.heightSource] : ''}`;
+  const height = position.height === null ? '' : ` · ${kind === 'cave' ? position.height.toFixed(1) : Math.round(position.height)} m ${position.heightSource ? source[position.heightSource] : ''}`;
+  if (kind === 'cave') return `In the cave · x ${position.east.toFixed(1)}  y ${position.north.toFixed(1)}${height}`;
   const where = position.source === 'model' ? 'Picked in model'
     : `±${position.accuracy < 10 ? position.accuracy.toFixed(1) : Math.round(position.accuracy)} m`;
   return `${where} · x ${Math.round(position.east)}  y ${Math.round(position.north)}${height}`;
@@ -89,7 +90,7 @@ export class FieldObjects {
     $<HTMLButtonElement>('#object-show').addEventListener('click', () => {
       const object = this.editing, position = object?.position, origin = this.options.getOrigin();
       if (!object || !position || !origin) return;
-      const z = this.options.heightAt(position.east, position.north) ?? position.height ?? origin.z;
+      const z = objectHeight(object, this.options.heightAt, origin.z);
       this.returnToList = false; recorder.close();
       this.options.showInModel?.(new THREE.Vector3(position.east - origin.x, position.north - origin.y, z - origin.z), object);
     });
@@ -150,6 +151,7 @@ export class FieldObjects {
     $<HTMLInputElement>('#object-title').value = object?.title ?? '';
     $<HTMLTextAreaElement>('#object-note').value = object?.note ?? '';
     $<HTMLElement>('#object-error').textContent = '';
+    $<HTMLSelectElement>('#object-kind').value = object ? objectKind(object) : 'surface';
     $<HTMLButtonElement>('#object-save').textContent = object ? 'Save changes' : 'Save';
     // A saved object opens for viewing; a new one straight for typing.
     this.setViewing(Boolean(object));
@@ -158,7 +160,7 @@ export class FieldObjects {
     if (object) {
       // Keep the recorded position unless the user picks a new one or switches to GPS.
       this.stopGps();
-      $<HTMLElement>('#object-position').textContent = this.position ? formatPosition(this.position) : 'No position';
+      $<HTMLElement>('#object-position').textContent = this.position ? formatPosition(this.position, objectKind(object)) : 'No position';
       $<HTMLButtonElement>('#object-use-gps').hidden = false;
       $<HTMLButtonElement>('#object-pick').disabled = !this.options.getOrigin();
     } else this.startGps();
@@ -207,6 +209,7 @@ export class FieldObjects {
         heightSource: terrain !== undefined ? 'surface' : altitude !== null ? 'gps' : null,
         source: 'gps',
       };
+      $<HTMLSelectElement>('#object-kind').value = 'surface';
       output.textContent = formatPosition(this.position);
     }, error => {
       if (error.code !== 3 || !this.position) output.textContent = `${errorMessage(error)} You can still save the note and photos.`;
@@ -222,10 +225,16 @@ export class FieldObjects {
       const local = await this.options.pickPoint();
       if (local) {
         this.stopGps();
-        const east = Math.round(local.x + origin.x), north = Math.round(local.y + origin.y), height = Math.round(local.z + origin.z);
+        // On the terrain (within a metre of it): a surface object, to whole metres; elsewhere (walls,
+        // centreline, the surface switched off): an object in the cave, to centimetres.
+        const x = local.x + origin.x, y = local.y + origin.y, z = local.z + origin.z, terrain = this.options.heightAt(x, y);
+        const kind: ObjectKind = terrain !== undefined && Math.abs(terrain - z) < 1 ? 'surface' : 'cave';
+        const keep = (value: number) => kind === 'cave' ? Math.round(value * 100) / 100 : Math.round(value);
+        const east = keep(x), north = keep(y), height = keep(z);
         const [latitude, longitude] = sjtskToWgs84(east, north, height);
         this.position = { latitude, longitude, gpsAltitude: null, accuracy: 0, east, north, height, heightSource: 'model', source: 'model' };
-        $<HTMLElement>('#object-position').textContent = formatPosition(this.position);
+        $<HTMLSelectElement>('#object-kind').value = kind;
+        $<HTMLElement>('#object-position').textContent = formatPosition(this.position, kind);
         $<HTMLButtonElement>('#object-use-gps').hidden = false;
       }
     } finally {
@@ -268,6 +277,7 @@ export class FieldObjects {
     const object: FieldObject = {
       id: editing?.id ?? newId(), title: title.trim(), name: objectName(title, created), created: created.toISOString(),
       position: this.position, note: note.trim(), photos: this.photos,
+      ...($<HTMLSelectElement>('#object-kind').value === 'cave' ? { kind: 'cave' as const } : {}),
     };
     await this.options.store.put(object);
     this.objects = editing ? this.objects.map(other => other.id === object.id ? object : other) : [...this.objects, object];
@@ -296,7 +306,7 @@ export class FieldObjects {
         item.append(image);
       }
       const name = document.createElement('strong'); name.textContent = object.name;
-      const where = document.createElement('span'); where.textContent = object.position ? formatPosition(object.position) : 'No position';
+      const where = document.createElement('span'); where.textContent = object.position ? formatPosition(object.position, objectKind(object)) : 'No position';
       text.append(name, where);
       if (object.note) { const note = document.createElement('span'); note.className = 'object-note'; note.textContent = object.note; text.append(note); }
       if (object.photos.length > 1) { const more = document.createElement('span'); more.textContent = `${object.photos.length} photos`; text.append(more); }
@@ -338,7 +348,7 @@ export class FieldObjects {
 
   private renderMarkers() {
     this.markers.replaceChildren(...this.objects.filter(object => object.position).map(object => {
-      const marker = document.createElement('div'); marker.className = 'object-marker'; marker.dataset.id = object.id;
+      const marker = document.createElement('div'); marker.className = `object-marker${objectKind(object) === 'cave' ? ' cave' : ''}`; marker.dataset.id = object.id;
       const label = document.createElement('span'); label.textContent = object.title;
       marker.title = object.name; marker.append(label);
       return marker;
@@ -356,7 +366,7 @@ export class FieldObjects {
       const object = this.objects.find(item => item.id === element.dataset.id);
       const position = object?.position;
       if (!position || !symbolShown(position.east, position.north)) { element.hidden = true; continue; }
-      const z = this.options.heightAt(position.east, position.north) ?? position.height ?? origin.z;
+      const z = objectHeight(object!, this.options.heightAt, origin.z);
       point.set(position.east - origin.x, position.north - origin.y, z - origin.z);
       // Same distance scaling as entrance symbols.
       // Depth in front of the camera; perspective w equals it.

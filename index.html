@@ -148,13 +148,14 @@
   <table class="object-table"><tbody>
     <tr><th scope="row">Saved as</th><td id="object-name-preview"></td></tr>
     <tr><th scope="row">Position</th><td><div id="object-position" aria-live="polite">Waiting for GPS fix…</div><div class="position-actions"><button id="object-pick" type="button">Pick in model</button><button id="object-use-gps" type="button" hidden>Use GPS</button></div></td></tr>
+    <tr><th scope="row"><label for="object-kind">Type</label></th><td><select id="object-kind" title="On the surface: exported to j_mobil as an entrance station; in the cave: to j_jaskyna as a plain station at the picked height"><option value="surface">On the surface</option><option value="cave">In the cave</option></select></td></tr>
     <tr><th scope="row"><label for="object-note">Note</label></th><td><textarea id="object-note" rows="3"></textarea></td></tr>
     <tr><th scope="row">Photo</th><td><div id="object-photos" class="object-photos"></div><label class="photo-add"><input id="object-photo" type="file" accept="image/*" multiple/>Add photo</label></td></tr>
   </tbody></table>
   <p id="object-error" class="object-error" role="alert"></p>
   <div class="dialog-actions"><button type="button" id="object-show" hidden>Show in model</button><button type="button" id="object-edit" hidden>Edit</button><button type="button" id="object-cancel">Cancel</button><button type="submit" id="object-save" class="primary" disabled>Save</button></div>
 </form></dialog><dialog id="objects-dialog" aria-labelledby="objects-heading"><h2 id="objects-heading">Field objects (<span id="objects-count">0</span>)</h2>
-  <p class="objects-hint">Stored on this device until you delete them. Export saves j_mobil.zip for Therion: one survey per object with an entrance station fixed in lat-long, its thconfig and the photos in _data.</p>
+  <p class="objects-hint">Stored on this device until you delete them. Export saves j_mobil.zip for Therion: one survey per object with its station fixed in S-JTSK (cs ijtsk), its thconfig and the photos in _data; objects on the surface (entrance stations) in the j_mobil folder, objects in the cave in j_jaskyna.</p>
   <label class="objects-team" for="objects-team">Surveyed by <input id="objects-team" name="loch-team" type="text" autocomplete="off" autocorrect="off" spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore placeholder="Surveyor"/></label>
   <p id="objects-skipped" class="objects-hint"></p>
   <ul id="objects-list" class="objects-list"></ul>

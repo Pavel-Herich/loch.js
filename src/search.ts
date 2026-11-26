@@ -12,6 +12,8 @@ export type SearchResult = {
   position: Point;
   /** Stations in a survey result. */
   count?: number;
+  /** From the centre of the view, for station results when it was given (metres). */
+  distance?: number;
 };
 
 /** Invisible control characters (e.g. a stray U+009D from a mis-decoded ť in survey data). */
@@ -23,8 +25,10 @@ const clean = (text: string) => text.replace(CONTROL, '').trim();
  * Find stations by number (all surveys that use it, each with its survey path),
  * caves by entrance name, and surveys by name. `12@krasna` narrows a number to
  * matching surveys. A bare number lists stations first; text lists caves, surveys, then stations.
+ * Stations of the same number come nearest first from `near` (the centre of the view, model file
+ * coordinates), else by survey.
  */
-export function searchModel(query: string, stations: Station[], limit = 200): { results: SearchResult[]; total: number } {
+export function searchModel(query: string, stations: Station[], limit = 200, near?: Point): { results: SearchResult[]; total: number } {
   const text = fold(query);
   if (!text) return { results: [], total: 0 };
   const [namePart, surveyPart] = text.includes('@') ? text.split('@', 2) : [text, ''];
@@ -55,7 +59,8 @@ export function searchModel(query: string, stations: Station[], limit = 200): { 
     return { kind: 'survey', title: members[0].survey, survey: path, altitude: position[2], position, count: members.length };
   });
   const byName = (a: SearchResult, b: SearchResult) => a.title.localeCompare(b.title, 'sk') || a.survey.localeCompare(b.survey, 'sk');
-  const stationResults = numbers.sort((a, b) => a.survey.localeCompare(b.survey, 'sk'));
+  if (near) for (const result of numbers) result.distance = Math.hypot(...result.position.map((value, i) => value - near[i]) as [number, number, number]);
+  const stationResults = numbers.sort((a, b) => near ? a.distance! - b.distance! || a.survey.localeCompare(b.survey, 'sk') : a.survey.localeCompare(b.survey, 'sk'));
   // Station numbers come first when the query is one.
   const all = numeric || surveyPart ? [...stationResults, ...caves.sort(byName)]
     : [...caves.sort(byName), ...surveyResults.sort(byName), ...stationResults];

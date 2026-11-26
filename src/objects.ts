@@ -19,7 +19,18 @@ export type FieldObject = {
   position: FieldPosition | null;
   note: string;
   photos: FieldPhoto[];
+  /** On the surface (from GPS or picked on the terrain; at start) or in the cave (picked on the walls or centreline). */
+  kind?: ObjectKind;
 };
+export type ObjectKind = 'surface' | 'cave';
+export const objectKind = (object: Pick<FieldObject, 'kind'>): ObjectKind => object.kind === 'cave' ? 'cave' : 'surface';
+/** The height an object is shown at: on the terrain for a surface object, its own for one in the cave. */
+export function objectHeight(object: FieldObject, terrainAt: (east: number, north: number) => number | undefined, fallback = 0) {
+  const position = object.position;
+  if (!position) return fallback;
+  return objectKind(object) === 'cave' ? position.height ?? terrainAt(position.east, position.north) ?? fallback
+    : terrainAt(position.east, position.north) ?? position.height ?? fallback;
+}
 
 /** Diacritics never leave the app: names and notes are stripped as they are typed. */
 export function removeDiacritics(text: string) {
@@ -51,34 +62,52 @@ export function photoFileName(object: FieldObject, index: number) {
   return `${object.name}${object.photos.length > 1 ? `_${index + 1}` : ''}.${extension(photo.type, photo.name)}`;
 }
 
-/** One survey file per object in the j_mobil layout, fixed in the model's system (cs ijtsk, Bpv height). */
+/**
+ * One survey file per object in the j_mobil layout, fixed in the model's system (cs ijtsk, Bpv
+ * height). A surface object is an entrance-flagged station on the surface, fixed to the metre; one
+ * in the cave a plain station (bod_mob), fixed to the centimetre.
+ */
 export function surveyTh(object: FieldObject, team: string) {
-  const position = object.position!, date = new Date(object.created);
-  const elevation = Math.round(position.height ?? position.gpsAltitude ?? 0);
+  const position = object.position!, date = new Date(object.created), cave = objectKind(object) === 'cave';
+  const height = position.height ?? position.gpsAltitude ?? 0;
   const comment = removeDiacritics(object.note || object.title).replace(/\s+/g, ' ').trim();
+  const station = cave ? 'bod_mob' : 'gps_mob';
+  const fixed = cave ? `${position.east.toFixed(2)} ${position.north.toFixed(2)} ${height.toFixed(2)}` : `${Math.round(position.east)} ${Math.round(position.north)} ${Math.round(height)}`;
   return `encoding  utf-8\r\n\r\nsurvey ${object.name} -title "${object.name}"\r\n\r\n\r\ncentreline\r\n`
-    + `station gps_mob "${object.name}" entrance #${comment}\r\ncs ijtsk\r\n`
-    + `fix gps_mob ${Math.round(position.east)} ${Math.round(position.north)} ${elevation}\r\n`
+    + `station ${station} "${object.name}"${cave ? '' : ' entrance'} #${comment}\r\ncs ijtsk\r\n`
+    + `fix ${station} ${fixed}\r\n`
     + `explo-date 0 \r\nexplo-team "Anonymus"\r\ndate ${date.getFullYear()}.${date.getMonth() + 1}.${date.getDate()}\r\n`
-    + `team "${removeDiacritics(team).replace(/"/g, '') || 'unknown'}"\r\ndata normal from to compass clino tape\r\nflags surface\r\nflags not surface\r\nendcentreline\r\nendsurvey\r\n\r\n`;
+    + `team "${removeDiacritics(team).replace(/"/g, '') || 'unknown'}"\r\ndata normal from to compass clino tape\r\n${cave ? '' : 'flags surface\r\nflags not surface\r\n'}endcentreline\r\nendsurvey\r\n\r\n`;
 }
 
-/** j_mobil.zip: j_mobil/<id>/<id>_th.th, thconfig_200.th, _data/ photos; j_mobil.th lists them all. */
+/** The export's folders: surface objects in j_mobil (as before), objects in the cave in j_jaskyna. */
+export const OBJECT_FOLDERS: Record<ObjectKind, string> = { surface: 'j_mobil', cave: 'j_jaskyna' };
+
+/**
+ * j_mobil.zip: j_mobil/<id>/<id>_th.th, thconfig_200.th, _data/ photos; j_mobil.th lists them all.
+ * Objects in the cave go the same way into j_jaskyna (j_jaskyna.th, its thconfig.th).
+ */
 export async function exportTherion(objects: FieldObject[], team: string) {
-  const encoder = new TextEncoder(), now = new Date(), entries: ZipEntry[] = [], inputs: string[] = [];
+  const encoder = new TextEncoder(), now = new Date(), entries: ZipEntry[] = [];
+  const inputs: Record<ObjectKind, string[]> = { surface: [], cave: [] };
   for (const object of objects) {
     if (!object.position) continue;
-    const date = new Date(object.created), folder = `j_mobil/${object.name}`;
+    const kind = objectKind(object), date = new Date(object.created), folder = `${OBJECT_FOLDERS[kind]}/${object.name}`;
     entries.push({ name: `${folder}/_data/desktop.ini`, data: encoder.encode(DESKTOP_INI), date });
     for (let i = 0; i < object.photos.length; i++) {
       entries.push({ name: `${folder}/_data/${photoFileName(object, i)}`, data: new Uint8Array(await object.photos[i].blob.arrayBuffer()), date });
     }
     entries.push({ name: `${folder}/${object.name}_th.th`, data: encoder.encode(surveyTh(object, team)), date });
     entries.push({ name: `${folder}/thconfig_200.th`, data: encoder.encode(THCONFIG_TEMPLATE.split('SURVEY_ID').join(object.name)), date });
-    inputs.push(`input ${object.name}/${object.name}_th.th`);
+    inputs[kind].push(`input ${object.name}/${object.name}_th.th`);
   }
-  entries.push({ name: 'j_mobil/j_mobil.th', data: encoder.encode(inputs.join('\r\n') + '\r\n'), date: now });
-  entries.push({ name: 'j_mobil/thconfig.th', data: encoder.encode(THCONFIG_MAIN), date: now });
+  for (const kind of ['surface', 'cave'] as const) {
+    // j_mobil always (as before); j_jaskyna only with objects in the cave.
+    if (kind === 'cave' && !inputs.cave.length) continue;
+    const folder = OBJECT_FOLDERS[kind];
+    entries.push({ name: `${folder}/${folder}.th`, data: encoder.encode(inputs[kind].join('\r\n') + '\r\n'), date: now });
+    entries.push({ name: `${folder}/thconfig.th`, data: encoder.encode(THCONFIG_MAIN.split('j_mobil').join(folder)), date: now });
+  }
   return createZip(entries);
 }
 

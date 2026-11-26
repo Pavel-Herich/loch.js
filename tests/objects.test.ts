@@ -39,4 +39,20 @@ describe('field objects for Therion', () => {
     expect(THCONFIG_TEMPLATE).toContain('source SURVEY_ID_th.th');
     expect(THCONFIG_MAIN).toContain('source j_mobil.th');
   });
+
+  it('writes objects in the cave as plain stations fixed to the centimetre, exported to j_jaskyna', async () => {
+    const cave: FieldObject = { ...object(0), id: 'c', title: 'Kvapel', name: 'kvapel_26-10-22_11-50-00', kind: 'cave',
+      position: { ...object(0).position!, east: -372240.456, north: -1203800.5, height: 1210.237, heightSource: 'model', source: 'model' } };
+    const th = surveyTh(cave, 'P. Herich');
+    expect(th).toContain('station bod_mob "kvapel_26-10-22_11-50-00" #Prievan citit, fotka na V\r\n');
+    expect(th).toContain('fix bod_mob -372240.46 -1203800.50 1210.24\r\n');
+    expect(th).not.toContain('entrance'); expect(th).not.toContain('flags surface');
+    const text = new TextDecoder('latin1').decode(new Uint8Array(await (await exportTherion([object(1), cave], 'P. Herich')).arrayBuffer()));
+    expect(text).toContain('j_mobil/zavrt_pod_hrebenom_26-10-22_11-44-05/zavrt_pod_hrebenom_26-10-22_11-44-05_th.th');
+    expect(text).toContain('j_jaskyna/kvapel_26-10-22_11-50-00/kvapel_26-10-22_11-50-00_th.th');
+    expect(text).toContain('j_jaskyna/j_jaskyna.th'); expect(text).toContain('source j_jaskyna.th');
+    expect(text).toContain('export model -output j_jaskyna.lox');
+    // Without objects in the cave there is no j_jaskyna folder.
+    expect(new TextDecoder('latin1').decode(new Uint8Array(await (await exportTherion([object(1)], '')).arrayBuffer()))).not.toContain('j_jaskyna');
+  });
 });
